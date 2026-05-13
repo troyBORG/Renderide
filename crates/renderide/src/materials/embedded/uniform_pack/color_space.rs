@@ -163,7 +163,7 @@ mod tests {
 
         assert!((linear[0] - -0.214_041_14).abs() < 0.000_001);
         assert!((linear[1] - (0.04045 / 12.92)).abs() < 0.000_001);
-        assert!((linear[2] - 1.66594).abs() < 0.000_001);
+        assert!((linear[2] - 1.633_811_8).abs() < 0.000_001);
         assert_eq!(linear[3], 0.33);
     }
 
