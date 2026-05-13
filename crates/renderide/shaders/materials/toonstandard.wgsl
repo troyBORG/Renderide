@@ -1,10 +1,9 @@
 //! Unity surface shader `Shader "ToonStandard"`: Xiexe-style stylized toon BRDF with stepped
 //! Blinn-Phong specular, wrapped/stepped diffuse, optional Fresnel rim.
 //!
-//! The Unity reference relies on the `unity_NHxRoughness` 2D LUT for specular response. This port
-//! computes the specular analytically (normalized Blinn-Phong with smoothness-driven exponent) so
-//! it doesn't need a built-in LUT bound. Stepping cadences match the Unity reference
-//! (`max((1-smoothness)*4, 0.01)` for specular, two diffuse bands plus transmission).
+//! Specular response is computed analytically with normalized Blinn-Phong and a
+//! smoothness-driven exponent, avoiding any dependency on a built-in LUT. Stepping cadences
+//! preserve the host-facing material behavior.
 
 
 #import renderide::lighting::birp as bl

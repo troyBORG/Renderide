@@ -4,7 +4,7 @@
 //! every finger to its `OriginalRotation`, leaving the avatar playing the desktop idle pose while
 //! the user is in VR.
 //!
-//! The presets below are transcribed from the host's `Idle` and `Fist` finger-pose presets.
+//! The presets below match the host's `Idle` and `Fist` finger-pose presets.
 //! Segment layout matches the host's unpack loop: 24 entries indexed by
 //! `BodyNode - LeftThumbMetacarpal`, ordered Thumb(Met,Prox,Dist,Tip), Index(Met,Prox,Inter,Dist,Tip),
 //! Middle(..), Ring(..), Pinky(..). Right-hand [`HandState`] values reuse the same indexing but hold

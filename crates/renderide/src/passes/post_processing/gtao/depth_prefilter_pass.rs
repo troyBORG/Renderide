@@ -1,8 +1,8 @@
-//! `gtao_prefilter_*` compute passes -- XeGTAO view-space depth mip chain.
+//! `gtao_prefilter_*` compute passes -- GTAO view-space depth mip chain.
 //!
-//! XeGTAO samples a prefiltered view-space depth pyramid rather than the raw hardware depth
-//! buffer. The mips reduce large-radius bandwidth, stabilize horizon samples, and prevent
-//! distant depth discontinuities from dominating contact shadows.
+//! The effect samples a prefiltered view-space depth pyramid rather than the raw hardware depth
+//! buffer. The mips reduce large-radius bandwidth, stabilize horizon samples, and prevent distant
+//! depth discontinuities from dominating contact shadows.
 
 use std::borrow::Cow;
 

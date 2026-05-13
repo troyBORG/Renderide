@@ -164,7 +164,7 @@ fn onchanges_faces_returns_empty_when_all_faces_are_complete() {
 #[test]
 fn probe_face_projection_is_square_ninety_degrees() {
     let frame = host_camera_frame_for_probe_face(
-        HostCameraFrame::default(),
+        &HostCameraFrame::default(),
         ReflectionProbeState {
             near_clip: 0.1,
             far_clip: 100.0,

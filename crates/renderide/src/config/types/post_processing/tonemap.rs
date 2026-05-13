@@ -33,14 +33,14 @@ labeled_enum! {
             persist: "none",
             label: "None (HDR pass-through)",
         },
-        /// Stephen Hill ACES Fitted (sRGB -> AP1, RRT+ODT, AP1 -> sRGB). High-quality reference
-        /// curve used by Bevy and Unity HDRP.
+        /// Stephen Hill ACES Fitted (sRGB -> AP1, RRT+ODT, AP1 -> sRGB). High-quality filmic
+        /// reference curve.
         AcesFitted => {
             persist: "aces_fitted",
             label: "ACES Fitted (Hill)",
         },
-        /// Analytic AgX display transform adapted from Filament's Blender AgX implementation.
-        /// More neutral than ACES Fitted, with less hue shifting in bright saturated colors.
+        /// Analytic AgX display transform. More neutral than ACES Fitted, with less hue shifting
+        /// in bright saturated colors.
         AgX => {
             persist: "agx",
             label: "AgX",

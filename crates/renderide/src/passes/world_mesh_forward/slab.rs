@@ -68,7 +68,7 @@ pub(super) fn pack_and_upload_per_draw_slab(
 
     let view_id = frame.view.view_id;
     let scene = frame.shared.scene;
-    let hc = frame.view.host_camera;
+    let hc = &frame.view.host_camera;
 
     let Some(per_draw_storage) = frame
         .shared
@@ -115,7 +115,7 @@ fn pack_per_draw_vp_uniforms(
     uniforms: &mut [PaddedPerDrawUniforms],
     inputs: &SlabPackInputs<'_>,
     scene: &SceneCoordinator,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
 ) {
     profiling::scope!("world_mesh::pack_vp_matrices");
     let pack_one = |slot: &mut PaddedPerDrawUniforms, item: &WorldMeshDrawItem| {

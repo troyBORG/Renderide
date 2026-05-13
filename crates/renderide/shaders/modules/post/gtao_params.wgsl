@@ -1,4 +1,4 @@
-//! Shared XeGTAO pass parameter layout.
+//! Shared GTAO pass parameter layout.
 
 #define_import_path renderide::post::gtao_params
 

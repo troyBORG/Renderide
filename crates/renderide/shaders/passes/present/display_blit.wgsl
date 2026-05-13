@@ -6,8 +6,7 @@
 //! cleared color. This shader samples the texture at the standard fullscreen UV, with optional
 //! axis flips encoded by the host via `uv_flip` `(scale, offset)` per axis.
 //!
-//! Mirrors `Renderite.Unity.TextureDisplayBlitter.Blit()`'s `Graphics.DrawTexture(rect, ...)` with
-//! `GL.LoadPixelMatrix` flipped pixel transform.
+//! Implements the host display-blit contract with a fitted rectangle and flipped pixel transform.
 //!
 //! ### Y orientation
 //!

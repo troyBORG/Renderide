@@ -22,7 +22,7 @@ struct OpenxrExtensionEntry {
     log_name: &'static str,
     /// Returns whether `set` advertises this extension.
     is_available: fn(&xr::ExtensionSet) -> bool,
-    /// Mirrors `available` into the matching `enabled` flag.
+    /// Copies `available` into the matching `enabled` flag.
     enable: fn(&mut xr::ExtensionSet, bool),
     /// Optional propagation into [`ProfileExtensionGates`]. `None` for extensions that do not
     /// gate any binding profile.

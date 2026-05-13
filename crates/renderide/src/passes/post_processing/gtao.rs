@@ -1,16 +1,16 @@
 //! Ground-Truth Ambient Occlusion (Jimenez et al. 2016) post-processing effect with
-//! XeGTAO-style depth-aware bilateral denoise.
+//! depth-aware bilateral denoise.
 //!
-//! Registers an XeGTAO-style chain on the post-processing graph builder:
+//! Registers a GTAO chain on the post-processing graph builder:
 //!
 //! 1. [`depth_prefilter_pass::GtaoDepthPrefilterPass`] -- converts raw depth to view-space
 //!    depth and builds the five-mip depth chain sampled by the horizon search.
 //! 2. [`main_pass::GtaoMainPass`] -- produces the AO term (scaled by
-//!    `1 / OCCLUSION_TERM_SCALE` per XeGTAO's headroom convention) and packed depth-edge
+//!    `1 / OCCLUSION_TERM_SCALE` to leave denoise headroom) and packed depth-edge
 //!    weights from the prefiltered depth chain plus the forward view-normal prepass. The HDR
 //!    scene-color input is *not* read here; modulation is deferred to the apply stage so the
 //!    bilateral denoiser can act on the AO term first.
-//! 3. [`denoise_pass::GtaoDenoisePass`] -- XeGTAO 3x3 edge-preserving bilateral filter.
+//! 3. [`denoise_pass::GtaoDenoisePass`] -- 3x3 edge-preserving bilateral filter.
 //!    Registered once when [`crate::config::GtaoSettings::denoise_passes`] is `>= 2`, and
 //!    twice when it is `>= 3`.
 //! 4. [`apply_pass::GtaoApplyPass`] -- final denoise iteration that multiplies the AO term by
@@ -379,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn gtao_quality_levels_match_xegtao_presets() {
+    fn gtao_quality_levels_match_expected_presets() {
         assert_eq!(
             pipeline::GtaoQualityPreset::from_level(0, 1),
             pipeline::GtaoQualityPreset {

@@ -1,8 +1,8 @@
 //! Unity PBS rim (`Shader "PBSRim"`): metallic workflow + rim-light emission.
 //!
 //! Sibling of [`pbsmetallic`](super::pbsmetallic) on the clustered forward path, but uses the
-//! property set from Unity's dedicated rim shader (`_MetallicMap`, `_NormalMap`, `_RimColor`,
-//! `_RimPower`) instead of the Standard shader property names.
+//! dedicated rim property set (`_MetallicMap`, `_NormalMap`, `_RimColor`, `_RimPower`) instead of
+//! the Standard shader property names.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSRim's
 //! shader-specific keyword bits locally, sorted alphabetically by keyword name (Froox

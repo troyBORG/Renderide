@@ -81,7 +81,7 @@ mod offset_and_packing_tests {
 
     #[test]
     fn new_clustered_populates_fields_including_zero_w_for_camera_pos() {
-        let u = FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
+        let params = ClusteredFrameGlobalsParams {
             camera_world_pos: glam::Vec3::new(1.0, 2.0, 3.0),
             camera_world_pos_right: glam::Vec3::new(4.0, 5.0, 6.0),
             view_space_z_coeffs: [0.1, 0.2, 0.3, 0.4],
@@ -102,7 +102,8 @@ mod offset_and_packing_tests {
             ambient_sh_valid: true,
             skybox_specular: SkyboxSpecularUniformParams::from_cubemap_resident_mips(6),
             ambient_sh: [[0.0; 4]; 9],
-        });
+        };
+        let u = FrameGpuUniforms::new_clustered(&params);
         assert_eq!(u.camera_world_pos, [1.0, 2.0, 3.0, 0.0]);
         assert_eq!(u.camera_world_pos_right, [4.0, 5.0, 6.0, 0.0]);
         assert_eq!(u.view_space_z_coeffs, [0.1, 0.2, 0.3, 0.4]);
@@ -133,7 +134,7 @@ mod offset_and_packing_tests {
     #[test]
     fn new_clustered_can_pack_same_camera_position_for_mono() {
         let camera_world_pos = glam::Vec3::new(-1.0, 2.5, 8.0);
-        let u = FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
+        let params = ClusteredFrameGlobalsParams {
             camera_world_pos,
             camera_world_pos_right: camera_world_pos,
             view_space_z_coeffs: [0.0, 0.0, 1.0, 0.0],
@@ -154,7 +155,8 @@ mod offset_and_packing_tests {
             ambient_sh_valid: false,
             skybox_specular: SkyboxSpecularUniformParams::disabled(),
             ambient_sh: [[0.0; 4]; 9],
-        });
+        };
+        let u = FrameGpuUniforms::new_clustered(&params);
 
         assert_eq!(u.camera_world_pos, u.camera_world_pos_right);
         assert_eq!(u.frame_tail, [0, 0, 0, 0]);

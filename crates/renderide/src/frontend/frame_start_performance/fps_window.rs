@@ -1,5 +1,4 @@
-//! Count-based rolling FPS window matching `PerformanceStats.Update` in the
-//! Renderite.Unity renderer behavior.
+//! Count-based rolling FPS window for host performance samples.
 //!
 //! The window emits `frame_count / elapsed_seconds` once every
 //! [`super::FPS_WINDOW`] worth of wall-clock spacing. Inside a window the

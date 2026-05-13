@@ -1,4 +1,4 @@
-//! Per-case output directory and JSON report layout, modeled after Filament `renderdiff`.
+//! Per-case output directory and JSON report layout for golden-image validation.
 //!
 //! Each case run writes into a dedicated subdirectory under a configurable test-output root
 //! (default: `target/renderide-test-out/<case_name>/`). The fixed filenames are stable so
@@ -80,8 +80,7 @@ fn workspace_target_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("target"))
 }
 
-/// Serialized per-case report. Filament `renderdiff` keeps an analogous structure so a future
-/// HTML viewer can ingest it.
+/// Serialized per-case report shaped so a future HTML viewer can ingest it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CaseReport {
     /// Case identifier.

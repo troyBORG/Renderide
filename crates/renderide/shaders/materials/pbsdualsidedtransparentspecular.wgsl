@@ -195,15 +195,12 @@ fn shade(
         s.normal,
         s.emission,
     );
-    return vec4<f32>(
-        plight::shade_specular_clustered(
-            frag_xy,
-            world_pos,
-            view_layer,
-            surface,
-            plight::default_lighting_options(),
-        ),
-        s.alpha,
+    return plight::shade_specular_transparent_clustered(
+        frag_xy,
+        world_pos,
+        view_layer,
+        surface,
+        plight::default_lighting_options(),
     );
 }
 

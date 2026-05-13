@@ -1,9 +1,9 @@
-//! Bit-packed boolean buffer over a `u32` slab, matching `Renderite.Shared.BitSpan`.
+//! Bit-packed boolean buffer over a `u32` slab.
 //!
 //! The host allocates `SharedMemoryBufferDescriptor<uint>` regions (e.g.
 //! [`crate::shared::MaterialsUpdateBatch::instance_changed_buffer`]) that the renderer must write
 //! one bit per target into. Bit `i` lives in element `i / BITS_PER_ELEMENT` at bit position
-//! `i % BITS_PER_ELEMENT` (LSB-first), identical to the C# `BitSpan` indexer.
+//! `i % BITS_PER_ELEMENT` (LSB-first).
 
 /// Number of bits packed per `u32` element.
 pub const BITS_PER_ELEMENT: usize = u32::BITS as usize;
@@ -16,7 +16,7 @@ pub const fn elements_for_bits(total_bits: usize) -> usize {
 
 /// Mutable bit-span view over a `u32` slab; `set` / `get` index by absolute bit position.
 pub struct BitSpanMut<'a> {
-    /// Backing storage; bit ordering matches `Renderite.Shared.BitSpan` (LSB-first within each element).
+    /// Backing storage; bit ordering is LSB-first within each element.
     pub data: &'a mut [u32],
 }
 

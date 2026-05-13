@@ -1,4 +1,4 @@
-//! Compute pass: raw reverse-Z depth -> XeGTAO view-space depth mip 0.
+//! Compute pass: raw reverse-Z depth -> GTAO view-space depth mip 0.
 
 #import renderide::frame::types as ft
 #import renderide::post::gtao_params as gparams

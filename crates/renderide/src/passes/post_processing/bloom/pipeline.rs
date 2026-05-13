@@ -324,8 +324,7 @@ impl BloomPipelineCache {
 const MAX_CACHED_BIND_GROUPS: usize = 32;
 
 /// Precomputes the `[threshold, threshold-knee, 2*knee, 0.25/(knee + 1e-4)]` vector the shader's
-/// `soft_threshold` reads. `threshold` and `softness` come from [`crate::config::BloomSettings`];
-/// this matches Bevy's `BloomUniforms` precompute exactly.
+/// `soft_threshold` reads. `threshold` and `softness` come from [`crate::config::BloomSettings`].
 pub(super) fn threshold_precomputations(threshold: f32, softness: f32) -> [f32; 4] {
     let threshold = threshold.max(0.0);
     let softness = softness.clamp(0.0, 1.0);
@@ -352,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn threshold_matches_bevy_formula() {
+    fn threshold_uses_quadratic_soft_knee_formula() {
         // threshold=1.0, softness=0.5 -> knee=0.5, components: [1.0, 0.5, 1.0, 0.25/0.5001]
         let v = threshold_precomputations(1.0, 0.5);
         assert!((v[0] - 1.0).abs() < 1e-6);

@@ -421,14 +421,15 @@ impl RendererRuntime {
         let mut tasks = std::mem::take(&mut self.tick_state.pending_reflection_probe_render_tasks);
         self.flush_reflection_probe_render_results();
         if !tasks.is_empty() {
-            let base_camera = self.host_camera;
             let RendererRuntime {
                 frontend,
                 backend,
                 scene,
                 tick_state,
+                host_camera,
                 ..
             } = self;
+            let base_camera = &*host_camera;
             let (shm, mut ipc) = frontend.transport_pair_mut();
             flush_reflection_probe_render_results_to_ipc(tick_state, &mut ipc);
             if let Some(shm) = shm {
@@ -497,7 +498,7 @@ struct ReflectionProbeTaskRenderCtx<'a> {
     gpu: &'a mut GpuContext,
     backend: &'a mut RenderBackend,
     scene: &'a SceneCoordinator,
-    base_camera: HostCameraFrame,
+    base_camera: &'a HostCameraFrame,
     shm: &'a mut SharedMemoryAccessor,
     convolver: &'a mut SkyboxIblConvolver,
     queued: &'a QueuedReflectionProbeRenderTask,
@@ -539,7 +540,7 @@ fn render_reflection_probe_task(
 fn plan_reflection_probe_task(
     gpu: &GpuContext,
     scene: &SceneCoordinator,
-    base_camera: HostCameraFrame,
+    base_camera: &HostCameraFrame,
     queued: &QueuedReflectionProbeRenderTask,
 ) -> Result<PlannedReflectionProbeTask, ReflectionProbeBakeError> {
     profiling::scope!("reflection_probe_task::plan");

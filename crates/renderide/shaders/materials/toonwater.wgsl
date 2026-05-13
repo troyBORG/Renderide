@@ -1,8 +1,8 @@
 //! Stylized toon water (`Shader "ToonWater"`) with grab-pass refraction, voronoi-driven wave
 //! displacement, and depth-based visibility/crests.
 //!
-//! Adapted from the Unity reference's `StandardToonWater` surface shader to fit the project's
-//! self-contained clustered-toon pattern (see `toonstandard.wgsl`). Notable changes:
+//! Implemented as a self-contained clustered-toon material (see `toonstandard.wgsl`). Notable
+//! compatibility behavior:
 //! - `_Time.x` / `_SinTime.w` use `_AnimationOffset` when provided, otherwise a frame-index
 //!   fallback phase keeps water animated without a host-side keyword/wire change.
 //! - Scene depth sampled via [`renderide::frame::scene_depth_sample`]; reconstructed view-space depth

@@ -1,7 +1,7 @@
 //! GGX importance sampling helpers shared by IBL prefiltering and analytic skybox bake passes.
 //!
 //! Provides the math used to convolve a radiance environment into a roughness-keyed mip pyramid
-//! via Karis-style split-sum + Filament solid-angle source-mip selection.
+//! via Karis-style split-sum and solid-angle source-mip selection.
 //!
 //! Roughness convention: every helper takes **perceptual roughness** `r in [0, 1]`. The runtime
 //! sampling side ([`renderide::lighting::reflection_probes::roughness_lod`]) uses the parabolic
@@ -69,13 +69,13 @@ fn d_ggx(n_dot_h: f32, r: f32) -> f32 {
     return alpha_sq / max(PI * f * f, 1e-7);
 }
 
-/// PDF of the GGX importance sampling distribution, assuming `v == n` (Filament convention).
+/// PDF of the GGX importance sampling distribution, assuming `v == n`.
 fn ggx_sample_pdf(n_dot_h: f32, r: f32) -> f32 {
     let d = d_ggx(n_dot_h, r);
     return max(d * n_dot_h * 0.25, 1e-7);
 }
 
-/// Source mip level whose texel solid angle ~= the importance sample's solid angle (Filament).
+/// Source mip level whose texel solid angle ~= the importance sample's solid angle.
 ///
 /// `omega_p = 4PI / (6 * src_face^2)` is the per-base-texel solid angle and `omega_s = 1 / (n*pdf)`
 /// is the importance sample's. `lod = log4(K * omega_s / omega_p)` with `K = 4` (box filter

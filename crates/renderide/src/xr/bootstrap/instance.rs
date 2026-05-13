@@ -36,7 +36,7 @@ pub(super) unsafe extern "system" fn vk_get_instance_proc_addr_shim(
     let handle = vk::Instance::from_raw(instance as usize as u64);
     // SAFETY: `real` is the live `vkGetInstanceProcAddr` pointer captured from a successfully
     // loaded `ash::Entry`; OpenXR forwards the original `instance` handle and `name` pointer
-    // verbatim, so the contract for `vkGetInstanceProcAddr` is upheld.
+    // unchanged, so the contract for `vkGetInstanceProcAddr` is upheld.
     unsafe { real(handle, name) }
 }
 

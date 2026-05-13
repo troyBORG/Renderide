@@ -29,7 +29,7 @@ pub type SphereMesh = Mesh;
 pub struct MeshUpload {
     /// Bytes to write into the host shared-memory buffer at the offset chosen by the harness.
     pub payload: MeshPayload,
-    /// Number of vertices in the encoded mesh (mirrors `MeshUploadData.vertex_count`).
+    /// Number of vertices in the encoded mesh (`MeshUploadData.vertex_count`).
     pub vertex_count: i32,
     /// Index format used when packing indices into [`Self::payload`]'s tail.
     pub index_buffer_format: IndexBufferFormat,

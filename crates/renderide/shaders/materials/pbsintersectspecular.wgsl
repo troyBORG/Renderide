@@ -140,12 +140,11 @@ fn fs_main(
     emission = emission + mat._IntersectEmissionColor.rgb * intersect_lerp;
 
     let surface = psurf::specular(base_color, alpha, f0, roughness, occlusion, n, emission);
-    let color = plight::shade_specular_clustered(
+    return plight::shade_specular_transparent_clustered(
         frag_pos.xy,
         world_pos,
         view_layer,
         surface,
         plight::default_lighting_options(),
     );
-    return vec4<f32>(color, alpha);
 }

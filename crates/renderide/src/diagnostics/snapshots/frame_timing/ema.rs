@@ -2,9 +2,7 @@
 //!
 //! The HUD's frametime graph keeps **raw** samples so spikes remain visible, but the numeric
 //! Frame / CPU / GPU readouts are run through an EMA so they stop jittering frame-to-frame on
-//! steady scenes. Bevy's `FrameTimeDiagnosticsPlugin` uses the same approach with an `alpha`
-//! derived from a virtual history length; see
-//! `references_external/Bevy/crates/bevy_diagnostic/src/diagnostic.rs`.
+//! steady scenes. The smoothing factor is derived from a virtual history length.
 //!
 //! The EMA is intentionally simple: `value <- value + alpha * (sample - value)` with `alpha = 2
 //! / (history_len + 1)`. A history length of `EMA_HISTORY_LEN = 20` matches the responsiveness
@@ -12,8 +10,8 @@
 
 /// Virtual history length used to derive the EMA smoothing factor.
 ///
-/// Bevy uses the same derivation (`alpha = 2 / (N + 1)`); `N = 20` settles a step input to ~95%
-/// in ~60 frames at 60 fps, which feels responsive without being noisy.
+/// `N = 20` settles a step input to ~95% in ~60 frames at 60 fps, which feels responsive without
+/// being noisy.
 pub const EMA_HISTORY_LEN: usize = 20;
 
 /// Single-channel exponential moving average tracker.

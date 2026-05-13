@@ -26,17 +26,15 @@ pub(super) struct MipUploadFormatCtx {
 
 /// CPU-side bytes for one mip plus the storage-orientation flag.
 ///
-/// The renderer uploads host bytes as-is (Unity V=0 bottom). For host-uploaded textures and cubemaps
-/// `storage_v_inverted` is `true` (bytes are in Unity orientation). For renderer-baked sources
-/// it is `false` (wgpu native orientation). Texture2D shaders no longer consume the flag; cubemap
-/// sampling helpers use it to compensate for the Unity-vs-wgpu cube face orientation difference.
+/// The renderer uploads host texture bytes as-is (Unity V=0 bottom). For host-uploaded 2D
+/// textures, `storage_v_inverted` is `true` because the bytes are in Unity orientation. Cubemap
+/// upload paths override the flag because their face layout is already native cube orientation.
+/// For renderer-baked sources it is `false`.
 #[derive(Debug)]
 pub(super) struct MipUploadPixels {
     /// Bytes ready for [`wgpu::Queue::write_texture`].
     pub bytes: Vec<u8>,
-    /// Whether the bytes are in Unity V=0 bottom orientation (host-uploaded). Always `true` for
-    /// host upload paths after the unified-orientation refactor; renderer-baked paths set it to
-    /// `false` directly when constructing pool entries.
+    /// Whether the bytes need shader-side storage-orientation compensation.
     pub storage_v_inverted: bool,
 }
 
@@ -52,6 +50,12 @@ impl MipUploadPixels {
     /// Backwards-compatible alias for [`Self::host`] retained for renderer-baked tail synthesis.
     pub fn normal(bytes: Vec<u8>) -> Self {
         Self::host(bytes)
+    }
+
+    /// Returns this upload with an explicit storage-orientation flag.
+    pub fn with_storage_v_inverted(mut self, storage_v_inverted: bool) -> Self {
+        self.storage_v_inverted = storage_v_inverted;
+        self
     }
 }
 
@@ -104,8 +108,7 @@ impl MipUploadLabel {
     }
 }
 
-/// Whether the upload path keeps host bytes in Unity orientation (always true for host uploads
-/// after the unified-orientation refactor).
+/// Whether a sampled Texture2D upload keeps host bytes in Unity orientation.
 pub(crate) fn upload_uses_storage_v_inversion(
     _host_format: crate::shared::TextureFormat,
     _wgpu_format: wgpu::TextureFormat,

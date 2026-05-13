@@ -1,7 +1,7 @@
 //! Renderer-side decoupling state machine driven by the host's
 //! [`RenderDecouplingConfig`](crate::shared::RenderDecouplingConfig).
 //!
-//! Mirrors the Renderite.Unity `RenderingManager` behavior:
+//! Encodes the host decoupling behavior:
 //! - Activation: when the renderer has been waiting for a [`crate::shared::FrameSubmitData`]
 //!   longer than [`DecouplingState::activate_interval_seconds`], it goes "decoupled" so it can
 //!   keep drawing the prior scene state instead of stalling.

@@ -4,10 +4,9 @@
 //! but reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of
 //! `_Metallic` / `_MetallicMap`.
 //!
-//! Froox variant bits populate `_RenderideVariantBits`. PBSSliceSpecular's Unity source declares
-//! `#pragma multi_compile _ _METALLICMAP` even though this shader is specular (copy-paste from
-//! the metallic sibling), so the bitmask Froox emits keys optional `_SpecularMap` sampling to the
-//! alphabetically-positioned `_METALLICMAP` slot.
+//! Froox variant bits populate `_RenderideVariantBits`. This specular shader keeps the serialized
+//! `_METALLICMAP` keyword slot, so the emitted bitmask keys optional `_SpecularMap` sampling to the
+//! alphabetically-positioned `_METALLICMAP` bit.
 
 
 #import renderide::mesh::vertex as mv

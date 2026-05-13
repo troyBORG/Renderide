@@ -1,4 +1,4 @@
-//! Multi-criterion image-comparison tolerance, modeled after Filament `renderdiff`.
+//! Multi-criterion image-comparison tolerance for golden-image validation.
 //!
 //! A [`Tolerance`] aggregates up to three criteria -- SSIM-Y minimum, max per-channel absolute
 //! pixel difference, and the maximum fraction of pixels allowed to exceed that absolute
@@ -49,8 +49,8 @@ impl Tolerance {
         }
     }
 
-    /// Filament-style absolute-difference tolerance: at most `fraction` of pixels exceed
-    /// `max_abs_diff` per channel.
+    /// Absolute-difference tolerance: at most `fraction` of pixels exceed `max_abs_diff` per
+    /// channel.
     pub fn pixel_diff(max_abs_diff: u8, fraction: f64) -> Self {
         Self {
             ssim_min: None,

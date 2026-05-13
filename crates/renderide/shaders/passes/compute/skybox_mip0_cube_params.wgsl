@@ -1,8 +1,8 @@
 //! Mip-0 producer for cubemap-source IBL bakes.
 //!
-//! Resamples a host-uploaded cubemap into the destination Rgba16Float cube at mip 0. Output is
-//! always written in canonical orientation; the optional `storage_v_inverted` flip is applied to
-//! the *input* sampling direction so native-compressed faces with flipped Y still resolve correctly.
+//! Resamples a cubemap into the destination Rgba16Float cube at mip 0. Output is always written in
+//! canonical orientation; the optional `storage_v_inverted` flag is applied to the input sampling
+//! direction for sources that need storage-layout compensation.
 
 #import renderide::skybox::cubemap_storage as cubemap_storage
 #import renderide::ibl::ggx_prefilter as ggx
@@ -12,8 +12,7 @@ struct Mip0CubeParams {
     dst_size: u32,
     /// Source cube face edge in texels (mip 0).
     src_face_size: u32,
-    /// Storage-orientation V-flip flag. Non-zero means the source face data is V-inverted and the
-    /// sample direction must compensate.
+    /// Storage-orientation compensation flag. Non-zero means the sample direction must compensate.
     storage_v_inverted: u32,
     /// Reserved padding to keep the struct 16-byte aligned.
     _pad0: u32,

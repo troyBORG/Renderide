@@ -5,9 +5,8 @@
 //! not the side-by-side `eyeIndex` texture-coordinate offset Unity needs for single-pass stereo.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes Reflection's
-//! shader-specific keyword bits locally. `_OFFSET_TEXTURE` is reserved in the bit table so
-//! the layout matches the Unity source, but the shader body never consults it (the Unity
-//! shader declares the multi_compile without referencing the keyword either).
+//! shader-specific keyword bits locally. `_OFFSET_TEXTURE` is reserved in the bit table so the
+//! serialized layout stays stable, but the shader body never consults it.
 
 #import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd

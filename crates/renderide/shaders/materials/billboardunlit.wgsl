@@ -1,10 +1,10 @@
 //! Billboard/Unlit (`Shader "Billboard/Unlit"`).
 //!
-//! Unity's source uses a geometry shader to expand one point into four quad vertices. WGSL has no
-//! geometry stage, so this shader billboards already-quad geometry in the vertex stage. Meshes with
-//! duplicated center positions and quad UVs match the original point expansion closely.
+//! The material expects one point expanded into four quad vertices. WGSL has no geometry stage, so
+//! this shader billboards already-quad geometry in the vertex stage. Meshes with duplicated center
+//! positions and quad UVs match the expected point expansion closely.
 //!
-//! Variant bits cover the full set of `#pragma multi_compile` keywords in the Unity source.
+//! Variant bits cover the material keyword set.
 //! `_POINT_UV` is a pipeline-affecting decision (the host pre-bakes per-point
 //! `texcoord + texscale * (corner - 0.5)` into the expanded quad's UVs), so the WGSL only needs
 //! the bit reserved at its sorted index even though no fragment branch reads it.

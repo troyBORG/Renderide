@@ -20,7 +20,7 @@ fn mesh_world_tangent_applies_model_transform_parity() -> io::Result<()> {
     }
 
     assert!(
-        !src.contains("preserved verbatim"),
+        !src.contains("raw tangent handedness is preserved"),
         "world_tangent docs must not describe raw tangent handedness preservation"
     );
 

@@ -284,7 +284,8 @@ fn collect_view_draws(
         {
             profiling::scope!("render::collect_view_draws::package_draw_plan");
             WorldMeshDrawPlan::Prefetched(Box::new(PrefetchedWorldMeshViewDraws::new(
-                collection, cull_proj,
+                collection,
+                cull_proj.as_ref(),
             )))
         }
     };

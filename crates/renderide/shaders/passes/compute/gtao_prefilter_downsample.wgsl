@@ -1,5 +1,5 @@
 #import renderide::post::gtao_params as gparams
-//! Compute pass: XeGTAO weighted view-space depth downsample.
+//! Compute pass: GTAO weighted view-space depth downsample.
 
 #ifdef MULTIVIEW
 @group(0) @binding(0) var src_mip: texture_2d_array<f32>;

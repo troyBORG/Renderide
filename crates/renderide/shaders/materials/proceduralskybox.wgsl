@@ -1,8 +1,8 @@
 //! Unity ProceduralSkybox asset (`Shader "ProceduralSky"`): analytic sky material with
 //! Rayleigh+Mie scattering and three sun-disk modes (NONE / SIMPLE / HIGH_QUALITY).
 //!
-//! The renderer pipeline operates entirely in linear color space, so this port implements
-//! the linear branch of the original shader only; the gamma-space branch and
+//! The renderer pipeline operates entirely in linear color space, so this shader implements
+//! the linear branch only; the gamma-space branch and
 //! `SKYBOX_COLOR_IN_TARGET_COLOR_SPACE` short-circuit are intentionally omitted.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes ProceduralSky's

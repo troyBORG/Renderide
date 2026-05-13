@@ -1,5 +1,6 @@
-//! Unity surface shader `Shader "PBSVertexColorTransparentSpecular"`: SpecularSetup lighting that
-//! optionally multiplies albedo, emission, or specular color by the mesh vertex color.
+//! Unity surface shader `Shader "PBSVertexColorTransparentSpecular"`: transparent SpecularSetup
+//! lighting that optionally multiplies albedo, emission, or specular color by the mesh vertex color
+//! while preserving the source-authored Cull Back state.
 //!
 //! Sibling of [`pbsvertexcolortransparent`](super::pbsvertexcolortransparent); replaces the metallic
 //! BRDF with the specular variant and reads tinted f0 + smoothness from `_SpecularColor` /
@@ -193,7 +194,7 @@ fn vs_main(
 #endif
 }
 
-//#pass forward
+//#pass forward_transparent_cull_back
 @fragment
 fn fs_forward_base(
     @builtin(position) frag_pos: vec4<f32>,
@@ -214,8 +215,5 @@ fn fs_forward_base(
         s.normal,
         s.emission,
     );
-    return vec4<f32>(
-        plight::shade_specular_clustered(frag_pos.xy, world_pos, view_layer, surface, plight::default_lighting_options()),
-        s.alpha,
-    );
+    return plight::shade_specular_transparent_clustered(frag_pos.xy, world_pos, view_layer, surface, plight::default_lighting_options());
 }

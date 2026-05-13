@@ -2,10 +2,9 @@
 //! with plane-based slicing and edge blending. Unlike `PBSSliceSpecular`, Unity's transparent
 //! variant does not compile the alpha-clip keyword path.
 //!
-//! Froox variant bits populate `_RenderideVariantBits`. PBSSliceTransparentSpecular's Unity source
-//! declares `#pragma multi_compile _ _METALLICMAP` (copy-paste from the metallic sibling) even
-//! though this shader is specular, so the optional specular-map sample is keyed to the
-//! alphabetically-positioned `_METALLICMAP` slot.
+//! Froox variant bits populate `_RenderideVariantBits`. This specular shader keeps the serialized
+//! `_METALLICMAP` keyword slot, so the optional specular-map sample is keyed to the
+//! alphabetically-positioned `_METALLICMAP` bit.
 
 
 #import renderide::mesh::vertex as mv
@@ -189,12 +188,11 @@ fn fs_main(
     let edge_emission = mix(emission, mat._EdgeEmissionColor.rgb, edge_lerp);
 
     let surface = psurf::specular(c.rgb, c.a, f0, roughness, occlusion, n, edge_emission);
-    let color = plight::shade_specular_clustered(
+    return plight::shade_specular_transparent_clustered(
         frag_pos.xy,
         world_pos,
         view_layer,
         surface,
         plight::default_lighting_options(),
     );
-    return vec4<f32>(color, c.a);
 }

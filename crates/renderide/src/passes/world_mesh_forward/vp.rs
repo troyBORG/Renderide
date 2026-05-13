@@ -121,7 +121,7 @@ fn select_model_for_vertex_stream(
 fn resolved_model_matrix(
     scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     render_context: RenderingContext,
 ) -> Mat4 {
     if item.is_overlay {
@@ -155,7 +155,7 @@ fn resolved_model_matrix(
 fn resolve_model_selection(
     scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     render_context: RenderingContext,
 ) -> PerDrawModelSelection {
     if item.world_space_deformed && !matches!(item.batch_key.pipeline, RasterPipelineKind::Null) {
@@ -179,7 +179,7 @@ fn resolve_model_selection(
 pub(crate) fn compute_per_draw_vp_matrices(
     scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     render_context: RenderingContext,
     world_proj: Mat4,
     overlay_proj: Option<Mat4>,
@@ -194,7 +194,7 @@ pub(crate) fn compute_per_draw_vp_matrices(
         return PerDrawVpMatrices::new(op, op, model);
     }
     let model = || resolve_model_selection(scene, item, hc, render_context);
-    let view = view_matrix_for_host_world_mesh_space(scene, space, &hc);
+    let view = view_matrix_for_host_world_mesh_space(scene, space, hc);
     let vr_stereo_view = Mat4::IDENTITY;
     if let Some(stereo) = hc.active_stereo() {
         let (sl, sr) = stereo.view_proj_pair();

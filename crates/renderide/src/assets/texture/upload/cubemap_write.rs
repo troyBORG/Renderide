@@ -83,7 +83,7 @@ fn resolve_cubemap_face_mip_slice<'a>(
         })
 }
 
-/// Converts host face mip bytes for [`write_cubemap_face_mip`] (decode, optional row flip).
+/// Converts host face mip bytes for [`write_cubemap_face_mip`].
 fn cubemap_mip_src_to_upload_pixels(
     ctx: MipUploadFormatCtx,
     w: u32,
@@ -102,6 +102,7 @@ fn cubemap_mip_src_to_upload_pixels(
         mip_src,
         MipUploadLabel::cubemap(face, mip_i),
     )
+    .map(|pixels| pixels.with_storage_v_inverted(false))
 }
 
 /// GPU and host view for one [`CubemapMipChainUploader::upload_next_face_mip`] step.
@@ -625,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn cubemap_bc7_flip_y_uploads_bytes_unchanged_with_storage_orientation_hint() {
+    fn cubemap_bc7_flip_y_uploads_bytes_unchanged_with_native_storage_orientation() {
         let raw: Vec<u8> = (0..64).collect();
         let pixels = cubemap_mip_src_to_upload_pixels(
             upload_ctx(TextureFormat::BC7, wgpu::TextureFormat::Bc7RgbaUnorm),
@@ -639,7 +640,7 @@ mod tests {
         .expect("bc7 cubemap upload");
 
         assert_eq!(pixels.bytes, raw);
-        assert!(pixels.storage_v_inverted);
+        assert!(!pixels.storage_v_inverted);
     }
 
     #[test]

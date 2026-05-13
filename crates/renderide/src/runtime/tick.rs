@@ -52,8 +52,8 @@ impl RendererRuntime {
 
     /// Forwards the most recently completed GPU submit->idle interval to the frontend so the next
     /// [`crate::shared::PerformanceState::render_time`] reports raw GPU render time (no post-submit
-    /// present/vsync block). Pass [`None`] when no GPU completion has fired yet -- the frontend
-    /// maps that to the Renderite.Unity `-1.0` sentinel.
+    /// present/vsync block). Pass [`None`] when no GPU completion has fired yet; the frontend
+    /// maps that to the host-visible `-1.0` sentinel.
     ///
     /// Call once before every return from the app driver's redraw tick.
     pub fn tick_frame_render_time_end(&mut self, gpu_render_time_seconds: Option<f32>) {

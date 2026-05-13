@@ -47,9 +47,8 @@ pub struct VideoPlayer {
     pending_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
     /// Most recently received host update, retained even after the worker thread applies it so
     /// [`Self::sample_clock_error`] can keep reporting drift each frame against
-    /// [`VideoTextureUpdate::decoded_time`] until the host sends another update. Mirrors
-    /// `_update` in `UnityVideoTextureBehaviour`, which is re-armed each frame with the same
-    /// last-received instance.
+    /// [`VideoTextureUpdate::decoded_time`] until the host sends another update. Reusing the
+    /// last-received instance keeps the drift calculation continuous between host updates.
     last_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
     /// Last successfully queued ready message, used to avoid redundant background IPC.
     last_ready_message: Option<VideoTextureReady>,
@@ -314,7 +313,7 @@ impl VideoPlayer {
     /// Also stores the update as the latest snapshot for [`Self::sample_clock_error`]. The
     /// `decoded_time` field is set by the IPC unpack at receive time, so retaining the same
     /// update across multiple frames is correct: `(now - decoded_time)` keeps growing until the
-    /// host sends a fresh update, matching Renderite.Unity's `_update` reuse behaviour.
+    /// host sends a fresh update, matching the host video-clock contract.
     pub fn handle_update(&self, u: VideoTextureUpdate) {
         if self.shutdown.load(Ordering::Acquire) {
             return;
@@ -484,8 +483,8 @@ impl VideoPlayer {
 
     /// Samples this player's clock error against the host's most recently received playback request.
     ///
-    /// Mirrors `UnityVideoTextureBehaviour`: the error is `pipeline_position - adjusted_host_position`,
-    /// where the adjusted position advances unconditionally at real-time from
+    /// The error is `pipeline_position - adjusted_host_position`, where the adjusted position
+    /// advances unconditionally at real-time from
     /// [`VideoTextureUpdate::decoded_time`] (set by the IPC unpack at receive time). Returns `None`
     /// until at least one update has arrived or when the pipeline position cannot be queried.
     pub fn sample_clock_error(&self) -> Option<VideoTextureClockErrorState> {
@@ -869,7 +868,7 @@ mod tests {
     #[test]
     fn adjusted_host_position_handles_negative_elapsed() {
         // If wall-clock goes backwards, elapsed becomes negative and the adjusted position retreats,
-        // matching the C# `(DateTime.UtcNow - decodedTime).TotalSeconds` literal port.
+        // matching the host tick contract.
         let u = update_decoded_at(4.0, true, ONE_SECOND_NS);
         let earlier = ONE_SECOND_NS - HALF_SECOND_NS;
         assert!((adjusted_host_position(&u, earlier) - 3.5).abs() < 1e-9);

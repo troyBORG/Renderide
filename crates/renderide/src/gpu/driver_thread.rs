@@ -1,4 +1,4 @@
-//! Dedicated GPU-submission thread, modeled after Filament's `CommandBufferQueue`.
+//! Dedicated GPU-submission thread.
 //!
 //! The main tick records command buffers, assembles a [`SubmitBatch`], and hands it to
 //! [`DriverThread::submit`]. The driver thread drains a bounded FIFO ring
@@ -51,9 +51,8 @@ use submit_batch::DriverMessage;
 use submit_counters::SubmitCounters;
 use surface_counters::SurfaceCounters;
 
-/// Maximum number of frames queued in the ring at once. Matches Filament's
-/// `CommandBufferQueue` latency target: one frame in flight on the driver, one being
-/// recorded by the main thread.
+/// Maximum number of frames queued in the ring at once: one frame in flight on the driver, one
+/// being recorded by the main thread.
 pub const RING_CAPACITY: usize = 2;
 
 const SLOW_DRIVER_ENQUEUE_THRESHOLD: Duration = Duration::from_millis(2);

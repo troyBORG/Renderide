@@ -40,16 +40,14 @@ use crate::render_graph::gpu_cache::{
     fullscreen_pipeline_variant, stereo_mask_or_template,
 };
 
-/// AO term and packed-edges target format. R8 unorm matches XeGTAO's reference shape (the AO
-/// term is 8-bit `Texture2D<uint>` and the edges are `Texture2D<unorm float>` in the reference;
-/// we collapse both to `R8Unorm` here so wgpu can render-attach them and we can sample with
-/// floating-point math throughout).
+/// AO term and packed-edges target format. Both intermediates use `R8Unorm` so wgpu can
+/// render-attach them and the shaders can sample with floating-point math throughout.
 pub(super) const AO_TERM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 /// Packed-edges target format (mirrors the AO term).
 pub(super) const EDGES_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 /// View-space depth prefilter format.
 pub(super) const VIEW_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
-/// Number of view-space depth mips generated for XeGTAO horizon sampling.
+/// Number of view-space depth mips generated for the horizon search.
 pub(super) const VIEW_DEPTH_MIP_COUNT: u32 = 5;
 
 /// Upper bound for cached bind groups per cache before the cache is flushed.
@@ -88,8 +86,8 @@ pub(super) struct GtaoParamsGpu {
     /// Gray-albedo proxy for the multi-bounce fit (paper Eq. 10).
     pub albedo_multibounce: f32,
     /// Bilateral blur strength for the active denoise stage. Production binds `0.0` (kernel
-    /// inert at that stage); the intermediate denoise pass binds `denoise_blur_beta / 5.0`
-    /// (XeGTAO's intermediate ratio); the apply pass binds the full `denoise_blur_beta`, or
+    /// inert at that stage); the intermediate denoise pass binds `denoise_blur_beta / 5.0`;
+    /// the apply pass binds the full `denoise_blur_beta`, or
     /// `0.0` when the user disabled the denoise filter (which short-circuits the kernel).
     pub denoise_blur_beta: f32,
     /// Number of slice directions selected from the quality preset.
@@ -140,7 +138,7 @@ impl GtaoParamsGpu {
     }
 }
 
-/// XeGTAO sampling preset selected by `GtaoSettings::quality_level`.
+/// Sampling preset selected by `GtaoSettings::quality_level`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct GtaoQualityPreset {
     /// Slice directions evaluated by the horizon search.
@@ -150,7 +148,7 @@ pub(super) struct GtaoQualityPreset {
 }
 
 impl GtaoQualityPreset {
-    /// Maps XeGTAO quality levels to the reference slice/step layouts.
+    /// Maps quality levels to slice/step layouts.
     pub(super) fn from_level(level: u32, step_count_floor: u32) -> Self {
         let preset = match level.min(3) {
             0 => Self {
@@ -422,7 +420,7 @@ impl GtaoMainPipelineCache {
 
 // ---- depth prefilter pipeline cache ---------------------------------------
 
-/// Compute pipelines and layouts for the XeGTAO view-space depth prefilter.
+/// Compute pipelines and layouts for the GTAO view-space depth prefilter.
 #[derive(Default)]
 pub(super) struct GtaoDepthPrefilterPipelineCache {
     mip0_bind_group_layout_mono: OnceGpu<wgpu::BindGroupLayout>,

@@ -204,10 +204,6 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     return SurfaceData(base_color, base_alpha, specular_color, roughness, occlusion, n, emission);
 }
 
-fn apply_premultiply(color: vec3<f32>, alpha: f32) -> vec3<f32> {
-    return select(color, color * alpha, alpha_premultiply_enabled());
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -248,17 +244,27 @@ fn fs_forward_base(
         s.normal,
         s.emission,
     );
+    let options = plight::ClusterLightingOptions(
+        true,
+        true,
+        specular_highlights_enabled(),
+        glossy_reflections_enabled(),
+    );
+    if (alpha_premultiply_enabled()) {
+        return plight::shade_specular_transparent_clustered(
+            frag_pos.xy,
+            world_pos,
+            view_layer,
+            surface,
+            options,
+        );
+    }
     let color = plight::shade_specular_clustered(
         frag_pos.xy,
         world_pos,
         view_layer,
         surface,
-        plight::ClusterLightingOptions(
-            true,
-            true,
-            specular_highlights_enabled(),
-            glossy_reflections_enabled(),
-        ),
+        options,
     );
-    return vec4<f32>(apply_premultiply(color, s.alpha), s.alpha);
+    return vec4<f32>(color, s.alpha);
 }

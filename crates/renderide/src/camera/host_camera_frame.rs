@@ -77,34 +77,38 @@ impl Default for HostCameraFrame {
 impl HostCameraFrame {
     /// Returns the near clip distance.
     #[cfg(test)]
-    pub const fn near_clip(self) -> f32 {
+    pub const fn near_clip(&self) -> f32 {
         self.clip.near
     }
 
     /// Returns the far clip distance.
     #[cfg(test)]
-    pub const fn far_clip(self) -> f32 {
+    pub const fn far_clip(&self) -> f32 {
         self.clip.far
     }
 
     /// Returns the explicit world-to-view override when present.
-    pub fn explicit_world_to_view(self) -> Option<Mat4> {
+    pub fn explicit_world_to_view(&self) -> Option<Mat4> {
         self.explicit_view.map(|view| view.view)
     }
 
     /// Returns the explicit camera world position when present.
-    pub fn explicit_world_position(self) -> Option<Vec3> {
+    pub fn explicit_world_position(&self) -> Option<Vec3> {
         self.explicit_view.map(|view| view.world_position)
     }
 
     /// Returns the explicit view and projection override when present.
-    pub fn explicit_view_projection(self) -> Option<(Mat4, Mat4)> {
+    pub fn explicit_view_projection(&self) -> Option<(Mat4, Mat4)> {
         self.explicit_view.map(|view| (view.view, view.proj))
     }
 
     /// Returns active stereo only when the host frame is currently VR-active.
-    pub fn active_stereo(self) -> Option<StereoViewMatrices> {
-        if self.vr_active { self.stereo } else { None }
+    pub fn active_stereo(&self) -> Option<&StereoViewMatrices> {
+        if self.vr_active {
+            self.stereo.as_ref()
+        } else {
+            None
+        }
     }
 
     /// Returns the dedicated screen-overlay orthographic projection.
@@ -113,18 +117,18 @@ impl HostCameraFrame {
     }
 
     /// Resolves the world-space origin used for view-distance sorting.
-    pub fn view_origin_world(self) -> Vec3 {
+    pub fn view_origin_world(&self) -> Vec3 {
         self.explicit_world_position()
             .or(self.eye_world_position)
             .unwrap_or_else(|| self.head_output_transform.col(3).truncate())
     }
 
     /// Resolves left/right world camera positions for frame globals.
-    pub fn camera_world_pair(self) -> (Vec3, Vec3) {
+    pub fn camera_world_pair(&self) -> (Vec3, Vec3) {
         if let Some(camera_world) = self.explicit_world_position() {
             return (camera_world, camera_world);
         }
-        if let Some(stereo) = self.stereo {
+        if let Some(stereo) = self.stereo.as_ref() {
             return stereo.world_position_pair();
         }
         let camera_world = self

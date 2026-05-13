@@ -23,6 +23,8 @@ pub(super) enum BuildPassKind {
     ForwardTransparentCullBack,
     /// Static transparent RGB-only material pass.
     TransparentRgb,
+    /// Front-face culled volume draw with material-driven alpha-max blending.
+    VolumeFront,
     /// Outline shell pass.
     Outline,
     /// Stencil-only pass.
@@ -58,6 +60,7 @@ impl BuildPassKind {
                 Ok(Self::ForwardTransparentCullBack)
             }
             "transparent_rgb" | "transparentrgb" => Ok(Self::TransparentRgb),
+            "volume_front" | "volumefront" | "volume" => Ok(Self::VolumeFront),
             "outline" => Ok(Self::Outline),
             "stencil" => Ok(Self::Stencil),
             "depth_prepass" | "depthprepass" | "prepass" => Ok(Self::DepthPrepass),
@@ -83,6 +86,7 @@ impl BuildPassKind {
             Self::ForwardTransparentCullFront => "ForwardTransparentCullFront",
             Self::ForwardTransparentCullBack => "ForwardTransparentCullBack",
             Self::TransparentRgb => "TransparentRgb",
+            Self::VolumeFront => "VolumeFront",
             Self::Outline => "Outline",
             Self::Stencil => "Stencil",
             Self::DepthPrepass => "DepthPrepass",
@@ -453,6 +457,11 @@ fn fs_premul() -> @location(0) vec4<f32> {
 fn fs_filter() -> @location(0) vec4<f32> {
     return vec4<f32>(1.0);
 }
+//#pass volume_front
+@fragment
+fn fs_volume() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
 "#,
             "test.wgsl",
         )?;
@@ -500,11 +509,23 @@ fn fs_filter() -> @location(0) vec4<f32> {
                     depth_bias_slope_scale_bits: 0.0f32.to_bits(),
                     depth_bias_constant: 0,
                 },
+                BuildPassDirective {
+                    kind: BuildPassKind::VolumeFront,
+                    fragment_entry: "fs_volume".to_string(),
+                    vertex_entry: "vs_main".to_string(),
+                    alpha_to_coverage: false,
+                    depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                    depth_bias_constant: 0,
+                },
             ]
         );
         assert_eq!(
             pass_literal(&passes[4]),
             "crate::materials::pass_from_kind(crate::materials::PassKind::ForwardFilter, \"fs_filter\")"
+        );
+        assert_eq!(
+            pass_literal(&passes[5]),
+            "crate::materials::pass_from_kind(crate::materials::PassKind::VolumeFront, \"fs_volume\")"
         );
         Ok(())
     }

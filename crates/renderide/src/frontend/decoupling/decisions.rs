@@ -3,7 +3,7 @@
 //! These functions are stateless and take all inputs as parameters so they can
 //! be unit-tested without wiring the [`super::state::DecouplingState`] holder
 //! or the runtime. See [`super`] for the broader contract and the
-//! Renderite.Unity-compatible behavior they encode.
+//! host-compatible behavior they encode.
 
 use std::time::{Duration, Instant};
 

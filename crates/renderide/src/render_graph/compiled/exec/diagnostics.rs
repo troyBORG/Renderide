@@ -89,7 +89,7 @@ impl CommandEncodingDiagnostics {
     }
 
     pub(super) fn plot(&self) {
-        crate::profiling::plot_command_encoding(crate::profiling::CommandEncodingProfileSample {
+        let sample = crate::profiling::CommandEncodingProfileSample {
             view_count: self.view_count,
             command_buffers: self.command_buffers,
             frame_global_passes: self.frame_global_passes,
@@ -126,7 +126,8 @@ impl CommandEncodingDiagnostics {
             world_mesh_draws: self.command_stats.draw_items,
             world_mesh_instance_batches: self.command_stats.instance_batches,
             world_mesh_pipeline_pass_submits: self.command_stats.pipeline_pass_submits,
-        });
+        };
+        crate::profiling::plot_command_encoding(&sample);
     }
 
     pub(super) fn log_if_slow(&self) {

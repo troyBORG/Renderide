@@ -12,8 +12,7 @@ const PARALLEL_DECODE_MIN_TEXELS: usize = 16_384;
 
 /// Texel count per rayon chunk during parallel decode.
 ///
-/// Larger chunks reduce rayon scheduler thrash, matching Filament's CountSplitter recursive
-/// halving (which keeps splits to ~MAX_SPLITS=12 even on huge inputs).
+/// Larger chunks reduce rayon scheduler thrash and keep split counts bounded even on huge inputs.
 const PARALLEL_DECODE_TEXELS_PER_CHUNK: usize = 8_192;
 
 /// Runs `decode` over the full input/output, splitting into rayon chunks once `texel_count`

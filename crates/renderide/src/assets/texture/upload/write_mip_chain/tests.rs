@@ -1,7 +1,7 @@
 //! Tests for 2D mip-chain upload conversion.
 //!
 //! After the unified-orientation refactor the renderer never row-flips host data on ingest,
-//! so every host upload (uncompressed and compressed alike) lands byte-for-byte identical to
+//! so every host upload (uncompressed and compressed alike) lands identically to
 //! the bytes we received and reports `storage_v_inverted = true` (Unity V=0 bottom orientation).
 
 use super::super::super::layout::mip_byte_len;

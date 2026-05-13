@@ -66,6 +66,19 @@ fn write_f32x4_array_at(buf: &mut [u8], field: &ReflectedUniformField, values: &
     }
 }
 
+/// Writes a host `float[]` material property into a reflected uniform scalar array field.
+fn write_f32_array_at(buf: &mut [u8], field: &ReflectedUniformField, values: &[f32]) {
+    let off = field.offset as usize;
+    let max_values = (field.size as usize) / 16;
+    for (i, value) in values.iter().take(max_values).enumerate() {
+        let elem_off = off + i * 16;
+        if elem_off + 4 > buf.len() {
+            return;
+        }
+        buf[elem_off..elem_off + 4].copy_from_slice(&value.to_le_bytes());
+    }
+}
+
 fn write_srgb_f32x4_array_at(buf: &mut [u8], field: &ReflectedUniformField, values: &[[f32; 4]]) {
     let off = field.offset as usize;
     let max_values = (field.size as usize) / 16;
@@ -179,7 +192,11 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 write_u32_at(&mut buf, field, v);
             }
             ReflectedUniformScalarKind::Unsupported => {
-                if let Some(MaterialPropertyValue::Float4Array(values)) =
+                if let Some(MaterialPropertyValue::FloatArray(values)) =
+                    store.get_merged(lookup, pid)
+                {
+                    write_f32_array_at(&mut buf, field, values);
+                } else if let Some(MaterialPropertyValue::Float4Array(values)) =
                     store.get_merged(lookup, pid)
                 {
                     if value_spaces.is_srgb_vec4_array(field_name) {

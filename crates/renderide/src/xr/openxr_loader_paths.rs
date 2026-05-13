@@ -183,7 +183,7 @@ mod path_tests {
     /// default parallel test harness; mutating [`RENDERIDE_OPENXR_LOADER`] from concurrent tests
     /// would race otherwise.
     #[test]
-    fn env_override_absent_directory_and_verbatim() {
+    fn env_override_absent_directory_and_raw_name() {
         let _guard = EnvGuard::capture();
         let name = openxr_loader_library_filename();
 

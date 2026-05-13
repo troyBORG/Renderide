@@ -57,22 +57,6 @@ const ONE_ONE_MINUS_SRC_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
     },
 };
 
-/// Unity straight alpha blend used by surface shaders that declare `alpha` without explicit
-/// material blend-factor properties.
-const UNITY_ALPHA_BLEND: wgpu::BlendState = wgpu::BlendState {
-    color: wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::SrcAlpha,
-        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-        operation: wgpu::BlendOperation::Add,
-    },
-    // Matches Unity shader syntax: `Blend SrcAlpha OneMinusSrcAlpha, One One` + `BlendOp Add, Max`.
-    alpha: wgpu::BlendComponent {
-        src_factor: wgpu::BlendFactor::One,
-        dst_factor: wgpu::BlendFactor::One,
-        operation: wgpu::BlendOperation::Max,
-    },
-};
-
 /// How a declared shader pass applies material-driven Unity render state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MaterialPassState {
@@ -82,7 +66,10 @@ pub enum MaterialPassState {
     /// Forward pass with material-driven blend: `Blend [_SrcBlend] [_DstBlend]`, `ZWrite [_ZWrite]`.
     /// One pass per material -- directional + local lights are accumulated in a single shader call.
     Forward,
-    /// Overlay pass with material-driven `Blend [_SrcBlend][_DstBlend], One One`, `BlendOp Add, Max`.
+    /// Transparent surface pass whose source-authored premultiplied state remains transparent
+    /// unless the material supplies non-opaque blend factors.
+    TransparentForward,
+    /// Pass with material-driven `Blend [_SrcBlend][_DstBlend], One One`, `BlendOp Add, Max`.
     Overlay,
     /// Filter pass with material-driven RGB blend and explicit Unity alpha `Max` blending.
     Filter,
@@ -195,6 +182,16 @@ impl MaterialRenderStatePolicy {
         stencil: true,
         depth_offset: true,
     };
+
+    /// Unit-box volume draws preserve shader-authored blending, culling, and depth state.
+    pub(crate) const VOLUME_FRONT: Self = Self {
+        color_mask: false,
+        depth_write: false,
+        depth_compare: false,
+        cull: false,
+        stencil: true,
+        depth_offset: false,
+    };
 }
 
 /// Semantic pass kind authored as `//#pass <kind>` above an `@fragment` entry point.
@@ -228,6 +225,8 @@ pub enum PassKind {
     ForwardTransparentCullBack,
     /// Transparent unlit draw: `Blend SrcAlpha OneMinusSrcAlpha`, `ColorMask RGB`, `ZWrite Off`, `Cull Off`.
     TransparentRgb,
+    /// Unit-box volume draw: `Cull Front`, `ZWrite Off`, `ZTest Always`, alpha-max blend.
+    VolumeFront,
     /// Outline silhouette pass: `Cull Front` so back faces of an inflated shell show.
     Outline,
     /// Stencil material pass: `Cull Front`, `ZWrite Off`, material-driven color mask and stencil.
@@ -294,6 +293,16 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             write_mask: wgpu::ColorWrites::COLOR,
             render_state_policy: MaterialRenderStatePolicy::STATIC,
+            ..base
+        },
+        PassKind::VolumeFront => MaterialPassDesc {
+            depth_compare: wgpu::CompareFunction::Always,
+            depth_write: false,
+            cull_mode: Some(wgpu::Face::Front),
+            blend: Some(OVERLAY_NOOP_COLOR_MAX_ALPHA_BLEND),
+            write_mask: wgpu::ColorWrites::ALL,
+            material_state: MaterialPassState::Overlay,
+            render_state_policy: MaterialRenderStatePolicy::VOLUME_FRONT,
             ..base
         },
         PassKind::Outline => MaterialPassDesc {
@@ -380,9 +389,9 @@ const fn transparent_forward_pass(
     MaterialPassDesc {
         depth_write: false,
         cull_mode,
-        blend: Some(UNITY_ALPHA_BLEND),
+        blend: Some(ONE_ONE_MINUS_SRC_ALPHA_BLEND),
         write_mask: wgpu::ColorWrites::ALL,
-        material_state: MaterialPassState::Forward,
+        material_state: MaterialPassState::TransparentForward,
         render_state_policy,
         ..base
     }
@@ -400,6 +409,7 @@ const fn pass_kind_label(kind: PassKind) -> &'static str {
         PassKind::ForwardTransparentCullFront => "forward_transparent_cull_front",
         PassKind::ForwardTransparentCullBack => "forward_transparent_cull_back",
         PassKind::TransparentRgb => "transparent_rgb",
+        PassKind::VolumeFront => "volume_front",
         PassKind::Outline => "outline",
         PassKind::Stencil => "stencil",
         PassKind::DepthPrepass => "depth_prepass",
@@ -582,6 +592,20 @@ pub fn materialized_pass_for_blend_mode(
                 ..*pass
             }
         }
+        MaterialPassState::TransparentForward => match blend_mode {
+            MaterialBlendMode::StemDefault | MaterialBlendMode::Opaque => *pass,
+            MaterialBlendMode::UnityBlend { src, dst } => {
+                let Some(blend) = unity_blend_state(src, dst) else {
+                    return *pass;
+                };
+                MaterialPassDesc {
+                    blend: Some(blend),
+                    write_mask: wgpu::ColorWrites::ALL,
+                    depth_write: false,
+                    ..*pass
+                }
+            }
+        },
         MaterialPassState::Overlay => {
             let Some((src, dst)) = blend_mode.unity_blend_factors() else {
                 return *pass;

@@ -6,13 +6,11 @@
 //!   ([`crate::frontend::RendererFrontend::on_tick_frame_wall_clock`]). No smoothing.
 //! - `fps` -- count-based rolling average over a [`FPS_WINDOW`] window: `frame_count /
 //!   elapsed_seconds` recomputed once each time the window closes, otherwise the previously
-//!   computed value is carried forward unchanged. Mirrors `PerformanceStats.Update` in the
-//!   renderer behavior. Stable for ~[`FPS_WINDOW`] at a time so the host-side
+//!   computed value is carried forward unchanged. Stable for ~[`FPS_WINDOW`] at a time so the host-side
 //!   `Sync<float> FPS.Value` change events fire at the window cadence rather than every frame.
 //! - `render_time` -- most recently completed GPU submit->idle wall-clock duration in seconds
 //!   ([`crate::gpu::GpuContext::last_completed_gpu_render_time_seconds`]); excludes the post-submit
-//!   present/vsync block. Reports `-1.0` when no GPU completion callback has fired yet, mirroring the
-//!   `XRStats.TryGetGPUTimeLastFrame` sentinel.
+//!   present/vsync block. Reports `-1.0` when no GPU completion callback has fired yet.
 //! - `rendered_frames_since_last` -- number of completed renderer ticks since the previous
 //!   `FrameStartData` send. `1` in lockstep, `> 1` when the renderer ticked multiple times per
 //!   host submit (i.e. host is slow and the renderer kept rendering). Drives
@@ -43,13 +41,10 @@ pub(crate) use asset_integration::{
 };
 pub(crate) use state::FrameStartPerformanceState;
 
-/// Window length for the count-based `fps` rolling average. Matches the `>= 500` ms threshold
-/// inside `PerformanceStats.Update`.
+/// Window length for the count-based `fps` rolling average.
 pub(crate) const FPS_WINDOW: Duration = Duration::from_millis(500);
 
-/// Sentinel reported in `render_time` until the first GPU completion callback has fired, matching
-/// the renderer behavior of `state.renderTime = -1` when `XRStats.TryGetGPUTimeLastFrame` has no
-/// sample yet.
+/// Sentinel reported in `render_time` until the first GPU completion callback has fired.
 pub(crate) const RENDER_TIME_UNAVAILABLE: f32 = -1.0;
 
 /// Builds a [`PerformanceState`] for this frame.

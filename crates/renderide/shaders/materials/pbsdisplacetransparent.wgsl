@@ -225,10 +225,7 @@ fn shade(
     let base_color = c.rgb;
     let surface = psurf::metallic(base_color, c.a, metallic, roughness, occlusion, n, emission);
     let options = plight::ClusterLightingOptions(include_directional, include_local, true, true);
-    return vec4<f32>(
-        plight::shade_metallic_clustered(frag_xy, world_pos, view_layer, surface, options),
-        c.a,
-    );
+    return plight::shade_metallic_transparent_clustered(frag_xy, world_pos, view_layer, surface, options);
 }
 
 //#pass forward_transparent

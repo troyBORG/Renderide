@@ -1,7 +1,7 @@
 //! Unity surface shader `Shader "Custom/FaceExplodeShader"`: metallic Standard lighting with a
 //! per-vertex displacement along the normal scaled by `_Explode`.
 //!
-//! Mirrors `pbsmetallic` for shading; the only difference is the normal-scaled vertex offset.
+//! Shares `pbsmetallic` shading; the only difference is the normal-scaled vertex offset.
 
 
 #import renderide::draw::per_draw as pd

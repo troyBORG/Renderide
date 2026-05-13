@@ -39,7 +39,3 @@ Include host/bootstrapper logs too if they help. If logs are unavailable, say wh
 
 **Extra materials**
 <!-- Crash dumps, GPU captures, Tracy captures, screenshots, videos, or small repro assets can go here. -->
-
-
-**Platform**
-<!-- The renderer log normally includes platform details. Add anything missing, such as OS, GPU, driver, headset/runtime, launch mode, or last known good build. -->

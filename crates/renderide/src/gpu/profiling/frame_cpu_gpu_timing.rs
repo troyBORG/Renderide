@@ -2,8 +2,7 @@
 //! roundtrip between consecutive frame starts.
 //!
 //! Three numbers are tracked, each chosen so its label matches what the user expects from a
-//! mainstream profiler overlay (Bevy `FrameTimeDiagnosticsPlugin`, Filament `FrameInfo`,
-//! MangoHud-style HUDs):
+//! mainstream profiler overlay:
 //!
 //! - **CPU frame ms** -- wall-clock between [`Self::begin_frame`] and the matching
 //!   [`Self::record_main_thread_cpu_end`] call from the runtime tick epilogue, both on the
@@ -29,9 +28,9 @@
 //! shown to the user always belong to the same frame, so the relationship
 //! `Frame >= max(CPU, GPU)` (in steady state) is observable on the overlay.
 //!
-//! `submit_latency_ms` is retained as a Filament-style "backend cost" measurement (frame_start
-//! -> `Queue::submit` returning on the driver thread) but is not displayed in the default HUD;
-//! reach for it when investigating driver-thread back-pressure.
+//! `submit_latency_ms` is retained as a backend-cost measurement (frame_start ->
+//! `Queue::submit` returning on the driver thread) but is not displayed in the default HUD; reach
+//! for it when investigating driver-thread back-pressure.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};

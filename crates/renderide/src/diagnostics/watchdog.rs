@@ -10,9 +10,9 @@
 //!
 //! # Design
 //!
-//! - **Single pet site per thread, per loop iteration.** Mirrors Unreal's `FThreadHeartBeat`.
-//!   Long-but-legitimate stalls (initial pipeline compile, `xrWaitFrame`, swapchain reconfigure)
-//!   are bracketed with [`WatchdogPause`] rather than sprinkling extra pets through the frame.
+//! - **Single pet site per thread, per loop iteration.** Long-but-legitimate stalls (initial
+//!   pipeline compile, `xrWaitFrame`, swapchain reconfigure) are bracketed with [`WatchdogPause`]
+//!   rather than sprinkling extra pets through the frame.
 //! - **Two thresholds**: a *hitch* threshold ([`crate::config::WatchdogSettings::hitch_threshold_ms`])
 //!   produces a `warn` log line; a *hang* threshold ([`crate::config::WatchdogSettings::hang_threshold_ms`])
 //!   captures stacks and emits an `error` line.

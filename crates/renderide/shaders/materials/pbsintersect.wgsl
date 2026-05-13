@@ -148,12 +148,11 @@ fn fs_main(
     emission = emission + mat._IntersectEmissionColor.rgb * intersect_lerp;
 
     let surface = psurf::metallic(base_color, alpha, metallic, roughness, occlusion, n, emission);
-    let color = plight::shade_metallic_clustered(
+    return plight::shade_metallic_transparent_clustered(
         frag_pos.xy,
         world_pos,
         view_layer,
         surface,
         plight::default_lighting_options(),
     );
-    return vec4<f32>(color, alpha);
 }

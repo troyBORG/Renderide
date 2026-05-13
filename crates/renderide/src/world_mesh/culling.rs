@@ -58,7 +58,7 @@ pub struct HiZTemporalState {
 /// [`HostCameraFrame::explicit_world_to_view`]).
 pub fn capture_hi_z_temporal(
     scene: &SceneCoordinator,
-    prev_cull: WorldMeshCullProjParams,
+    prev_cull: &WorldMeshCullProjParams,
     full_viewport_px: (u32, u32),
     explicit_world_to_view: Option<Mat4>,
 ) -> HiZTemporalState {
@@ -79,7 +79,7 @@ pub fn capture_hi_z_temporal(
     }
     let depth_viewport_px = hi_z_pyramid_dimensions(full_viewport_px.0, full_viewport_px.1);
     HiZTemporalState {
-        prev_cull,
+        prev_cull: *prev_cull,
         prev_view_by_space: Arc::new(prev_view_by_space),
         depth_viewport_px,
     }
@@ -158,7 +158,7 @@ mod tests {
             vr_stereo: None,
         };
         let m = Mat4::from_translation(glam::Vec3::new(3.0, 0.0, 0.0));
-        let t = capture_hi_z_temporal(&scene, prev, (1920, 1080), Some(m));
+        let t = capture_hi_z_temporal(&scene, &prev, (1920, 1080), Some(m));
         assert_eq!(t.prev_view_by_space.len(), 2);
         for id in scene.render_space_ids() {
             assert_eq!(t.prev_view_by_space.get(&id).copied(), Some(m));
@@ -181,7 +181,7 @@ mod tests {
             overlay_proj: Mat4::IDENTITY,
             vr_stereo: None,
         };
-        let t = capture_hi_z_temporal(&scene, prev, (800, 600), None);
+        let t = capture_hi_z_temporal(&scene, &prev, (800, 600), None);
         assert_eq!(
             t.prev_view_by_space.get(&RenderSpaceId(5)).copied(),
             Some(expected)

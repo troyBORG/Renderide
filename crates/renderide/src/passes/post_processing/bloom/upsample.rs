@@ -19,8 +19,8 @@ use crate::render_graph::resources::TextureHandle;
 
 /// Reads bloom mip `i` (input) and blends into bloom mip `i-1` (output) using a constant-factor
 /// blend whose strength is derived from the live [`BloomSettings`] each frame. The blend factor
-/// is computed by [`super::compute_blend_factor`] (direct port of Bevy `compute_blend_factor`)
-/// and uploaded via [`wgpu::RenderPass::set_blend_constant`]; the pipeline variant
+/// is computed by [`super::compute_blend_factor`] and uploaded via
+/// [`wgpu::RenderPass::set_blend_constant`]; the pipeline variant
 /// ([`BloomPipelineKind::UpsampleEnergyConserving`] vs [`BloomPipelineKind::UpsampleAdditive`]) is
 /// also chosen at record time from the live composite-mode setting, so slider edits propagate
 /// without rebuilding the render graph.

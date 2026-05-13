@@ -7,9 +7,8 @@
 //! (RNM) per plane, after Ben Golus's 2017 example. World-space vs object-space is selected by the
 //! `_OBJECTSPACE` / `_WORLDSPACE` keyword pair.
 //!
-//! Back faces flip the shading normal across the geometric tangent plane, matching Unity's
-//! `if (IN.facing < 0.5) o.Normal.z *= -1` so dual-sided meshes shade correctly when the host
-//! disables culling.
+//! Back faces flip the shading normal across the geometric tangent plane so dual-sided meshes
+//! shade correctly when the host disables culling.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSTriplanar's
 //! shader-specific keyword bits locally.

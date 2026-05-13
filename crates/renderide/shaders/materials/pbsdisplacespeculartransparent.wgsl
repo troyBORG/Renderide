@@ -243,10 +243,7 @@ fn shade(
     let base_color = c.rgb;
     let surface = psurf::specular(base_color, c.a, f0, roughness, occlusion, n, emission);
     let options = plight::ClusterLightingOptions(include_directional, include_local, true, true);
-    return vec4<f32>(
-        plight::shade_specular_clustered(frag_xy, world_pos, view_layer, surface, options),
-        c.a,
-    );
+    return plight::shade_specular_transparent_clustered(frag_xy, world_pos, view_layer, surface, options);
 }
 
 //#pass forward_transparent

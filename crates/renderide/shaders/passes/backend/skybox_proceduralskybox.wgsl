@@ -1,6 +1,6 @@
 //! Fullscreen ProceduralSkybox sky draw.
 //!
-//! Material struct mirrors `materials/proceduralskybox.wgsl` exactly so the reflected
+//! Material struct matches `materials/proceduralskybox.wgsl` so the reflected
 //! `@group(1) @binding(0)` layout (which is taken from the material-side shader) matches
 //! this pass-side shader's bind requirement. Froox variant bits populate
 //! `_RenderideVariantBits`; this shader decodes ProceduralSky's shader-specific keyword

@@ -48,7 +48,7 @@ impl RendererRuntime {
             return;
         }
 
-        let base_camera = self.host_camera;
+        let base_camera = &self.host_camera;
         let mut active =
             std::mem::take(&mut self.tick_state.active_onchanges_reflection_probe_captures);
         let mut still_active = Vec::with_capacity(active.len());
@@ -164,7 +164,7 @@ struct OnChangesCaptureStepCtx<'a> {
     gpu: &'a mut GpuContext,
     backend: &'a mut RenderBackend,
     scene: &'a SceneCoordinator,
-    base_camera: HostCameraFrame,
+    base_camera: &'a HostCameraFrame,
     capture: &'a mut ActiveOnChangesReflectionProbeCapture,
 }
 
@@ -275,7 +275,7 @@ fn onchanges_capture_state(
 
 fn plan_onchanges_reflection_probe_faces(
     scene: &SceneCoordinator,
-    base_camera: HostCameraFrame,
+    base_camera: &HostCameraFrame,
     capture: &ActiveOnChangesReflectionProbeCapture,
     state: ReflectionProbeState,
     faces: &[ProbeCubeFace],

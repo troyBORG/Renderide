@@ -2,6 +2,297 @@
 
 use super::*;
 
+fn pass_directives(src: &str) -> Vec<&str> {
+    src.lines()
+        .filter_map(|line| {
+            line.trim_start()
+                .strip_prefix("//#pass ")
+                .map(|rest| rest.split_whitespace().next().unwrap_or(rest))
+        })
+        .collect()
+}
+
+fn assert_keyword_bit(src: &str, file_name: &str, constant_name: &str, bit_index: u32) {
+    let needle = format!("const {constant_name}: u32 = 1u << {bit_index}u;");
+    assert!(src.contains(&needle), "{file_name} must define `{needle}`");
+}
+
+#[test]
+fn selected_pbs_materials_keep_sorted_shader_variant_bits() -> io::Result<()> {
+    let pbs_stencil_specular = material_source("pbsstencilspecular.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSSTENCILSPECULAR_KW_ALBEDOTEX", 0),
+        ("PBSSTENCILSPECULAR_KW_EMISSIONTEX", 1),
+        ("PBSSTENCILSPECULAR_KW_NORMALMAP", 2),
+        ("PBSSTENCILSPECULAR_KW_OCCLUSION", 3),
+        ("PBSSTENCILSPECULAR_KW_SPECULARMAP", 4),
+    ] {
+        assert_keyword_bit(
+            &pbs_stencil_specular,
+            "pbsstencilspecular.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_triplanar = material_source("pbstriplanar.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSTRIPLANAR_KW_ALBEDOTEX", 0),
+        ("PBSTRIPLANAR_KW_EMISSIONTEX", 1),
+        ("PBSTRIPLANAR_KW_METALLICMAP", 2),
+        ("PBSTRIPLANAR_KW_NORMALMAP", 3),
+        ("PBSTRIPLANAR_KW_OBJECTSPACE", 4),
+        ("PBSTRIPLANAR_KW_OCCLUSION", 5),
+        ("PBSTRIPLANAR_KW_WORLDSPACE", 6),
+    ] {
+        assert_keyword_bit(
+            &pbs_triplanar,
+            "pbstriplanar.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_triplanar_specular = material_source("pbstriplanarspecular.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSTRIPLANARSPEC_KW_ALBEDOTEX", 0),
+        ("PBSTRIPLANARSPEC_KW_EMISSIONTEX", 1),
+        ("PBSTRIPLANARSPEC_KW_NORMALMAP", 2),
+        ("PBSTRIPLANARSPEC_KW_OBJECTSPACE", 3),
+        ("PBSTRIPLANARSPEC_KW_OCCLUSION", 4),
+        ("PBSTRIPLANARSPEC_KW_SPECULARMAP", 5),
+        ("PBSTRIPLANARSPEC_KW_WORLDSPACE", 6),
+    ] {
+        assert_keyword_bit(
+            &pbs_triplanar_specular,
+            "pbstriplanarspecular.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_vertex_color_transparent = material_source("pbsvertexcolortransparent.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSVCT_KW_ALBEDOTEX", 0),
+        ("PBSVCT_KW_ALPHACLIP", 1),
+        ("PBSVCT_KW_EMISSIONTEX", 2),
+        ("PBSVCT_KW_METALLICMAP", 3),
+        ("PBSVCT_KW_NORMALMAP", 4),
+        ("PBSVCT_KW_OCCLUSION", 5),
+        ("PBSVCT_KW_VCOLOR_ALBEDO", 6),
+        ("PBSVCT_KW_VCOLOR_EMIT", 7),
+        ("PBSVCT_KW_VCOLOR_METALLIC", 8),
+    ] {
+        assert_keyword_bit(
+            &pbs_vertex_color_transparent,
+            "pbsvertexcolortransparent.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pbs_vertex_color_transparent_specular =
+        material_source("pbsvertexcolortransparentspecular.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PBSVCTS_KW_ALBEDOTEX", 0),
+        ("PBSVCTS_KW_ALPHACLIP", 1),
+        ("PBSVCTS_KW_EMISSIONTEX", 2),
+        ("PBSVCTS_KW_NORMALMAP", 3),
+        ("PBSVCTS_KW_OCCLUSION", 4),
+        ("PBSVCTS_KW_SPECULARMAP", 5),
+        ("PBSVCTS_KW_VCOLOR_ALBEDO", 6),
+        ("PBSVCTS_KW_VCOLOR_EMIT", 7),
+        ("PBSVCTS_KW_VCOLOR_SPECULAR", 8),
+    ] {
+        assert_keyword_bit(
+            &pbs_vertex_color_transparent_specular,
+            "pbsvertexcolortransparentspecular.wgsl",
+            constant_name,
+            bit_index,
+        );
+    }
+
+    let pixelate = material_source("pixelate.wgsl")?;
+    for (constant_name, bit_index) in [
+        ("PIXELATE_KW_RECTCLIP", 0),
+        ("PIXELATE_KW_RESOLUTION_TEX", 1),
+    ] {
+        assert_keyword_bit(&pixelate, "pixelate.wgsl", constant_name, bit_index);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
+    for material in [
+        "pbsdisplacetransparent.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+        "pbsdistancelerptransparent.wgsl",
+        "pbsdistancelerpspeculartransparent.wgsl",
+        "pbsintersect.wgsl",
+        "pbsintersectspecular.wgsl",
+        "pbsrimtransparent.wgsl",
+        "pbsrimtransparentspecular.wgsl",
+        "pbsslicetransparent.wgsl",
+        "pbsslicetransparentspecular.wgsl",
+        "pbstriplanartransparent.wgsl",
+        "pbstriplanartransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(pass_directives(&src), ["forward_transparent"], "{material}");
+    }
+
+    for material in [
+        "pbsrimtransparentzwrite.wgsl",
+        "pbsrimtransparentzwritespecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(
+            pass_directives(&src),
+            ["depth_prepass", "forward_transparent"],
+            "{material}"
+        );
+    }
+
+    for material in [
+        "pbsvertexcolortransparent.wgsl",
+        "pbsvertexcolortransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(
+            pass_directives(&src),
+            ["forward_transparent_cull_back"],
+            "{material}"
+        );
+    }
+
+    for material in [
+        "pbsdualsidedtransparent.wgsl",
+        "pbsdualsidedtransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert_eq!(
+            pass_directives(&src),
+            [
+                "forward_transparent_cull_front",
+                "forward_transparent_cull_back"
+            ],
+            "{material}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn pbs_transparent_roots_use_premultiplied_transparent_lighting() -> io::Result<()> {
+    for material in [
+        "pbsdisplacetransparent.wgsl",
+        "pbsdistancelerptransparent.wgsl",
+        "pbsdualsidedtransparent.wgsl",
+        "pbsintersect.wgsl",
+        "pbsrimtransparent.wgsl",
+        "pbsrimtransparentzwrite.wgsl",
+        "pbsslicetransparent.wgsl",
+        "pbstriplanartransparent.wgsl",
+        "pbsvertexcolortransparent.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("plight::shade_metallic_transparent_clustered("),
+            "{material} must use Unity-style premultiplied metallic transparency"
+        );
+        assert!(
+            !src.contains("plight::shade_metallic_clustered("),
+            "{material} must not return straight-alpha metallic lighting"
+        );
+    }
+
+    for material in [
+        "pbsdisplacespeculartransparent.wgsl",
+        "pbsdistancelerpspeculartransparent.wgsl",
+        "pbsdualsidedtransparentspecular.wgsl",
+        "pbsintersectspecular.wgsl",
+        "pbsrimtransparentspecular.wgsl",
+        "pbsrimtransparentzwritespecular.wgsl",
+        "pbsslicetransparentspecular.wgsl",
+        "pbstriplanartransparentspecular.wgsl",
+        "pbsvertexcolortransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("plight::shade_specular_transparent_clustered("),
+            "{material} must use Unity-style premultiplied specular transparency"
+        );
+        assert!(
+            !src.contains("plight::shade_specular_clustered("),
+            "{material} must not return straight-alpha specular lighting"
+        );
+    }
+
+    let lighting = module_source("pbs/lighting.wgsl")?;
+    assert!(
+        lighting.contains("brdf::unity_premultiplied_alpha(s.alpha, one_minus_reflectivity)")
+            && lighting
+                .contains("brdf::unity_premultiplied_alpha(s.alpha, s.one_minus_reflectivity)"),
+        "PBS transparent helpers must write Unity's reflectivity-adjusted premultiplied alpha"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn generic_pbs_premultiply_variants_use_unity_transparent_lighting() -> io::Result<()> {
+    let metallic = material_source("pbsmetallic.wgsl")?;
+    for required in [
+        "fn alpha_premultiply_enabled() -> bool",
+        "if (alpha_premultiply_enabled())",
+        "plight::shade_metallic_transparent_clustered(",
+        "return vec4<f32>(color, s.alpha);",
+    ] {
+        assert!(
+            metallic.contains(required),
+            "pbsmetallic.wgsl must contain `{required}`"
+        );
+    }
+    for forbidden in [
+        "fn apply_premultiply(",
+        "return select(color, color * alpha, alpha_premultiply_enabled());",
+        "return vec4<f32>(apply_premultiply(color, s.alpha), s.alpha);",
+    ] {
+        assert!(
+            !metallic.contains(forbidden),
+            "pbsmetallic.wgsl must not premultiply final lit RGB with `{forbidden}`"
+        );
+    }
+
+    let specular = material_source("pbsspecular.wgsl")?;
+    for required in [
+        "fn alpha_premultiply_enabled() -> bool",
+        "if (alpha_premultiply_enabled())",
+        "plight::shade_specular_transparent_clustered(",
+        "return vec4<f32>(color, s.alpha);",
+    ] {
+        assert!(
+            specular.contains(required),
+            "pbsspecular.wgsl must contain `{required}`"
+        );
+    }
+    for forbidden in [
+        "fn apply_premultiply(",
+        "return select(color, color * alpha, alpha_premultiply_enabled());",
+        "return vec4<f32>(apply_premultiply(color, s.alpha), s.alpha);",
+    ] {
+        assert!(
+            !specular.contains(forbidden),
+            "pbsspecular.wgsl must not premultiply final lit RGB with `{forbidden}`"
+        );
+    }
+
+    Ok(())
+}
+
 #[test]
 fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
     let birp = module_source("lighting/birp.wgsl")?;

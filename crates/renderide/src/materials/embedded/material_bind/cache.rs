@@ -86,7 +86,7 @@ impl EmbeddedSamplerCacheKey {
         }
     }
 
-    /// Builds a cubemap sampler cache key. `wrap_w` mirrors `wrap_u` because the host cubemap
+    /// Builds a cubemap sampler cache key. `wrap_w` follows `wrap_u` because the host cubemap
     /// properties carry no third axis.
     pub(super) fn cubemap(state: &SamplerState, mip_levels_resident: u32) -> Self {
         Self {

@@ -55,8 +55,8 @@ struct PackedForwardDraws {
 /// Copies Hi-Z temporal state for the next frame when culling is active.
 pub(super) fn capture_hi_z_temporal_after_collect(
     frame: &GraphPassFrame<'_>,
-    cull_proj: Option<WorldMeshCullProjParams>,
-    hc: HostCameraFrame,
+    cull_proj: Option<&WorldMeshCullProjParams>,
+    hc: &HostCameraFrame,
 ) {
     if hc.suppress_occlusion_temporal {
         return;
@@ -124,7 +124,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
         skybox_renderer,
     } = ctx;
     let supports_base_instance = gpu_limits.supports_base_instance;
-    let hc = frame.view.host_camera;
+    let hc = &frame.view.host_camera;
     let pipeline = {
         profiling::scope!("world_mesh::prepare_frame::resolve_pass_config");
         resolve_pass_config(
@@ -142,7 +142,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
     let helper_needs = prefetched.helper_needs;
     {
         profiling::scope!("world_mesh::prepare_frame::capture_hi_z_temporal");
-        capture_hi_z_temporal_after_collect(frame, prefetched.cull_proj, hc);
+        capture_hi_z_temporal_after_collect(frame, prefetched.cull_proj.as_ref(), hc);
     }
 
     let hud_outputs = {
@@ -226,7 +226,7 @@ fn pack_forward_draws_for_view(
     uploads: GraphUploadSink<'_>,
     frame: &GraphPassFrame<'_>,
     supports_base_instance: bool,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     draws: Vec<WorldMeshDrawItem>,
 ) -> Option<PackedForwardDraws> {
     let (render_context, world_proj, overlay_proj) = {
@@ -279,7 +279,7 @@ fn precompute_and_assign_material_batches(
     offscreen_write_rt: Option<i32>,
     plan: &mut InstancePlan,
 ) -> Vec<MaterialBatchPacket> {
-    // Resolve per-batch pipelines and @group(1) bind groups in parallel (Filament phase-A).
+    // Resolve per-batch pipelines and @group(1) bind groups in parallel.
     // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
     let mut precomputed_batches = Vec::new();
     let mut resolve = |boundaries_scratch: &mut Vec<MaterialBatchBoundary>| {

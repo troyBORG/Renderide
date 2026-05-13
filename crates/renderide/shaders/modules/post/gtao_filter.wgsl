@@ -1,8 +1,7 @@
-//! XeGTAO depth-aware-filter helpers shared by `gtao_main`, `gtao_denoise`, and `gtao_apply`.
+//! GTAO depth-aware-filter helpers shared by `gtao_main`, `gtao_denoise`, and `gtao_apply`.
 //!
-//! The math is a direct port of `XeGTAO_CalculateEdges` / `XeGTAO_PackEdges` /
-//! `XeGTAO_UnpackEdges` from `XeGTAO.hlsli` (Intel reference, 2021-22). Constants match the
-//! reference exactly:
+//! The filter packs depth-edge weights into a single `R8Unorm` value, applies a symmetric
+//! cardinal-edge correction, and evaluates a 3x3 bilateral kernel. Key constants:
 //!
 //! - `OCCLUSION_TERM_SCALE = 1.5` -- the AO production pass stores `saturate(visibility / 1.5)`
 //!   so the bilateral kernel has headroom when summing weighted neighbours; the final-apply
@@ -18,30 +17,26 @@
 
 #define_import_path renderide::post::gtao_filter
 
-/// Headroom factor applied at production / removed at final apply. Matches XeGTAO's
-/// `XE_GTAO_OCCLUSION_TERM_SCALE`.
+/// Headroom factor applied at production / removed at final apply.
 const GTAO_OCCLUSION_TERM_SCALE: f32 = 1.5;
 
-/// Diagonal-neighbour weight in the 3x3 bilateral kernel. Matches XeGTAO's `0.85 * 0.5` literal.
+/// Diagonal-neighbour weight in the 3x3 bilateral kernel.
 const GTAO_DIAG_WEIGHT: f32 = 0.425;
 
-/// Edge sum at which the per-pixel "edge leak" begins to take effect. XeGTAO references 2.5
-/// in `XeGTAO_Denoise` (commented "this allows some small amount of AO leaking from neighbours
-/// if there are 3 or 4 edges").
+/// Edge sum at which the per-pixel "edge leak" begins to take effect.
 const GTAO_LEAK_THRESHOLD: f32 = 2.5;
 
 /// Strength of the per-pixel "edge leak" added on top of the cardinal edge weights.
 const GTAO_LEAK_STRENGTH: f32 = 0.5;
 
-/// Direct port of `XeGTAO_CalculateEdges`. Returns four edge weights in `LRTB` order; `1.0`
-/// means "no edge" (full bilateral connectivity), `0.0` means "strong edge" (kernel weight
-/// drops to zero across the boundary).
+/// Calculates four edge weights in `LRTB` order; `1.0` means "no edge" (full bilateral
+/// connectivity), `0.0` means "strong edge" (kernel weight drops to zero across the boundary).
 ///
 /// `depth_*` are positive view-space depths. The slope-correction terms (`slope_lr`,
 /// `slope_tb`) suppress false silhouettes on slanted surfaces by predicting the
-/// depth-difference that pure perspective foreshortening would already produce. XeGTAO then
-/// takes the `min(abs(raw), abs(slope_adjusted))` (not just the slope-adjusted edges) so a
-/// flat slope still detects true geometric edges that happen to align with the slope vector.
+/// depth-difference that pure perspective foreshortening would already produce. Taking
+/// `min(abs(raw), abs(slope_adjusted))` (not just the slope-adjusted edges) keeps flat slopes
+/// able to detect true geometric edges that happen to align with the slope vector.
 fn gtao_calculate_edges(
     depth_center: f32,
     depth_left: f32,
@@ -69,12 +64,10 @@ fn gtao_calculate_edges(
     );
 }
 
-/// Direct port of `XeGTAO_PackEdges`. Quantises four `LRTB` edges to four levels each
-/// (`0`, `1/3`, `2/3`, `1`) and packs them into a single `R8Unorm` value.
+/// Quantises four `LRTB` edges to four levels each (`0`, `1/3`, `2/3`, `1`) and packs them into
+/// a single `R8Unorm` value.
 ///
-/// XeGTAO uses `round(saturate(*) * 2.9)` rather than `* 3.0` to bias slightly toward the
-/// "strong edge" buckets -- this matches the reference exactly so any tuning done against the
-/// reference numbers carries over.
+/// The `2.9` scale biases slightly toward the "strong edge" buckets compared with `3.0`.
 fn gtao_pack_edges(edges_lrtb: vec4<f32>) -> f32 {
     let q = round(clamp(edges_lrtb, vec4<f32>(0.0), vec4<f32>(1.0)) * 2.9);
     return dot(
@@ -83,11 +76,10 @@ fn gtao_pack_edges(edges_lrtb: vec4<f32>) -> f32 {
     );
 }
 
-/// Direct port of `XeGTAO_UnpackEdges`. Inverse of `gtao_pack_edges`.
+/// Inverse of `gtao_pack_edges`.
 ///
-/// Note the `* 255.5` (not `255.0`) inside the reference -- the extra `0.5` rounds the unorm
-/// sample into the correct integer bucket without an explicit `round`. We keep the literal
-/// since later code does its own `saturate`.
+/// The extra `0.5` in `255.5` rounds the unorm sample into the correct integer bucket without an
+/// explicit `round`. Keep the literal since later code does its own `saturate`.
 fn gtao_unpack_edges(packed: f32) -> vec4<f32> {
     let p = u32(clamp(packed, 0.0, 1.0) * 255.5);
     return clamp(
@@ -102,11 +94,11 @@ fn gtao_unpack_edges(packed: f32) -> vec4<f32> {
     );
 }
 
-/// XeGTAO's per-pixel "edge leak" (`XeGTAO_Denoise` lines 772-776). When the four cardinal
-/// edges sum below `4 - LEAK_THRESHOLD = 1.5` (i.e. three or four directions are strong
-/// edges), allow up to `LEAK_STRENGTH = 0.5` of bilateral leakage so neighbour AO can flow
-/// past the edge cluster. This prevents both spatial aliasing and TAA shimmer at silhouette
-/// pixels surrounded on multiple sides by depth discontinuities.
+/// Per-pixel "edge leak". When the four cardinal edges sum below
+/// `4 - LEAK_THRESHOLD = 1.5` (i.e. three or four directions are strong edges), allow up to
+/// `LEAK_STRENGTH = 0.5` of bilateral leakage so neighbour AO can flow past the edge cluster.
+/// This prevents both spatial aliasing and TAA shimmer at silhouette pixels surrounded on
+/// multiple sides by depth discontinuities.
 fn gtao_apply_edge_leak(edges_c_lrtb: vec4<f32>) -> vec4<f32> {
     let edginess = (clamp(
         4.0 - GTAO_LEAK_THRESHOLD - dot(edges_c_lrtb, vec4<f32>(1.0)),
@@ -116,12 +108,9 @@ fn gtao_apply_edge_leak(edges_c_lrtb: vec4<f32>) -> vec4<f32> {
     return clamp(edges_c_lrtb + vec4<f32>(edginess), vec4<f32>(0.0), vec4<f32>(1.0));
 }
 
-/// `LRTB` cardinal edge weights, with the per-direction symmetricity correction from
-/// `XeGTAO_Denoise` line 770: a center-to-neighbour weight is multiplied by the neighbour's
-/// edge weight pointing back at the center (`L`'s right edge gates `C`'s left direction,
-/// etc.). XeGTAO calls this out specifically: "edges aren't perfectly symmetrical... this line
-/// further enforces the symmetricity, creating a slightly sharper blur. Works real nice with
-/// TAA."
+/// `LRTB` cardinal edge weights with a per-direction symmetricity correction: a
+/// center-to-neighbour weight is multiplied by the neighbour's edge weight pointing back at the
+/// center (`L`'s right edge gates `C`'s left direction, etc.).
 fn gtao_symmetricise_edges(
     edges_c_lrtb: vec4<f32>,
     edges_l_lrtb: vec4<f32>,
@@ -137,10 +126,9 @@ fn gtao_symmetricise_edges(
     );
 }
 
-/// Diagonal weights from `XeGTAO_Denoise` lines 785-788. Each diagonal uses the two cardinal
-/// edges that straddle it, contributed by both the center pixel and the relevant immediate
-/// neighbour, summed and scaled by `DIAG_WEIGHT`. Indices (`LRTB`): `x = L`, `y = R`, `z = T`,
-/// `w = B`.
+/// Diagonal weights for the 3x3 bilateral kernel. Each diagonal uses the two cardinal edges that
+/// straddle it, contributed by both the center pixel and the relevant immediate neighbour, summed
+/// and scaled by `DIAG_WEIGHT`. Indices (`LRTB`): `x = L`, `y = R`, `z = T`, `w = B`.
 struct GtaoDiagonalWeights {
     tl: f32,
     tr: f32,
@@ -181,9 +169,9 @@ struct GtaoKernelAo {
     br: f32,
 }
 
-/// XeGTAO's bilateral-kernel core (`XeGTAO_Denoise` lines 801-814). `blur_amount` is the
-/// caller-supplied `XeGTAO_AddSample` seed weight -- `denoise_blur_beta` for the final-apply
-/// pass, `denoise_blur_beta / 5.0` for the intermediate denoise pass.
+/// Bilateral-kernel core. `blur_amount` is the caller-supplied seed weight:
+/// `denoise_blur_beta` for the final-apply pass, `denoise_blur_beta / 5.0` for the intermediate
+/// denoise pass.
 ///
 /// Returns the weighted-average AO term in the same `[0, 1]` scale as the inputs (the
 /// production pass stores `visibility / OCCLUSION_TERM_SCALE`, and this kernel preserves

@@ -171,7 +171,7 @@ impl CompiledRenderGraph {
             helpers::GraphPassFrameViewInputs {
                 resolved,
                 scene_color_format: shared.scene_color_format,
-                host_camera: *host_camera,
+                host_camera,
                 render_context,
                 clear,
                 post_processing: resolved.post_processing,
@@ -312,7 +312,7 @@ impl CompiledRenderGraph {
                     scene,
                     &mut **backend,
                     &resolved,
-                    first.host_camera,
+                    &first.host_camera,
                     first.render_context,
                     first.clear,
                     first.post_processing,

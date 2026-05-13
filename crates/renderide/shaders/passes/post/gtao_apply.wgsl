@@ -2,9 +2,9 @@
 //!
 //! Reads the post-processing chain's HDR scene-color input plus the AO term and packed edges
 //! (from `gtao_main` directly when `denoise_passes in {0, 1}`, or from the last intermediate
-//! denoise ping-pong target when `denoise_passes >= 2`). Runs XeGTAO's edge-preserving 3x3
-//! bilateral kernel at the full `denoise_blur_beta` (`XeGTAO_Denoise` with
-//! `finalApply = true`), multiplies the resulting AO factor by `OCCLUSION_TERM_SCALE` to
+//! denoise ping-pong target when `denoise_passes >= 2`). Runs the edge-preserving 3x3
+//! bilateral kernel at the full `denoise_blur_beta` with `finalApply = true`, multiplies the
+//! resulting AO factor by `OCCLUSION_TERM_SCALE` to
 //! recover the true visibility (the production pass stored `visibility / 1.5` for kernel
 //! headroom), then modulates HDR scene color and writes the chain's HDR output.
 //!
@@ -40,10 +40,9 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> fs::FullscreenVertexOutput {
     return fs::vertex_main(vid);
 }
 
-/// Runs the XeGTAO bilateral kernel at the full `denoise_blur_beta` (XeGTAO's
-/// `XeGTAO_Denoise` with `finalApply = true`). Returns the denoised AO term in the
-/// production-scaled representation; the caller multiplies by `OCCLUSION_TERM_SCALE` to
-/// recover the true visibility before modulating HDR.
+/// Runs the bilateral kernel at the full `denoise_blur_beta`. Returns the denoised AO term in the
+/// production-scaled representation; the caller multiplies by `OCCLUSION_TERM_SCALE` to recover
+/// the true visibility before modulating HDR.
 fn final_denoise_at(pix: vec2<i32>, view_layer: u32, viewport_max: vec2<i32>) -> f32 {
     let edges_c = gt::load_edges_lrtb(ao_edges, pix, view_layer, viewport_max);
     let edges_l = gt::load_edges_lrtb(ao_edges, pix + vec2<i32>(-1, 0), view_layer, viewport_max);

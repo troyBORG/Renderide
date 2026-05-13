@@ -717,7 +717,7 @@ fn gtao_denoise_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut bo
 fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     let _id = ui.push_id("bloom");
     ui.text_disabled(
-        "Bloom (dual-filter, COD: Advanced Warfare / Bevy port): HDR-linear scatter via a \
+        "Bloom (dual-filter): HDR-linear scatter via a \
          mip-chain downsample/upsample pyramid with Karis firefly reduction on mip 0. Runs \
          pre-tonemap. Energy-conserving mode redistributes the bloom source term. Changing \
          `max mip dimension` rebuilds the render graph; other knobs take effect next frame via the \

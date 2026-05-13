@@ -13,7 +13,7 @@
 //! 3. The watchdog reads the captured instruction pointers out of the static buffer and then
 //!    symbolicates them -- heap allocation is fine here because we are no longer in signal context.
 //!
-//! Modeled after the existing two-phase pattern in [`crate::fatal_crash_log`] (signal-safe IP
+//! Uses the existing two-phase pattern in [`crate::fatal_crash_log`] (signal-safe IP
 //! capture, deferred symbolication via [`backtrace::resolve`]).
 
 use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};

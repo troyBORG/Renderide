@@ -58,7 +58,7 @@ impl FrameGpuUniforms {
     ///
     /// `params.view_space_z_coeffs_right` should equal `params.view_space_z_coeffs` in mono mode;
     /// `params.proj_params_right` should equal `params.proj_params_left` in mono mode.
-    pub fn new_clustered(params: ClusteredFrameGlobalsParams) -> Self {
+    pub fn new_clustered(params: &ClusteredFrameGlobalsParams) -> Self {
         Self {
             camera_world_pos: [
                 params.camera_world_pos.x,

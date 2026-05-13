@@ -6,7 +6,7 @@
 //! `multi_compile_fog` / `_fwdbase` / `_fwdadd_fullshadows` / `_shadowcaster` are not in
 //! `VariantGroups`, so they consume no bits.
 //!
-//! Two Unity tokens are composite per `XSDefines.cginc`:
+//! Two Unity tokens are composite:
 //!   * `OCCLUSION_METALLIC` enables both `OCCLUSION_MAP` and `METALLICGLOSS_MAP`.
 //!   * `RAMPMASK_OUTLINEMASK_THICKNESS` enables `RAMP_MASK`, `OUTLINE_MASK`, and `THICKNESS_MAP`.
 //!
@@ -58,7 +58,7 @@ fn xtoon_static_kw(mask: u32) -> bool {
     return vb::enabled(xb::mat._RenderideVariantBits, mask);
 }
 
-/// True when the shader's Unity source uses the static XSToon keyword layout.
+/// True when the shader uses the static XSToon keyword layout.
 fn static_vertexlight_layout(keyword_layout: u32) -> bool {
     return keyword_layout == XTOON_KEYWORD_LAYOUT_STATIC_VERTEXLIGHT;
 }
@@ -272,10 +272,8 @@ fn thickness_enabled_for_layout(keyword_layout: u32) -> bool {
     return kw_RAMPMASK_OUTLINEMASK_THICKNESS_for_layout(keyword_layout);
 }
 
-/// True when matcap mode is selected via the `MATCAP` keyword. XSToon 2.0 has no
-/// `_ReflectionMode` enum -- the `_ReflectionMode == 0/1/2/3` switch in
-/// `XSLightingFunctions.cginc:222, 235` is fully commented out in the upstream 2.0
-/// reference, leaving the `MATCAP` keyword as the only opt-in branch.
+/// True when matcap mode is selected via the `MATCAP` keyword. XSToon 2.0 has no active
+/// `_ReflectionMode` enum path, leaving the `MATCAP` keyword as the only opt-in branch.
 fn matcap_enabled() -> bool {
     return matcap_enabled_for_layout(XTOON_KEYWORD_LAYOUT_GENERIC);
 }
@@ -285,8 +283,8 @@ fn matcap_enabled_for_layout(keyword_layout: u32) -> bool {
     return kw_MATCAP_for_layout(keyword_layout);
 }
 
-/// True when the shader should use the skybox/PBR reflection branch (the default in
-/// Unity 2.0 whenever `MATCAP` is not set).
+/// True when the shader should use the skybox/PBR reflection branch by default whenever `MATCAP`
+/// is not set.
 fn reflection_uses_pbr() -> bool {
     return reflection_uses_pbr_for_layout(XTOON_KEYWORD_LAYOUT_GENERIC);
 }

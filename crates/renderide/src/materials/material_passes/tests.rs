@@ -72,6 +72,36 @@ fn resolves_xiexe_src_dst_base_blend_properties() {
 }
 
 #[test]
+fn froox_alpha_and_transparent_blend_factor_shapes_stay_distinct() {
+    let alpha = MaterialBlendMode::from_unity_blend_factors(5.0, 10.0);
+    let transparent = MaterialBlendMode::from_unity_blend_factors(1.0, 10.0);
+    assert_eq!(alpha, MaterialBlendMode::UnityBlend { src: 5, dst: 10 });
+    assert_eq!(
+        transparent,
+        MaterialBlendMode::UnityBlend { src: 1, dst: 10 }
+    );
+
+    let pass = pass_from_kind(PassKind::ForwardTransparent, "fs_forward_base");
+    let alpha_pass = materialized_pass_for_blend_mode(&pass, alpha);
+    let transparent_pass = materialized_pass_for_blend_mode(&pass, transparent);
+    let alpha_blend = alpha_pass.blend.expect("alpha blend");
+    let transparent_blend = transparent_pass.blend.expect("transparent blend");
+
+    assert_eq!(alpha_blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(
+        alpha_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+    assert_eq!(transparent_blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(
+        transparent_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+    assert!(!alpha_pass.depth_write);
+    assert!(!transparent_pass.depth_write);
+}
+
+#[test]
 fn property_block_blend_alias_overrides_material_alias() {
     let reg = PropertyIdRegistry::new();
     let ids = MaterialPipelinePropertyIds::new(&reg);
@@ -370,20 +400,20 @@ fn overlay_pass_uses_unity_rgb_blend_and_keeps_alpha_max() {
 }
 
 #[test]
-fn forward_transparent_defaults_to_unity_alpha_blend() {
+fn forward_transparent_defaults_to_unity_premultiplied_blend() {
     let pass = pass_from_kind(PassKind::ForwardTransparent, "fs_forward_base");
     let blend = pass.blend.expect("transparent default blend");
 
     assert!(!pass.depth_write);
     assert_eq!(pass.cull_mode, None);
     assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
-    assert_eq!(pass.material_state, MaterialPassState::Forward);
-    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(pass.material_state, MaterialPassState::TransparentForward);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
     assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
     assert_eq!(blend.color.operation, wgpu::BlendOperation::Add);
     assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
-    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
-    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Add);
 }
 
 #[test]
@@ -479,6 +509,24 @@ fn filter_pass_preserves_explicit_blend_one_zero_for_alpha_max() {
 }
 
 #[test]
+fn volume_front_pass_matches_unity_volume_state() {
+    let pass = pass_from_kind(PassKind::VolumeFront, "fs_volume");
+    let blend = pass.blend.expect("volume blend");
+
+    assert_eq!(pass.name, "volume_front");
+    assert_eq!(pass.material_state, MaterialPassState::Overlay);
+    assert_eq!(pass.depth_compare, wgpu::CompareFunction::Always);
+    assert!(!pass.depth_write);
+    assert_eq!(pass.cull_mode, Some(wgpu::Face::Front));
+    assert_eq!(pass.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::Zero);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+}
+
+#[test]
 fn base_refract_embedded_policy_ignores_host_ztest() {
     let pass = pass_from_kind(PassKind::ForwardFilter, "fs_main");
     let materialized = materialized_embedded_pass_for_blend_mode(
@@ -517,6 +565,20 @@ fn refract_perobject_keeps_host_ztest_policy() {
 }
 
 #[test]
+fn volume_front_preserves_explicit_one_zero_alpha_max_blend() {
+    let pass = pass_from_kind(PassKind::VolumeFront, "fs_volume");
+    let materialized =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 1, dst: 0 });
+    let blend = materialized.blend.expect("volume blend");
+
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::Zero);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+}
+
+#[test]
 fn overlay_always_pass_matches_fixed_overlay_shader_state() {
     let pass = pass_from_kind(PassKind::OverlayAlways, "fs_main");
     let blend = pass.blend.expect("overlay blend");
@@ -542,9 +604,51 @@ fn transparent_forward_host_blend_override_materializes() {
     assert_eq!(stem_default.write_mask, wgpu::ColorWrites::ALL);
 
     let opaque = materialized_pass_for_blend_mode(&pass, MaterialBlendMode::Opaque);
-    assert_eq!(opaque.blend, None);
-    assert!(opaque.depth_write);
-    assert_eq!(opaque.write_mask, wgpu::ColorWrites::COLOR);
+    let opaque_blend = opaque
+        .blend
+        .expect("opaque blend factors should preserve transparent source state");
+    assert!(!opaque.depth_write);
+    assert_eq!(opaque.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(opaque_blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(
+        opaque_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+
+    let premultiplied =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 1, dst: 10 });
+    let premultiplied_blend = premultiplied
+        .blend
+        .expect("non-opaque transparent override should materialize");
+    assert!(!premultiplied.depth_write);
+    assert_eq!(premultiplied.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(premultiplied_blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(
+        premultiplied_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+
+    let straight_alpha =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 5, dst: 10 });
+    let straight_alpha_blend = straight_alpha
+        .blend
+        .expect("explicit straight-alpha transparent override should materialize");
+    assert!(!straight_alpha.depth_write);
+    assert_eq!(straight_alpha.write_mask, wgpu::ColorWrites::ALL);
+    assert_eq!(
+        straight_alpha_blend.color.src_factor,
+        wgpu::BlendFactor::SrcAlpha
+    );
+    assert_eq!(
+        straight_alpha_blend.color.dst_factor,
+        wgpu::BlendFactor::OneMinusSrcAlpha
+    );
+
+    let explicit_one_zero =
+        materialized_pass_for_blend_mode(&pass, MaterialBlendMode::UnityBlend { src: 1, dst: 0 });
+    assert!(explicit_one_zero.blend.is_some());
+    assert!(!explicit_one_zero.depth_write);
+    assert_eq!(explicit_one_zero.write_mask, wgpu::ColorWrites::ALL);
 }
 
 #[test]

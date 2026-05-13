@@ -1,4 +1,4 @@
-//! Mesh packed-buffer layout matching `Renderite.Shared.MeshBuffer.ComputeBufferLayout`.
+//! Host mesh packed-buffer layout.
 //!
 //! Regions: vertices -> indices -> bone_counts -> bone_weights -> bind_poses -> blendshape_data.
 

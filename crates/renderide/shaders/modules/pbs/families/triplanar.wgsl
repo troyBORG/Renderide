@@ -3,8 +3,6 @@
 #define_import_path renderide::pbs::families::triplanar
 
 #import renderide::core::normal_decode as nd
-#import renderide::core::uv as uvu
-
 struct PlanarUvs {
     uv_x: vec2<f32>,
     uv_y: vec2<f32>,
@@ -25,11 +23,15 @@ fn triplanar_weights(projection_n: vec3<f32>, blend_power_in: f32) -> vec3<f32> 
     return raw / sum;
 }
 
+fn triplanar_apply_st(uv_in: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
+    return uv_in * st.xy + st.zy;
+}
+
 fn build_planar_uvs(proj_pos: vec3<f32>, projection_n: vec3<f32>, main_tex_st: vec4<f32>) -> PlanarUvs {
     var uvs: PlanarUvs;
-    uvs.uv_x = uvu::apply_st(proj_pos.zy, main_tex_st);
-    uvs.uv_y = uvu::apply_st(proj_pos.xz, main_tex_st);
-    uvs.uv_z = uvu::apply_st(proj_pos.xy, main_tex_st);
+    uvs.uv_x = triplanar_apply_st(proj_pos.zy, main_tex_st);
+    uvs.uv_y = triplanar_apply_st(proj_pos.xz, main_tex_st);
+    uvs.uv_z = triplanar_apply_st(proj_pos.xy, main_tex_st);
     let axis_sign = vec3<f32>(
         select(-1.0, 1.0, projection_n.x >= 0.0),
         select(-1.0, 1.0, projection_n.y >= 0.0),

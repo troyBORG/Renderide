@@ -44,7 +44,7 @@ pub struct GpuCubemap {
     pub content_generation: u64,
     /// Monotonic identifier for the current GPU allocation.
     pub allocation_generation: u64,
-    /// Whether native compressed face bytes were left in host V orientation and need sampling compensation.
+    /// Whether face data needs shader-side storage-orientation compensation.
     pub storage_v_inverted: bool,
     /// Estimated VRAM for allocated mips.
     pub resident_bytes: u64,

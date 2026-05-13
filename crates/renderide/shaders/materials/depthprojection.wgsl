@@ -2,11 +2,11 @@
 //!
 //! Treats the input mesh as a UV-parameterized surface: each vertex displaces along an
 //! angle-derived object-space direction by the depth sampled from `_DepthTex`. Five-tap depth
-//! averaging plus a max-difference silhouette term per Unity reference; the fragment then
+//! averaging plus a max-difference silhouette term; the fragment then
 //! samples `_MainTex` and discards along silhouette edges and outside the near/far clip range.
 //!
 //! `DEPTH_HUE` selects hue decoding (dominant-channel hue mapped to `[0,1)`); otherwise depth
-//! defaults to grayscale (`1 - r`). Mirrors Unity `#pragma multi_compile DEPTH_GRAYSCALE DEPTH_HUE`.
+//! defaults to grayscale (`1 - r`).
 
 
 #import renderide::frame::globals as rg

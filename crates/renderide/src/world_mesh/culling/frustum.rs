@@ -465,7 +465,7 @@ mod tests {
 
     /// SIMD-vs-scalar parity: the new SoA-Vec4 path must agree with the corner-by-corner scalar
     /// reference for every input, since the cull stat counters and per-view filter masks downstream
-    /// depend on bit-for-bit identical accept/reject decisions. Sweeps a wide mix of camera
+    /// depend on identical accept/reject decisions. Sweeps a wide mix of camera
     /// positions, AABB sizes, and AABB centers (including boxes intentionally near the clip planes
     /// where edge cases live).
     #[test]

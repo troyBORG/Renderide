@@ -1,24 +1,22 @@
 //! Finger-pose presets used by hand synthesis.
 //!
-//! The arrays are transcription data; keep the literal values stable for diffability.
+//! The arrays are calibration data; keep the literal values stable for diffability.
 
 #![expect(
     clippy::unreadable_literal,
-    reason = "preset literals are transcribed verbatim from FingerPosePresets.cs; \
-              keep 1:1 for diff-ability against the C# source"
+    reason = "preset literals intentionally match host hand-pose calibration data"
 )]
 
 /// Number of finger segments in a [`HandState`]. Equal to
 /// `BodyNode::LeftPinkyTip - BodyNode::LeftThumbMetacarpal + 1 = 42 - 19 + 1`.
 pub(super) const SEGMENT_COUNT: usize = 24;
 
-/// Stable IPC identifier for the left synthesised hand. The host keys [`HandState`] by `unique_id`
-/// in `VR_Manager._hands` (`VR_Manager.cs:373`); reusing the same string across frames lets the
-/// host's `Hand` instance persist.
+/// Stable IPC identifier for the left synthesised hand. The host keys [`HandState`] by `unique_id`;
+/// reusing the same string across frames lets the host's `Hand` instance persist.
 pub(super) const LEFT_HAND_ID: &str = "renderide_left_hand";
 /// Stable IPC identifier for the right synthesised hand. See [`LEFT_HAND_ID`].
 pub(super) const RIGHT_HAND_ID: &str = "renderide_right_hand";
-/// Idle pose positions for the left hand (24 segments). From `FingerPosePresets.cs:18-41`.
+/// Idle pose positions for the left hand (24 segments).
 pub(super) const IDLE_POS_LEFT: [[f32; 3]; SEGMENT_COUNT] = [
     [0.032114964, -0.013815194, 0.025049219],
     [0.06472655, -0.014863592, 0.04888261],
@@ -46,9 +44,8 @@ pub(super) const IDLE_POS_LEFT: [[f32; 3]; SEGMENT_COUNT] = [
     [-0.046035293, -0.02837658, 0.13528991],
 ];
 
-/// Idle pose rotations for the left hand (24 segments, `[x, y, z, w]`). From
-/// `FingerPosePresets.cs:18-41`. Entry 5 (`LeftIndexFinger_Proximal`) uses the C# expression
-/// `MathF.PI * -52f / 165f` in the original; the f32 value is reproduced verbatim.
+/// Idle pose rotations for the left hand (24 segments, `[x, y, z, w]`). Entry 5
+/// (`LeftIndexFinger_Proximal`) is the evaluated f32 form of the host calibration expression.
 pub(super) const IDLE_ROT_LEFT: [[f32; 4]; SEGMENT_COUNT] = [
     [0.27903825, -0.35667107, 0.5716526, -0.6842053],
     [-0.19714294, 0.27205768, -0.6480588, 0.68347573],
@@ -76,7 +73,7 @@ pub(super) const IDLE_ROT_LEFT: [[f32; 4]; SEGMENT_COUNT] = [
     [-0.27435127, 0.15363923, -0.26272795, -0.9121953],
 ];
 
-/// Idle pose positions for the right hand (24 segments). From `FingerPosePresets.cs:42-65`.
+/// Idle pose positions for the right hand (24 segments).
 pub(super) const IDLE_POS_RIGHT: [[f32; 3]; SEGMENT_COUNT] = [
     [-0.032747645, -0.014222979, 0.02505552],
     [-0.06477464, -0.016079383, 0.049621053],
@@ -104,8 +101,7 @@ pub(super) const IDLE_POS_RIGHT: [[f32; 3]; SEGMENT_COUNT] = [
     [0.04168672, -0.031573057, 0.13473694],
 ];
 
-/// Idle pose rotations for the right hand (24 segments, `[x, y, z, w]`). From
-/// `FingerPosePresets.cs:42-65`.
+/// Idle pose rotations for the right hand (24 segments, `[x, y, z, w]`).
 pub(super) const IDLE_ROT_RIGHT: [[f32; 4]; SEGMENT_COUNT] = [
     [0.26789832, 0.3524874, -0.58295935, -0.68127936],
     [-0.17208317, -0.25975865, 0.6496945, 0.69340456],
@@ -133,7 +129,7 @@ pub(super) const IDLE_ROT_RIGHT: [[f32; 4]; SEGMENT_COUNT] = [
     [0.32209414, 0.12159315, -0.26720595, 0.9000397],
 ];
 
-/// Fist pose positions for the left hand (24 segments). From `FingerPosePresets.cs:67-90`.
+/// Fist pose positions for the left hand (24 segments).
 pub(super) const FIST_POS_LEFT: [[f32; 3]; SEGMENT_COUNT] = [
     [0.026763892, -0.0063486164, 0.01744702],
     [0.06192772, -0.008122697, 0.037271187],
@@ -161,8 +157,7 @@ pub(super) const FIST_POS_LEFT: [[f32; 3]; SEGMENT_COUNT] = [
     [-0.027790949, -0.022555828, 0.065042846],
 ];
 
-/// Fist pose rotations for the left hand (24 segments, `[x, y, z, w]`). From
-/// `FingerPosePresets.cs:67-90`.
+/// Fist pose rotations for the left hand (24 segments, `[x, y, z, w]`).
 pub(super) const FIST_ROT_LEFT: [[f32; 4]; SEGMENT_COUNT] = [
     [0.26891267, -0.42705113, 0.4962459, -0.70643705],
     [-0.0299031, 0.10131291, -0.59843856, 0.7941744],
@@ -190,7 +185,7 @@ pub(super) const FIST_ROT_LEFT: [[f32; 4]; SEGMENT_COUNT] = [
     [-0.7693869, -0.14622758, -0.03941031, 0.6205709],
 ];
 
-/// Fist pose positions for the right hand (24 segments). From `FingerPosePresets.cs:91-114`.
+/// Fist pose positions for the right hand (24 segments).
 pub(super) const FIST_POS_RIGHT: [[f32; 3]; SEGMENT_COUNT] = [
     [-0.027928837, -0.0065499977, 0.018533913],
     [-0.062129922, -0.00902483, 0.039906792],
@@ -218,8 +213,7 @@ pub(super) const FIST_POS_RIGHT: [[f32; 3]; SEGMENT_COUNT] = [
     [0.02759617, -0.022073507, 0.06451594],
 ];
 
-/// Fist pose rotations for the right hand (24 segments, `[x, y, z, w]`). From
-/// `FingerPosePresets.cs:91-114`.
+/// Fist pose rotations for the right hand (24 segments, `[x, y, z, w]`).
 pub(super) const FIST_ROT_RIGHT: [[f32; 4]; SEGMENT_COUNT] = [
     [0.25109518, 0.41529992, -0.5051993, -0.71361816],
     [-0.009018947, -0.08332496, 0.6021248, 0.7939908],

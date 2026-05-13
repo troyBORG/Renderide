@@ -39,9 +39,9 @@ impl FrameStartPerformanceState {
     /// Records wall-clock spacing between app-driver frame ticks and advances the count-based
     /// FPS window.
     ///
-    /// Mirrors `PerformanceStats.Update`: the first call starts the window without counting,
-    /// subsequent calls increment a frame counter, and once [`super::FPS_WINDOW`] has elapsed the
-    /// window emits `frames / elapsed_seconds` into the windowed FPS value and re-bases off `now`.
+    /// The first call starts the window without counting, subsequent calls increment a frame
+    /// counter, and once [`super::FPS_WINDOW`] has elapsed the window emits
+    /// `frames / elapsed_seconds` into the windowed FPS value and re-bases off `now`.
     pub(crate) fn on_tick_frame_wall_clock(&mut self, now: Instant) {
         self.wall_interval_us_for_perf = self
             .last_tick_wall_start

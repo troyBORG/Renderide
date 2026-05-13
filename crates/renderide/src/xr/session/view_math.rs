@@ -110,8 +110,7 @@ pub fn headset_center_pose_from_stereo_views(views: &[xr::View]) -> Option<(Vec3
     }
 }
 
-/// Reconstructs the same tracking-space -> world-space rig alignment used by Unity's
-/// `HeadOutput.UpdatePositioning` / `UpdateOverridenView`.
+/// Reconstructs the host tracking-space -> world-space rig alignment.
 ///
 /// - Without override-view, the tracking origin is simply rooted at `root_transform`.
 /// - With override-view, the rig is additionally shifted/rotated/scaled so the current tracked

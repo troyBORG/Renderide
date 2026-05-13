@@ -2,22 +2,20 @@
 //!
 //! Layers XSToon 2.0 stylization on top of PBSMetallic's energy budget.
 //!
-//! - Direct + indirect specular: Filament D_GGX + V_Smith_GGX_Correlated + Schlick
-//!   Fresnel with `brdf::metallic_f0(diffuse_color, metallic)` (the same F0
-//!   PBSMetallic uses), DFG LUT energy compensation for the direct lobe, Lagarde
-//!   specular AO for the probe radiance.
-//! - Direct diffuse: Filament Lambert (`brdf::fd_lambert`) with the toon shadow
+//! - Direct + indirect specular: GGX/Trowbridge-Reitz D, height-correlated Smith-GGX V, and
+//!   Schlick Fresnel with `brdf::metallic_f0(diffuse_color, metallic)` (the same F0 PBSMetallic
+//!   uses), DFG LUT energy compensation for the direct lobe, and specular AO for the probe
+//!   radiance.
+//! - Direct diffuse: Lambert (`brdf::fd_lambert`) with the toon shadow
 //!   ramp as a 3-channel multiplicative tint replacing `NdotL * att`. A white ramp
 //!   recovers PBSMetallic exactly; colored / banded ramps drive the toon stylization.
-//! - Indirect diffuse / specular: PBSMetallic's `(1 - indirect_specular_energy)`
-//!   split (`modules/pbs/lighting.wgsl:166-169`, `modules/pbs/brdf.wgsl:188-206`)
-//!   so the indirect-light budget is shared between the SH probe and the spec lobe.
+//! - Indirect diffuse / specular: PBSMetallic's `(1 - indirect_specular_energy)` split so the
+//!   indirect-light budget is shared between the SH probe and the spec lobe.
 //!   Colored `_OcclusionColor` modulates indirect diffuse only (matches PBSMetallic).
 //! - XSToon 2.0 stylization preserved on top: toon ramp diffuse, matcap (`_MATCAP`
 //!   keyword), rim / shadow rim, subsurface scattering, outline lighting, the
-//!   indirect-spec ramp-shadow blend from `XSLightingFunctions.cginc:285`, the
-//!   `_ReflectivityMask.r` additive reflection weight (`cginc:412`), and
-//!   `col += max(directSpec_sum, rim)` from `XSLighting.cginc:60`.
+//!   indirect-spec ramp-shadow blend, the `_ReflectivityMask.r` additive reflection weight, and
+//!   the `col += max(directSpec_sum, rim)` composition step.
 //!
 //! `_SpecularIntensity` and `_SpecularAlbedoTint` are artist controls layered on
 //! top of the PBS direct-spec lobe; at `_SpecularIntensity = 1`,
@@ -81,19 +79,16 @@ fn sample_light(light: ft::GpuLight, world_pos: vec3<f32>) -> xb::LightSample {
 }
 
 /// Toon ramp lookup. The half-Lambert remap (`NdotL * 0.5 + 0.5`) maps to the U axis;
-/// the ramp-mask sample maps to the V axis. `_ShadowSharpness` sharpens the attenuation
-/// before it multiplies half-Lambert -- matches `XSFrag.cginc:14`
-/// (`attenuation = lerp(attenuation, round(attenuation), _ShadowSharpness)`) followed by
-/// `XSLightingFunctions.cginc:325-343` (`remapRamp = (ndl * 0.5 + 0.5) * attenuation`).
+/// the ramp-mask sample maps to the V axis. `_ShadowSharpness` sharpens the attenuation before it
+/// multiplies half-Lambert.
 fn ramp_for_ndl(ndl: f32, attenuation: f32, ramp_mask: f32) -> vec3<f32> {
     let att_sharp = mix(attenuation, round(attenuation), clamp(xb::mat._ShadowSharpness, 0.0, 1.0));
     let x = clamp((ndl * 0.5 + 0.5) * att_sharp, 0.0, 1.0);
     return textureSample(xb::_Ramp, xb::_Ramp_sampler, vec2<f32>(x, clamp(ramp_mask, 0.0, 1.0))).rgb;
 }
 
-/// XSToon-style remap used by `_SpecularArea` before it is passed to the Filament/PBS GGX
-/// path as perceptual roughness. Matches `XSLightingFunctions.cginc:185`
-/// (`smoothness *= 1.7 - 0.7 * smoothness`).
+/// XSToon-style remap used by `_SpecularArea` before it is passed to the PBS GGX path as
+/// perceptual roughness.
 fn remap_specular_area(area: f32) -> f32 {
     let remapped = max(0.01, area);
     return remapped * (1.7 - 0.7 * remapped);
@@ -103,8 +98,7 @@ fn remap_specular_area(area: f32) -> f32 {
 struct DirectSpecularTerms {
     /// Primary lobe F0, identical to PBSMetallic's `metallic_f0(base, metallic)`.
     specular_reflectance: vec3<f32>,
-    /// Primary lobe perceptual roughness, derived from Unity's `_SpecularArea`
-    /// (labeled "Specular Smoothness" in `XSToon2.0.shader:59`) via
+    /// Primary lobe perceptual roughness, derived from `_SpecularArea` via
     /// `roughness = 1 - remap_specular_area(_SpecularArea)`.
     roughness: f32,
     /// Multiple-scattering energy compensation sampled from the frame DFG LUT.
@@ -116,10 +110,9 @@ struct DirectSpecularTerms {
 /// F0 matches PBSMetallic's `metallic_f0` (dielectric = 0.04, metallic = base color)
 /// so a default Xiexe material with `_SpecularIntensity = 1`, `_SpecularAlbedoTint = 0`,
 /// and a white ramp lights identically to a matched PBSMetallic ball. The `_Reflectivity`
-/// scalar is intentionally not fed into F0 here -- in Unity 2.0
-/// (`XSLightingFunctions.cginc`) `_Reflectivity` is a leftover dial that does not
-/// participate in the BRDF; only `_ReflectivityMask.r` gates the additive indirect-spec
-/// blend (`cginc:412`).
+/// scalar is intentionally not fed into F0 here; `_Reflectivity` is a leftover dial that does
+/// not participate in the BRDF, and only `_ReflectivityMask.r` gates the additive indirect-spec
+/// blend.
 fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> DirectSpecularTerms {
     let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
     let roughness = clamp(1.0 - remap_specular_area(xb::mat._SpecularArea), 0.045, 1.0);
@@ -129,8 +122,8 @@ fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> Dir
     return DirectSpecularTerms(specular_reflectance, roughness, energy_compensation);
 }
 
-/// Filament-style GGX direct-specular lobe evaluated against an arbitrary normal.
-fn direct_specular_filament(
+/// GGX direct-specular lobe evaluated against an arbitrary normal.
+fn direct_specular_ggx(
     normal: vec3<f32>,
     s: xb::SurfaceData,
     light: xb::LightSample,
@@ -174,7 +167,7 @@ fn direct_specular(
     view_dir: vec3<f32>,
     terms: DirectSpecularTerms,
 ) -> vec3<f32> {
-    return direct_specular_filament(
+    return direct_specular_ggx(
         s.normal,
         s,
         light,
@@ -226,12 +219,11 @@ fn shadow_rim(
     return mix(vec3<f32>(1.0), tint, rim);
 }
 
-/// Stylized subsurface scattering matching Unity 2.0 `calcSubsurfaceScattering`
-/// (`XSLightingFunctions.cginc:362-386`), including the all-zero `_SSColor` early-out,
-/// distortion-by-normal half-vector, `VdotH^_SSPower` intensity, and `_SSColor *
+/// Stylized subsurface scattering behavior, including the all-zero `_SSColor`
+/// early-out, distortion-by-normal half-vector, `VdotH^_SSPower` intensity, and `_SSColor *
 /// (VdotH + indirectDiffuse) * attenuation * _SSScale * thickness * lightCol * albedo`
 /// final tint. When the `THICKNESS_MAP` keyword is off, `s.thickness` defaults to `1.0`
-/// in `sample_surface` so the math is identical to the gated upstream path.
+/// in `sample_surface` so the math is identical to the gated material path.
 fn subsurface(
     s: xb::SurfaceData,
     light: xb::LightSample,
@@ -256,7 +248,7 @@ fn subsurface(
 }
 
 /// View-space matcap UV. Projects `n` onto the camera's right and up basis vectors and remaps to
-/// `[0, 1]`, matching Unity's `matcapSample`.
+/// `[0, 1]`.
 fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
     let up = vec3<f32>(0.0, 1.0, 0.0);
     let view_up = xb::safe_normalize(up - view_dir * dot(view_dir, up), vec3<f32>(0.0, 1.0, 0.0));
@@ -266,12 +258,12 @@ fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
 
 /// Samples the indirect-reflection contribution.
 ///
-/// Two branches mirror Unity 2.0 (`XSLightingFunctions.cginc:218-288`):
+/// Two branches are selected by the material keyword layout:
 /// * `MATCAP` keyword on -> sample `_Matcap` at LOD `(1 - smoothness) * SPECCUBE_LOD_STEPS`
-///   and modulate by `(ambient + dominantLight * 0.5)` (cginc:227-232). No ramp blend.
-/// * Default (PBR) -> route through the renderer reflection-probe radiance with Filament
-///   DFG energy compensation and Lagarde specular AO. The caller applies the Unity 2.0
-///   ramp-shadow blend `lerp(spec, spec*ramp, roughness)` (cginc:285) outside this branch.
+///   and modulate by `(ambient + dominantLight * 0.5)`. No ramp blend.
+/// * Default (PBR) -> route through the renderer reflection-probe radiance with DFG energy
+///   compensation and specular AO. The caller applies the ramp-shadow blend
+///   `lerp(spec, spec*ramp, roughness)` outside this branch.
 fn indirect_reflection_branch(
     s: xb::SurfaceData,
     normal: vec3<f32>,
@@ -338,10 +330,9 @@ fn indirect_reflection_branch_for_layout(
     return spec;
 }
 
-/// Indirect-specular contribution. Mirrors XSToon 2.0 `calcIndirectSpecular`
-/// (`XSLightingFunctions.cginc:218-288`): samples the PBR or matcap branch, and for the
-/// PBR branch applies the dominant-light ramp shadow blend `lerp(spec, spec*ramp, roughness)`
-/// at cginc:285. The matcap branch is exempt from the ramp blend in the upstream reference.
+/// Indirect-specular contribution: samples the PBR or matcap branch, and for the PBR branch
+/// applies the dominant-light ramp shadow blend `lerp(spec, spec*ramp, roughness)`. The matcap
+/// branch is exempt from the ramp blend.
 fn indirect_specular(
     s: xb::SurfaceData,
     view_dir: vec3<f32>,
@@ -397,9 +388,9 @@ fn indirect_specular_for_layout(
     return spec;
 }
 
-/// Base-pass emission contribution. XSToon 2.0 (`XSLightingFunctions.cginc:388-407`) just
-/// returns `_EmissionMap.rgb * _EmissionColor.rgb` in the base pass; the `_EmissionToDiffuse`
-/// and `_ScaleWithLight*` paths in the upstream reference are commented out.
+/// Base-pass emission contribution. The active 2.0 path returns
+/// `_EmissionMap.rgb * _EmissionColor.rgb` in the base pass; `_EmissionToDiffuse` and
+/// `_ScaleWithLight*` are intentionally inactive for this shader.
 fn emission_color(s: xb::SurfaceData, base_pass: bool) -> vec3<f32> {
     return emission_color_for_layout(s, base_pass, xvb::XTOON_KEYWORD_LAYOUT_GENERIC);
 }
@@ -414,16 +405,15 @@ fn emission_color_for_layout(s: xb::SurfaceData, base_pass: bool, keyword_layout
 
 /// Forward-pass clustered light walk.
 ///
-/// Composition mirrors Unity 2.0 `BRDF_XSLighting` (`XSLighting.cginc:43-71`), adapted
-/// for our clustered single-pass renderer (the per-pass light sum replaces Unity's
-/// ForwardBase + ForwardAdd split):
+/// Composition follows the 2.0 toon lighting contract for the clustered single-pass
+/// renderer (the per-pass light sum replaces Unity's ForwardBase + ForwardAdd split):
 ///   `diffuse  = sum_lights(albedo * ramp_i * lightCol_i * att_i) + albedo * ambient`
 ///   `diffuse *= occlusionColor`
-///   `col      = diffuse * shadowRim`                 -- XSLighting.cginc:58
-///   `col     += indirectSpec * reflectivityMask.r`   -- additive only, XSLightingFunctions.cginc:412
-///   `col     += max(sum_lights(directSpec_i), rim)`  -- XSLighting.cginc:60
-///   `col     += sum_lights(subsurface_i)`            -- XSLighting.cginc:61
-///   `col     += emission`                            -- XSLighting.cginc:68, base pass only
+///   `col      = diffuse * shadowRim`
+///   `col     += indirectSpec * reflectivityMask.r`
+///   `col     += max(sum_lights(directSpec_i), rim)`
+///   `col     += sum_lights(subsurface_i)`
+///   `col     += emission` (base pass only)
 fn clustered_toon_lighting(
     frag_xy: vec2<f32>,
     s: xb::SurfaceData,
@@ -462,8 +452,7 @@ fn clustered_toon_lighting_for_layout(
     let primary_specular_terms = primary_direct_specular_terms(s, view_dir);
 
     // Indirect diffuse / specular share a single energy budget: whatever the spec
-    // probe lobe takes, the diffuse term must give up. Mirrors PBSMetallic's
-    // `shade_metallic_clustered` (modules/pbs/lighting.wgsl:166-169).
+    // probe lobe takes, the diffuse term must give up.
     let indirect_specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);
     let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
     let indirect_specular_enabled =
@@ -517,16 +506,13 @@ fn clustered_toon_lighting_for_layout(
         let ndl = dot(s.normal, light.direction);
         let ramp = ramp_for_ndl(ndl, light.attenuation, s.ramp_mask);
         let light_col_atten = light.color * light.attenuation;
-        // Filament Lambert (`1/π`) × Renderide's π-boosted `light.attenuation` ×
-        // toon ramp. `bl::direct_light_intensity` / `bl::punctual_attenuation` both
-        // bake `INTENSITY_BOOST = π` into `light.attenuation`
-        // (`modules/lighting/birp.wgsl:11`), which cancels `fd_lambert()`'s `1/π`
-        // so the energy magnitude matches PBSMetallic's
-        // `fd_lambert() * lightCol * att * NdL` exactly at white ramp. The toon ramp
-        // is the 3-channel stylized replacement for `NdL` and bakes a Unity-style
-        // attenuation into its `U` axis to compress the curve for distant punctual
-        // lights (`XSLightingFunctions.cginc:325-343`). `s.albedo` is already
-        // metallic-discounted in `surface::sample_surface`.
+        // Lambert (`1/pi`) times the boosted `light.attenuation` times the toon ramp.
+        // `bl::direct_light_intensity` and `bl::punctual_attenuation` both bake
+        // `INTENSITY_BOOST = pi` into `light.attenuation`, which cancels
+        // `fd_lambert()`'s `1/pi` so the white-ramp energy magnitude matches PBSMetallic.
+        // The toon ramp is the 3-channel stylized replacement for `NdL` and bakes
+        // attenuation into its `U` axis to compress the curve for distant punctual lights.
+        // `s.albedo` is already metallic-discounted in `surface::sample_surface`.
         direct_diffuse = direct_diffuse
             + s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp;
         direct_spec = direct_spec + direct_specular(s, light, view_dir, primary_specular_terms);
@@ -543,24 +529,22 @@ fn clustered_toon_lighting_for_layout(
 
     // Diffuse = sum_lights(direct) + albedo * ambient * energy_scale * colored_occlusion.
     // The `energy_scale` is `(1 - indirect_specular_energy)` so the indirect-light budget is
-    // split between the diffuse and specular probe responses, mirroring PBSMetallic's
-    // `indirect_diffuse_metallic` (modules/pbs/brdf.wgsl:196-206). Colored `_OcclusionColor`
-    // is the XSToon stylization layered on top, and it only modulates indirect diffuse here
-    // (matching PBSMetallic's AO behavior; direct diffuse stays unattenuated).
+    // split between the diffuse and specular probe responses. Colored `_OcclusionColor` is the
+    // XSToon stylization layered on top, and it only modulates indirect diffuse here (matching
+    // PBSMetallic's AO behavior; direct diffuse stays unattenuated).
     var diffuse = direct_diffuse;
     if (base_pass) {
         diffuse = diffuse + s.albedo.rgb * ambient * indirect_diffuse_energy_scale * s.occlusion;
     }
 
-    // Shadow rim multiplies diffuse before any specular accumulation -- XSLighting.cginc:58.
+    // Shadow rim multiplies diffuse before any specular accumulation.
     var col = diffuse;
     if (base_pass && dominant_weight > 0.0) {
         col = col * shadow_rim(s, view_dir, dominant_light, ambient);
     }
 
-    // Additive reflection blend gated by `_ReflectivityMask.r` (cginc:412). The reflection
-    // blend-mode multiplicative / subtractive branches are commented out in Unity 2.0 and
-    // are intentionally absent here.
+    // Additive reflection blend gated by `_ReflectivityMask.r`. Reflection blend-mode
+    // multiplicative / subtractive branches are intentionally absent here.
     if (base_pass) {
         let reflection = indirect_specular_for_layout(
             s,
@@ -575,8 +559,8 @@ fn clustered_toon_lighting_for_layout(
         col = col + reflection * clamp(s.reflectivity_mask, 0.0, 1.0);
     }
 
-    // Direct specular and rim share a `max` composition (XSLighting.cginc:60) so a saturated
-    // highlight does not stack on top of a saturated rim.
+    // Direct specular and rim share a `max` composition so a saturated highlight does not stack on
+    // top of a saturated rim.
     var spec_or_rim = direct_spec;
     if (base_pass && dominant_weight > 0.0) {
         let rim = rim_light(s, dominant_light, view_dir, ambient, env);
@@ -595,8 +579,7 @@ fn clustered_toon_lighting_for_layout(
 
 /// Outline-pass clustered light walk for the "Lit" outline mode.
 ///
-/// Returns `dominantDirectLight + indirectDiffuse`, matching Unity 2.0 `calcOutlineColor`
-/// (`XSLightingFunctions.cginc:308-309`: `ol * saturate(att * NdotL) * lightCol + indirectDiffuse * ol`).
+/// Returns `dominantDirectLight + indirectDiffuse` for lit outline mode.
 /// The outline-pass fragment multiplies this result by `_OutlineColor` (and optionally
 /// `_OutlineAlbedoTint * albedo`) in `outline.wgsl`.
 fn clustered_outline_lighting(

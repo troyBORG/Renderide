@@ -38,19 +38,17 @@ pub struct ParseMaterialBatchOptions {
     /// `1` TransparentCutout, `2` Transparent -- matches the host's `MaterialRenderType` enum)
     /// as a synthetic [`super::MaterialPropertyValue::Float`] at this id. The keyword inference path
     /// in [`crate::materials::embedded::uniform_pack`] reads it to populate `_ALPHATEST_ON` /
-    /// `_ALPHACLIP` / `_ALPHABLEND_ON` / `_ALPHAPREMULTIPLY_ON` per Unity blend mode semantics.
+    /// `_ALPHACLIP` / `_ALPHABLEND_ON` / `_ALPHAPREMULTIPLY_ON` per host blend-mode semantics.
     /// `None` skips the capture (default for unit tests that do not exercise render-type-driven
     /// inference).
     pub render_type_property_id: Option<i32>,
     /// Interned `_RenderQueue` property id. When `Some`,
-    /// [`MaterialPropertyUpdateType::SetRenderQueue`] opcodes write the queue value (Unity
-    /// convention: `[1000, 2450)` opaque, `[2450, 3000)` alpha-test, `[3000, inf)` transparent)
-    /// as a synthetic [`super::MaterialPropertyValue::Float`] at this id. PBS material providers
-    /// (`PBS_DualSidedMaterial.cs`, `PBS_DisplaceMaterial.cs`, ...) bypass `MaterialProvider.SetBlendMode`
-    /// entirely and route their `AlphaHandling` enum through this opcode plus the
-    /// `_ALPHACLIP` shader keyword. The keyword bitmask is not on the wire, so the queue
-    /// range is the only signal the renderer can use to infer alpha-test for those
-    /// materials. `None` skips the capture (default for unit tests).
+    /// [`MaterialPropertyUpdateType::SetRenderQueue`] opcodes write the queue value using host
+    /// queue bands: `[1000, 2450)` opaque, `[2450, 3000)` alpha-test, `[3000, inf)` transparent.
+    /// Some PBS material providers bypass named blend-mode updates entirely and route their
+    /// `AlphaHandling` enum through this opcode plus the `_ALPHACLIP` shader keyword. The keyword
+    /// bitmask is not on the wire, so the queue range is the only signal the renderer can use to
+    /// infer alpha-test for those materials. `None` skips the capture (default for unit tests).
     pub render_queue_property_id: Option<i32>,
 }
 
@@ -91,15 +89,14 @@ pub fn parse_materials_update_batch_into_store(
 /// flags into `instance_changed_out`.
 ///
 /// `instance_changed_out` is indexed by `SelectTarget` order: bit `i` corresponds to the `i`-th
-/// `SelectTarget` opcode encountered (materials first, then property blocks, matching Unity
-/// `MaterialAssetManager.ApplyUpdate`). When the slice is shorter than the number of
+/// `SelectTarget` opcode encountered (materials first, then property blocks). When the slice is
+/// shorter than the number of
 /// `SelectTarget` ops in the batch, extra targets are silently dropped -- the parser still
 /// processes the payload so cursors stay aligned.
 ///
 /// Per-target initial value:
-/// - **Material**: `false` -- Unity does not call `EnsureInstance` on materials, only OR's per-op
-///   results.
-/// - **Property block**: `true` -- mirrors the effect of Unity's
+/// - **Material**: `false` -- material targets only OR per-op results.
+/// - **Property block**: `true` -- matches the effect of the host-side
 ///   `MaterialPropertyBlockAsset.EnsureInstance()` plus the comment in
 ///   `MaterialAssetManager.HandlePropertyBlockUpdate` that says property-block updates always
 ///   trigger instance-changed. Without this, the host's `MaterialAssetUpdated(false)` path skips

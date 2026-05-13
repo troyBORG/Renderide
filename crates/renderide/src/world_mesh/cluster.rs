@@ -76,8 +76,7 @@ impl ClusterFrameParams {
     /// units, so the cluster compute's `light.range` must be multiplied by this factor before
     /// being compared against the view-space cluster AABB -- otherwise the culling sphere appears
     /// `s x` too small in view space and lights are bound to far fewer clusters than they cover,
-    /// producing tile-shaped dark seams in the lit image. Mirrors Bevy's
-    /// `view_from_world_scale.abs().max_element()` (`bevy_light/src/cluster/assign.rs`).
+    /// producing tile-shaped dark seams in the lit image.
     ///
     /// Floored at `1e-6` to keep the multiplier finite for degenerate / zero matrices.
     pub fn world_to_view_scale_max(&self) -> f32 {

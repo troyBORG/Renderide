@@ -1,7 +1,8 @@
 //! Cubemap storage-orientation helpers.
 //!
-//! Host cubemap face data uses Unity's per-face V orientation. These helpers map canonical sample
-//! directions to that storage convention while keeping callers' world directions unchanged.
+//! Cubemap storage-orientation helpers for sources that need shader-side compensation. Most cube
+//! textures are stored in native orientation; callers pass a non-zero flag only for alternate
+//! storage layouts.
 
 #define_import_path renderide::skybox::cubemap_storage
 

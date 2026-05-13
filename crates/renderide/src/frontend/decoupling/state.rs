@@ -11,11 +11,11 @@ use super::decisions::{
     DecouplingActivationDecision, DecouplingSubmitDecision, activation_decision, submit_decision,
 };
 
-/// Default activation threshold in seconds (1/15 s ~= 66.67 ms). Matches Renderite.Unity.
+/// Default activation threshold in seconds (1/15 s ~= 66.67 ms).
 const DEFAULT_ACTIVATE_INTERVAL_SECONDS: f32 = 1.0 / 15.0;
-/// Default decoupled asset-processing ceiling in seconds (2 ms). Matches Renderite.Unity.
+/// Default decoupled asset-processing ceiling in seconds (2 ms).
 const DEFAULT_DECOUPLED_MAX_ASSET_PROCESSING_SECONDS: f32 = 0.002;
-/// Default consecutive sub-threshold frames required to re-couple. Matches Renderite.Unity.
+/// Default consecutive sub-threshold frames required to re-couple.
 const DEFAULT_RECOUPLE_FRAME_COUNT: i32 = 10;
 
 /// Renderer-side decoupling state machine.
@@ -136,9 +136,8 @@ impl DecouplingState {
     /// Records the round-trip for the just-received [`crate::shared::FrameSubmitData`] and, when
     /// decoupled, advances or resets the recouple counter.
     ///
-    /// Mirrors `RenderingManager.cs:400-415`: sub-threshold submits increment the counter and at
-    /// `recouple_frame_count` the decoupled flag clears; at-or-above-threshold submits reset the
-    /// counter.
+    /// Sub-threshold submits increment the counter and at `recouple_frame_count` the decoupled
+    /// flag clears; at-or-above-threshold submits reset the counter.
     pub(crate) fn record_frame_submit_received(
         &mut self,
         now: Instant,

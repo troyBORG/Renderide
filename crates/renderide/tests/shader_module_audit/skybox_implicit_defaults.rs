@@ -87,7 +87,7 @@ fn proceduralskybox_defaults_sun_disk_to_high_quality() -> io::Result<()> {
             src.contains("(mat._RenderideVariantBits & PROCSKY_GROUP_SUNDISK) == 0u")
                 && src.contains("procsky_kw(PROCSKY_KW_SUNDISK_HIGH_QUALITY)"),
             "{path_label} must default kw_SUNDISK_HIGH_QUALITY() to true when no \
-             _SUNDISK_* bit is set, matching Unity's `[KeywordEnum]_SunDisk = 2`.",
+             _SUNDISK_* bit is set.",
         );
     }
     Ok(())

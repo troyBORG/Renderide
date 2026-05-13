@@ -1,17 +1,15 @@
 //! Fullscreen pass: GTAO depth-aware denoise (intermediate iteration).
 //!
-//! Reads the AO term + packed edges produced by `gtao_main`, runs XeGTAO's edge-preserving
-//! 3x3 bilateral kernel (`XeGTAO_Denoise` with `finalApply = false`), and writes a denoised
+//! Reads the AO term + packed edges produced by `gtao_main`, runs the edge-preserving
+//! 3x3 bilateral kernel with `finalApply = false`, and writes a denoised
 //! AO term to a ping-pong target. The kernel uses the symmetricity correction and edge-leak
-//! step from the reference, and the diagonal weights derive from the two cardinal edges
-//! that straddle each diagonal (XeGTAO lines 785-788, factored into the shared
+//! step, and the diagonal weights derive from the two cardinal edges
+//! that straddle each diagonal (factored into the shared
 //! `renderide::post::gtao_filter` module so this shader and `gtao_apply` cannot drift).
 //!
-//! Intermediate iterations use `blur_amount = denoise_blur_beta / 5.0` (XeGTAO's
-//! `consts.DenoiseBlurBeta / 5.0`); the apply stage uses the full beta. The output stays in
-//! the production-scaled `[0, 1] / OCCLUSION_TERM_SCALE` representation since XeGTAO's
-//! `XeGTAO_Output(finalApply=false)` is a pass-through write -- the headroom factor is only
-//! removed in the final-apply stage.
+//! Intermediate iterations use `blur_amount = denoise_blur_beta / 5.0`; the apply stage uses the
+//! full beta. The output stays in the production-scaled `[0, 1] / OCCLUSION_TERM_SCALE`
+//! representation; the headroom factor is only removed in the final-apply stage.
 //!
 //! Build script composes this into `gtao_denoise_default` (mono) and `gtao_denoise_multiview`
 //! (stereo).
@@ -36,9 +34,9 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> fs::FullscreenVertexOutput {
     return fs::vertex_main(vid);
 }
 
-/// Runs the XeGTAO bilateral kernel at `pix`. Returns the denoised AO term in the same
-/// production-scaled `[0, 1]` representation as the input -- XeGTAO leaves the
-/// `OCCLUSION_TERM_SCALE` factor in place for intermediate iterations.
+/// Runs the bilateral kernel at `pix`. Returns the denoised AO term in the same
+/// production-scaled `[0, 1]` representation as the input; intermediate iterations leave the
+/// `OCCLUSION_TERM_SCALE` factor in place.
 fn denoise_at(pix: vec2<i32>, view_layer: u32, viewport_max: vec2<i32>) -> f32 {
     let edges_c = gt::load_edges_lrtb(ao_edges, pix, view_layer, viewport_max);
     let edges_l = gt::load_edges_lrtb(ao_edges, pix + vec2<i32>(-1, 0), view_layer, viewport_max);

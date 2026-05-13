@@ -5,10 +5,3 @@ allow-panic-in-tests = true
 allow-dbg-in-tests = true
 allow-print-in-tests = true
 allow-indexing-slicing-in-tests = true
-
-# Raise the `large_types_passed_by_value` threshold above `HostCameraFrame`'s footprint
-# (Mat4 + several Option<Mat4>/StereoViewMatrices fields). The renderer deliberately
-# threads this Copy struct through the per-view hot draw path by value to avoid lifetime
-# threading and exploit register passing. The lint stays armed for genuinely oversized
-# (multi-KB) by-value passes.
-pass-by-value-size-limit = 1024

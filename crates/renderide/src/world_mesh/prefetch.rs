@@ -42,12 +42,12 @@ impl PrefetchedWorldMeshViewDraws {
     /// Builds a prefetched view packet and derives helper-pass requirements from `collection`.
     pub fn new(
         collection: WorldMeshDrawCollection,
-        cull_proj: Option<WorldMeshCullProjParams>,
+        cull_proj: Option<&WorldMeshCullProjParams>,
     ) -> Self {
         let helper_needs = WorldMeshHelperNeeds::from_collection(&collection);
         Self {
             collection,
-            cull_proj,
+            cull_proj: cull_proj.copied(),
             helper_needs,
         }
     }

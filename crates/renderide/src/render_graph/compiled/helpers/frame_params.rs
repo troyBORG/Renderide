@@ -24,7 +24,7 @@ pub(in crate::render_graph::compiled) struct GraphPassFrameViewInputs<'a, 'r> {
     /// Scene color format used by the render graph.
     pub scene_color_format: wgpu::TextureFormat,
     /// Host camera inputs forwarded to per-pass logic.
-    pub host_camera: HostCameraFrame,
+    pub host_camera: &'r HostCameraFrame,
     /// Render-context override scope used by per-view passes.
     pub render_context: RenderingContext,
     /// Background clear/skybox behavior for this view.
@@ -72,7 +72,7 @@ pub(in crate::render_graph::compiled) fn frame_render_params_from_shared<'a>(
             surface_format: resolved.surface_format,
             scene_color_format,
             viewport_px: resolved.viewport_px,
-            host_camera,
+            host_camera: *host_camera,
             render_context,
             multiview_stereo: resolved.multiview_stereo,
             offscreen_write_render_texture_asset_id: resolved
@@ -95,7 +95,7 @@ pub(in crate::render_graph::compiled) fn frame_render_params_from_resolved<'a>(
     scene: &'a SceneCoordinator,
     backend: &'a mut dyn GraphExecutionBackend,
     resolved: &ResolvedView<'a>,
-    host_camera: HostCameraFrame,
+    host_camera: &HostCameraFrame,
     render_context: RenderingContext,
     clear: FrameViewClear,
     post_processing: ViewPostProcessing,

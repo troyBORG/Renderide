@@ -132,7 +132,7 @@ struct XiexeToon2Material {
     /// `XSToon2.0 Outlined.shader`. Treated as one of three aliases that all map onto the
     /// same `Lit/Emissive` enum.
     _OutlineLighting: f32,
-    /// Outline lighting mode alias declared in `XSDefines.cginc`.
+    /// Outline lighting mode alias.
     _OutlineEmissive: f32,
     /// Outline lighting mode alias used by `XSToon2.0.shader` (preserves the original
     /// upstream property name including its "ues" suffix typo).
@@ -272,7 +272,7 @@ struct SurfaceData {
     bitangent: vec3<f32>,
     /// Final metallic factor.
     metallic: f32,
-    /// Filament-style remapped roughness clamped to `[0.045, 1.0]`.
+    /// Remapped roughness clamped to `[0.045, 1.0]`.
     roughness: f32,
     /// Raw smoothness (for matcap LOD selection).
     smoothness: f32,

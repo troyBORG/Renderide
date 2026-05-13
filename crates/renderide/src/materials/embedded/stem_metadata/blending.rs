@@ -34,7 +34,10 @@ mod tests {
     use crate::materials::SHADER_PERM_MULTIVIEW_STEREO;
     use crate::materials::ShaderPermutation;
 
-    use super::{embedded_stem_uses_scene_color_snapshot, embedded_stem_uses_scene_depth_snapshot};
+    use super::{
+        embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
+        embedded_stem_uses_scene_depth_snapshot,
+    };
     use crate::materials::embedded::stem_metadata::{
         embedded_composed_stem_for_permutation, embedded_stem_requires_intersection_pass,
     };
@@ -137,6 +140,27 @@ mod tests {
                     "{composed:?} should draw through the filter pass",
                 );
             }
+        }
+    }
+
+    #[test]
+    fn volume_materials_use_depth_snapshot_without_grab_snapshot() {
+        let mono = ShaderPermutation(0);
+
+        for stem in ["fogboxvolume_default", "volumeunlit_default"] {
+            assert!(embedded_stem_uses_alpha_blending(stem), "{stem}");
+            assert!(
+                embedded_stem_uses_scene_depth_snapshot(stem, mono),
+                "{stem}"
+            );
+            assert!(
+                !embedded_stem_uses_scene_color_snapshot(stem, mono),
+                "{stem}"
+            );
+            assert!(
+                !embedded_stem_requires_intersection_pass(stem, mono),
+                "{stem}"
+            );
         }
     }
 }

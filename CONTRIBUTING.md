@@ -807,7 +807,7 @@ The build script under `build.rs` and `build_support/shader/` discovers every WG
 
 ### 4.19 Naga-oil composition
 
-The renderer uses [naga-oil](https://github.com/bevyengine/naga_oil) for shader composition. Naga-oil is a small layer on top of naga that adds module imports and conditional compilation to WGSL.
+The renderer uses naga-oil for shader composition. Naga-oil is a small layer on top of naga that adds module imports and conditional compilation to WGSL.
 
 A shader file declares the modules it imports at the top, and the build script resolves those imports against `shaders/modules/` and the other shaders in the tree. Conditional compilation lets a single source file produce multiple variants (the most common is multiview versus non-multiview, but keyword permutations work the same way).
 

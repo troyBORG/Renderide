@@ -293,7 +293,7 @@ impl RendererRuntime {
             return;
         };
 
-        let base_camera = *host_camera;
+        let base_camera = &*host_camera;
         let total = tasks.len();
         for (index, task) in tasks.drain(..).enumerate() {
             let task_index = i32::try_from(index).unwrap_or(i32::MAX);
@@ -333,7 +333,7 @@ struct CameraTaskRenderCtx<'a> {
     gpu: &'a mut GpuContext,
     backend: &'a mut RenderBackend,
     scene: &'a SceneCoordinator,
-    base_camera: crate::camera::HostCameraFrame,
+    base_camera: &'a crate::camera::HostCameraFrame,
     shm: &'a mut SharedMemoryAccessor,
     task_index: i32,
     task: &'a CameraRenderTask,
@@ -379,7 +379,7 @@ struct PlannedCameraTask {
 fn plan_camera_task(
     gpu: &GpuContext,
     scene: &SceneCoordinator,
-    base_camera: crate::camera::HostCameraFrame,
+    base_camera: &crate::camera::HostCameraFrame,
     task_index: i32,
     task: &CameraRenderTask,
 ) -> Result<PlannedCameraTask, CameraReadbackError> {
@@ -415,7 +415,7 @@ fn plan_camera_task(
     let targets = CameraTaskTargets::create(gpu, extent)?;
     let camera_world_matrix = camera_render_task_world_matrix(task.position, task.rotation);
     let host_camera = host_camera_frame_for_render_task(
-        &base_camera,
+        base_camera,
         parameters,
         extent.tuple(),
         camera_world_matrix,

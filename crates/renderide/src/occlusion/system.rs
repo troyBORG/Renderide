@@ -227,7 +227,7 @@ impl OcclusionSystem {
     pub(crate) fn capture_hi_z_temporal_for_next_frame(
         &self,
         scene: &SceneCoordinator,
-        prev_cull: WorldMeshCullProjParams,
+        prev_cull: &WorldMeshCullProjParams,
         viewport_px: (u32, u32),
         state_slot: &Mutex<HiZGpuState>,
         explicit_world_to_view: Option<Mat4>,
@@ -262,7 +262,7 @@ impl crate::occlusion::OcclusionGraphHook for OcclusionSystem {
     fn capture_hi_z_temporal_for_next_frame(
         &self,
         scene: &SceneCoordinator,
-        prev_cull: WorldMeshCullProjParams,
+        prev_cull: &WorldMeshCullProjParams,
         viewport_px: (u32, u32),
         state_slot: &Mutex<HiZGpuState>,
         explicit_world_to_view: Option<Mat4>,

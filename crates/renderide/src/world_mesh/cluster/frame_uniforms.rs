@@ -46,7 +46,7 @@ pub(super) fn build_frame_gpu_uniforms(
     cfp: &ClusterFrameParams,
     params: FrameGpuUniformBuildParams,
 ) -> FrameGpuUniforms {
-    FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
+    let params = ClusteredFrameGlobalsParams {
         camera_world_pos: params.camera_world_pos,
         camera_world_pos_right: params.camera_world_pos_right,
         view_space_z_coeffs: cfp.view_space_z_coeffs(),
@@ -67,5 +67,6 @@ pub(super) fn build_frame_gpu_uniforms(
         ambient_sh_valid: params.ambient_sh_valid,
         skybox_specular: params.skybox_specular,
         ambient_sh: params.ambient_sh,
-    })
+    };
+    FrameGpuUniforms::new_clustered(&params)
 }

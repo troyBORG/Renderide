@@ -1,7 +1,6 @@
-//! Filament-style analytic Cook-Torrance BRDF and clustered direct-light terms for PBS materials
-//! (metallic / specular workflows).
+//! Analytic Cook-Torrance BRDF and clustered direct-light terms for PBS materials (metallic /
+//! specular workflows).
 //!
-//! Math reference: Filament `surface_brdf.fs`, `surface_material.fs`, `surface_shading_*.fs`. Specifically
 //! - D: GGX/Trowbridge-Reitz, Karis-style numerically stable form (`d_ggx`).
 //! - V: height-correlated Smith-GGX visibility (`v_smith_ggx_correlated`); already folds in the
 //!   `1/(4*NoL*NoV)` denominator, so the assembled specular is `D * V * F` (no extra divide).
@@ -34,13 +33,11 @@ const DEFAULT_DIELECTRIC_F0: f32 = 0.16 * DEFAULT_DIELECTRIC_REFLECTANCE * DEFAU
 /// Pi.
 const PI: f32 = 3.14159265359;
 
-/// Variance scale for [`filter_perceptual_roughness`]. Matches Filament's default
-/// `_specularAntiAliasingVariance`.
+/// Variance scale for [`filter_perceptual_roughness`].
 const SPECULAR_AA_VARIANCE: f32 = 0.25;
 
-/// Maximum kernel-roughness widening for [`filter_perceptual_roughness`]. Matches Filament's
-/// default `_specularAntiAliasingThreshold`; caps the filter so very high curvature doesn't drive
-/// the entire surface to a fully-rough lobe.
+/// Maximum kernel-roughness widening for [`filter_perceptual_roughness`]. Caps the filter so very
+/// high curvature doesn't drive the entire surface to a fully-rough lobe.
 const SPECULAR_AA_THRESHOLD: f32 = 0.18;
 
 /// Tokuyoshi & Kaplanyan 2019 "Improved Geometric Specular Antialiasing".
@@ -108,13 +105,13 @@ fn v_smith_ggx_correlated(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
 /// Schlick approximation of the Fresnel term.
 ///
 /// `f90` lets dielectrics with very low `f0` smoothly fade to zero at grazing instead of always
-/// snapping to white. Filament computes it as `saturate(50*dot(f0, 1/3))`, encoding "if the
-/// material has any meaningful base reflectance, it should reach ~1 at grazing."
+/// snapping to white. The `50*dot(f0, 1/3)` scale means a material with meaningful base
+/// reflectance reaches approximately 1 at grazing.
 fn f_schlick(f0: vec3<f32>, f90: f32, v_dot_h: f32) -> vec3<f32> {
     return f0 + (vec3<f32>(f90) - f0) * pow5(1.0 - v_dot_h);
 }
 
-/// Filament's `f90` from `f0`. `50*(1/3) ~= 16.67`; saturated so very dark dielectrics don't go to white.
+/// Derives `f90` from `f0`. `50*(1/3) ~= 16.67`; saturated so very dark dielectrics don't go to white.
 fn f90_from_f0(f0: vec3<f32>) -> f32 {
     return clamp(dot(f0, vec3<f32>(50.0 / 3.0)), 0.0, 1.0);
 }
@@ -218,6 +215,19 @@ fn indirect_diffuse_specular(
     return ambient * base_color * clamp(one_minus_reflectivity, 0.0, 1.0) * energy_scale * occlusion;
 }
 
+/// Unity Standard metallic workflow diffuse reflectivity remainder.
+fn metallic_one_minus_reflectivity(metallic: f32) -> f32 {
+    let one_minus_dielectric_spec = 1.0 - DEFAULT_DIELECTRIC_F0;
+    return one_minus_dielectric_spec * (1.0 - clamp(metallic, 0.0, 1.0));
+}
+
+/// Unity Standard premultiplied transparency output alpha.
+fn unity_premultiplied_alpha(alpha: f32, one_minus_reflectivity: f32) -> f32 {
+    let diffuse_alpha = clamp(alpha, 0.0, 1.0);
+    let diffuse_visibility = clamp(one_minus_reflectivity, 0.0, 1.0);
+    return 1.0 - diffuse_visibility + diffuse_alpha * diffuse_visibility;
+}
+
 /// Unity Standard metallic workflow F0 tint.
 fn metallic_f0(base_color: vec3<f32>, metallic: f32) -> vec3<f32> {
     return mix(vec3<f32>(DEFAULT_DIELECTRIC_F0), base_color, metallic);
@@ -288,7 +298,7 @@ fn signed_light_radiance(light: ft::GpuLight, attenuation: f32, n_dot_l: f32) ->
     return light.color.xyz * attenuation * n_dot_l;
 }
 
-/// Filament-style direct radiance for the metallic workflow.
+/// Direct radiance for the metallic workflow.
 ///
 /// `roughness` is perceptual (caller passes `1 - smoothness`, clamped to `[0.0, 1.0]`). `f0` is
 /// the dielectric-<->-metal blend (`mix(0.04, base_color, metallic)`). Diffuse is pre-discounted by
@@ -328,7 +338,7 @@ fn direct_radiance_metallic(
     return (fd + fr) * radiance;
 }
 
-/// Filament-style direct radiance for the specular (Unity Standard SpecularSetup) workflow.
+/// Direct radiance for the specular (Unity Standard SpecularSetup) workflow.
 ///
 /// `roughness` is perceptual. `f0` is the tinted specular color from the host (already encodes the
 /// dielectric/metal split chosen by the artist). `one_minus_reflectivity` is the diffuse-energy

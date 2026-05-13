@@ -259,8 +259,7 @@ impl GpuContext {
     /// `FrooxEngine.PerformanceMetrics.RenderTime`.
     ///
     /// Returns [`None`] until the first [`wgpu::Queue::on_submitted_work_done`] callback has run;
-    /// callers that need the host-visible "unavailable" sentinel should map [`None`] to `-1.0`,
-    /// matching the Renderite.Unity `XRStats.TryGetGPUTimeLastFrame` contract.
+    /// callers that need the host-visible "unavailable" sentinel should map [`None`] to `-1.0`.
     pub fn last_completed_gpu_render_time_seconds(&self) -> Option<f32> {
         let ft = self
             .submission

@@ -6,7 +6,9 @@ use std::os::windows::ffi::OsStrExt;
 use std::ptr::null_mut;
 use std::time::Duration;
 
-use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, INVALID_HANDLE_VALUE, WAIT_ABANDONED, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
 use windows_sys::Win32::System::Threading::{
     CreateSemaphoreW, INFINITE, ReleaseSemaphore, WaitForSingleObject,
 };
@@ -68,7 +70,32 @@ impl WinSemaphore {
         };
         // SAFETY: `self.handle` is a live semaphore handle owned by `self`.
         let r = unsafe { WaitForSingleObject(self.handle, ms) };
-        r == WAIT_OBJECT_0
+        match r {
+            WAIT_OBJECT_0 => true,
+            WAIT_TIMEOUT => false,
+            WAIT_FAILED => {
+                logger::warn!(
+                    "interprocess: WaitForSingleObject failed for queue '{}': {}",
+                    self.queue_name,
+                    io::Error::last_os_error()
+                );
+                false
+            }
+            WAIT_ABANDONED => {
+                logger::warn!(
+                    "interprocess: WaitForSingleObject reported abandoned wait for queue '{}'",
+                    self.queue_name
+                );
+                false
+            }
+            other => {
+                logger::warn!(
+                    "interprocess: WaitForSingleObject returned unexpected result 0x{other:08x} for queue '{}'",
+                    self.queue_name
+                );
+                false
+            }
+        }
     }
 }
 

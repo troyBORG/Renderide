@@ -6,8 +6,8 @@
 //! tonemapping, looks too bright (or too dark in the inverse case), producing visibly aliased
 //! silhouettes between bright and dark surfaces even with high MSAA.
 //!
-//! This pass implements the Karis bracket used by Filament's `customResolveAsSubpass`: each
-//! sample is compressed by `x / (1 + max3(x))`, the compressed values are linearly averaged, and
+//! This pass implements a Karis bracket: each sample is compressed by `x / (1 + max3(x))`, the
+//! compressed values are linearly averaged, and
 //! the result is decompressed by `y / (1 - max3(y))`. The compress / average / uncompress
 //! sandwich approximates "tonemap each sample, average, untonemap" while keeping an HDR result
 //! for downstream bloom and tonemap to consume.

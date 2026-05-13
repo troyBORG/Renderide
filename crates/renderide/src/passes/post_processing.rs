@@ -2,8 +2,8 @@
 //! [`crate::render_graph::post_process_chain::PostProcessChain`].
 //!
 //! The chain currently ships with five effects, executed in this order:
-//! 1. [`GtaoEffect`] -- Ground-Truth Ambient Occlusion (pre-tonemap HDR modulation, with an
-//!    XeGTAO-style depth-aware bilateral denoise stage between AO production and apply).
+//! 1. [`GtaoEffect`] -- Ground-Truth Ambient Occlusion (pre-tonemap HDR modulation, with a
+//!    depth-aware bilateral denoise stage between AO production and apply).
 //! 2. [`AutoExposureEffect`] -- histogram-based exposure adaptation (pre-bloom HDR scale).
 //! 3. [`BloomEffect`] -- dual-filter physically-based bloom (post-exposure, pre-tonemap HDR scatter).
 //! 4. [`AcesTonemapEffect`] -- Stephen Hill ACES Fitted tonemap when selected.

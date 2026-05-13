@@ -1,11 +1,12 @@
-//! Dual-filter physically-based bloom (COD: Advanced Warfare / Bevy port).
+//! Dual-filter physically-based bloom.
 //!
 //! Registers a subgraph on the post-processing chain: one first downsample (Karis + optional
 //! soft-knee threshold) writes bloom mip 0, subsequent downsamples populate the remaining mips,
 //! an upsample ladder blends each mip into the next-finer level with a per-mip constant factor,
 //! and a final composite pass combines the chain input with bloom mip 0 using the configured
 //! composite math (energy-conserving by default). Runs pre-tonemap so it scatters HDR-linear
-//! light; the kernel weights and blend math match Bevy's `crates/bevy_post_process/src/bloom/`.
+//! light. Kernel weights, Karis firefly reduction, and soft-knee thresholding stay centralized
+//! across the CPU and WGSL paths.
 
 mod composite;
 mod downsample;
@@ -30,8 +31,8 @@ use crate::render_graph::resources::{
     TransientTextureDesc, TransientTextureFormat,
 };
 
-/// Storage format for the bloom mip pyramid. 11/11/10-bit float matches Bevy -- lower bandwidth
-/// than `Rgba16Float` while still covering the HDR range bloom needs to scatter.
+/// Storage format for the bloom mip pyramid. 11/11/10-bit float keeps bandwidth below
+/// `Rgba16Float` while still covering the HDR range bloom needs to scatter.
 const BLOOM_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg11b10Ufloat;
 
 /// Static labels for each bloom mip transient texture. Sized to cover every reasonable
@@ -169,17 +170,17 @@ fn bloom_pipelines() -> &'static BloomPipelineCache {
     &CACHE
 }
 
-/// Bloom pyramid mip count (matches Bevy `prepare_bloom_textures`): `max(2, log2(max_mip_dim)) - 1`.
+/// Bloom pyramid mip count: `max(2, log2(max_mip_dim)) - 1`.
 /// Returns at least 1 so the first downsample always has somewhere to write.
 fn bloom_mip_count(max_mip_dim: u32) -> u32 {
     let log2 = u32::BITS - max_mip_dim.max(1).leading_zeros() - 1;
     log2.max(2) - 1
 }
 
-/// Per-mip upsample blend factor (direct port of Bevy `compute_blend_factor`). `mip` is the
-/// source mip being read (higher = lower frequency); `max_mip` is `mip_count - 1`. The factor
-/// is uploaded via [`wgpu::RenderPass::set_blend_constant`] and consumed by the GPU blend unit
-/// as `src * C + dst * (1-C)` (energy-conserving) or `src * C + dst` (additive).
+/// Per-mip upsample blend factor. `mip` is the source mip being read (higher = lower frequency);
+/// `max_mip` is `mip_count - 1`. The factor is uploaded via
+/// [`wgpu::RenderPass::set_blend_constant`] and consumed by the GPU blend unit as
+/// `src * C + dst * (1-C)` (energy-conserving) or `src * C + dst` (additive).
 pub(super) fn compute_blend_factor(settings: &BloomSettings, mip: f32, max_mip: f32) -> f32 {
     let epsilon = 1.0e-6_f32;
     let max_mip = max_mip.max(epsilon);
@@ -210,7 +211,7 @@ mod tests {
     use crate::render_graph::resources::TextureHandle;
 
     #[test]
-    fn mip_count_matches_bevy_formula() {
+    fn mip_count_uses_expected_log2_ladder() {
         assert_eq!(bloom_mip_count(512), 8);
         assert_eq!(bloom_mip_count(256), 7);
         assert_eq!(bloom_mip_count(1024), 9);

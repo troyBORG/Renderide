@@ -1,8 +1,8 @@
-//! `gtao_denoise` raster pass -- XeGTAO bilateral filter, intermediate iteration.
+//! `gtao_denoise` raster pass -- GTAO bilateral filter, intermediate iteration.
 //!
 //! Reads the AO term and packed edges produced by [`super::main_pass::GtaoMainPass`], runs
-//! the 3x3 edge-preserving kernel (`XeGTAO_Denoise` with `finalApply = false`), and writes
-//! a denoised AO term to a ping-pong target. Registered when
+//! the 3x3 edge-preserving kernel with `finalApply = false`, and writes a denoised AO term to a
+//! ping-pong target. Registered when
 //! [`crate::config::GtaoSettings::denoise_passes`] is `>= 2`; a second instance is added for
 //! `denoise_passes >= 3`. Intermediate iterations use
 //! `denoise_blur_beta / 5.0` so two iterations approximate the quality of a single soft
@@ -110,8 +110,8 @@ impl RasterPass for GtaoDenoisePass {
             .blackboard
             .get::<GtaoSettingsSlot>()
             .map_or(self.settings, |slot| slot.0);
-        // XeGTAO splits the requested blur energy: intermediate uses `beta / 5`, final uses
-        // `beta`. Two iterations at full beta would over-smooth.
+        // Split requested blur energy: intermediate uses `beta / 5`, final uses `beta`.
+        // Two iterations at full beta would over-smooth.
         let params =
             GtaoParamsGpu::from_settings(live, live.denoise_blur_beta.max(0.0) / 5.0, false);
         let params_buffer = self.pipelines.params.get(ctx.device);

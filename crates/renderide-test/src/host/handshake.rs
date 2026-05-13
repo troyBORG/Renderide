@@ -1,7 +1,7 @@
 //! Init handshake: sends `RendererInitData` -> awaits `RendererInitResult` -> sends
 //! `RendererInitFinalizeData`.
 //!
-//! Field defaults come from the production C# host (`FrooxEngine/RenderSystem.cs:197-222`):
+//! Field defaults follow the production host handshake:
 //! `shared_memory_prefix` always non-null, `unique_session_id` random per session,
 //! `main_process_id = std::process::id()`, `window_title` always set, `output_device = Screen`.
 

@@ -1,4 +1,4 @@
-//! Physically-based bloom (COD: Advanced Warfare dual-filter; Bevy port).
+//! Physically-based dual-filter bloom.
 //!
 //! Provides four `@fragment` entry points sharing the same vertex shader:
 //!
@@ -11,10 +11,9 @@
 //!   (group 1) and writing the chain output; performs the composite math in-shader so the
 //!   pipeline can use the default `Replace` blend state.
 //!
-//! Kernel weights, Karis average, and soft-threshold math are direct ports of Bevy's
-//! `crates/bevy_post_process/src/bloom/bloom.wgsl`. Build script emits `bloom_default` and
-//! `bloom_multiview` targets -- the multiview variant substitutes `@builtin(view_index)` for
-//! array sampling so the left/right stereo layers are scattered independently.
+//! Build script emits `bloom_default` and `bloom_multiview` targets -- the multiview variant
+//! substitutes `@builtin(view_index)` for array sampling so the left/right stereo layers are
+//! scattered independently.
 
 #import renderide::core::fullscreen as fs
 

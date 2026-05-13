@@ -596,7 +596,7 @@ fn instance_changed_mixed_targets_indexed_materials_first_then_pbs() {
 }
 
 /// Bit indexing into the BitSpanMut packing must land in the right element/bit slot for
-/// boundary positions across two `u32` elements. Mirrors `Renderite.Shared.BitSpan` exactly.
+/// boundary positions across two `u32` elements.
 #[test]
 fn instance_changed_bitspan_packing_at_word_boundaries() {
     use crate::shared::bit_span::BitSpanMut;

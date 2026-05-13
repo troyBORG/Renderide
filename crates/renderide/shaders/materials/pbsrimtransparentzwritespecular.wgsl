@@ -2,9 +2,8 @@
 //! same shading as [`pbsrimtransparentspecular`](super::pbsrimtransparentspecular), with a
 //! depth-only prepass before the alpha-blended forward pass so the surface populates depth.
 //!
-//! The Unity reference asset has `#ifdef _ALBEDOTEX` blocks but never declares the matching
-//! `#pragma multi_compile`, so the albedo branch is dead in the compiled shader. The port follows
-//! suit: `_Color` is the only base color and `_MainTex` is not bound.
+//! Variant metadata never enables `_ALBEDOTEX`, so the albedo branch is unreachable in this
+//! material. `_Color` is the only base color and `_MainTex` is not bound.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes
 //! PBSRimTransparentZWriteSpecular's shader-specific keyword bits locally.
@@ -145,12 +144,11 @@ fn fs_main(
     let rim = mf::rim_factor(n, view_dir, mat._RimPower);
     let rim_emission = mat._RimColor.rgb * rim;
     let surface = psurf::specular(base_color, alpha, f0, roughness, occlusion, n, emission + rim_emission);
-    let color = plight::shade_specular_clustered(
+    return plight::shade_specular_transparent_clustered(
         frag_pos.xy,
         world_pos,
         view_layer,
         surface,
         plight::default_lighting_options(),
     );
-    return vec4<f32>(color, alpha);
 }

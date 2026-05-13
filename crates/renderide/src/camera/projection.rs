@@ -212,7 +212,7 @@ mod projection_math_tests {
         [m.x_axis.x, m.y_axis.y, m.z_axis.x, m.z_axis.y]
     }
 
-    /// Mirrors `skybox_common.wgsl::view_ray_from_ndc`.
+    /// Matches `skybox_common.wgsl::view_ray_from_ndc`.
     fn skybox_view_ray_from_ndc_for_test(
         ndc: Vec2,
         proj_params: [f32; 4],

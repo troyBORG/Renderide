@@ -1,7 +1,7 @@
 //! Per-draw instance storage slab (`@group(2)`) for mesh forward passes.
 //!
 //! Each render view owns its own [`PerDrawResources`] instance, grown on demand using the
-//! Filament growth policy: `max(16, (4*n + 2) / 3)`. Views write their per-draw rows at
+//! `max(16, (4*n + 2) / 3)` growth policy. Views write their per-draw rows at
 //! byte offset 0 of their own buffer; no ring partitioning or cross-view sharing.
 
 use std::sync::Arc;
@@ -83,7 +83,7 @@ impl PerDrawResources {
     /// Ensures at least `need_slots` rows are available, growing the slab and recreating the bind
     /// group when needed.
     ///
-    /// Growth uses the Filament policy: `max(16, (4*n + 2) / 3)`, which provides ~33% headroom
+    /// Growth uses `max(16, (4*n + 2) / 3)`, which provides ~33% headroom
     /// per grow event. The result is capped by [`GpuLimits::max_per_draw_slab_slots`]; draws
     /// beyond the cap log a warning but are silently clamped.
     pub fn ensure_draw_slot_capacity(&mut self, device: &wgpu::Device, need_slots: usize) {
@@ -97,7 +97,7 @@ impl PerDrawResources {
         if need_slots == 0 || need_slots <= self.slot_count {
             return;
         }
-        // Filament growth policy: ~33% slack, minimum 16.
+        // ~33% slack, minimum 16.
         let next = (4 * need_slots).div_ceil(3).max(16).min(cap);
         let size_u64 = (next * PER_DRAW_UNIFORM_STRIDE) as u64;
         let per_draw_storage = device.create_buffer(&wgpu::BufferDescriptor {
@@ -127,13 +127,13 @@ impl PerDrawResources {
 mod tests {
     use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 
-    /// Pure Filament growth formula for unit testing (no GPU device needed).
-    fn filament_growth(need_slots: usize, cap: usize) -> usize {
+    /// Pure slab growth formula for unit testing (no GPU device needed).
+    fn slab_growth(need_slots: usize, cap: usize) -> usize {
         (4 * need_slots).div_ceil(3).max(16).min(cap)
     }
 
     #[test]
-    fn filament_growth_policy_correct() {
+    fn slab_growth_policy_correct() {
         let large_cap = 100_000usize;
         let cases: &[(usize, usize)] = &[
             (1, 16),
@@ -144,7 +144,7 @@ mod tests {
             (1000, 1334),
         ];
         for &(need, expected) in cases {
-            let actual = filament_growth(need, large_cap);
+            let actual = slab_growth(need, large_cap);
             assert_eq!(
                 actual, expected,
                 "growth(need={need}) should be {expected}, got {actual}"
@@ -153,10 +153,10 @@ mod tests {
     }
 
     #[test]
-    fn filament_growth_never_below_16() {
+    fn slab_growth_never_below_16() {
         let cap = 100_000usize;
         for need in 1..=100 {
-            let actual = filament_growth(need, cap);
+            let actual = slab_growth(need, cap);
             assert!(
                 actual >= 16,
                 "growth(need={need}) = {actual} is below the minimum of 16"
@@ -165,9 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn filament_growth_capped_by_max() {
+    fn slab_growth_capped_by_max() {
         let max = 500usize;
-        let result = filament_growth(1000, max);
+        let result = slab_growth(1000, max);
         assert_eq!(result, max, "growth should be capped at max={max}");
     }
 
@@ -176,7 +176,7 @@ mod tests {
         let cap = 10_000usize;
         let mut prev = 16usize;
         for need in 1..=5000 {
-            let next = filament_growth(need, cap);
+            let next = slab_growth(need, cap);
             assert!(
                 next >= prev,
                 "growth not monotone at need={need}: prev={prev}, next={next}"

@@ -28,7 +28,7 @@ pub(super) struct MipSubrectCopy {
     pub h: u32,
 }
 
-/// Matches `TextureUploadHint.IsEmptyRegion` in `Renderite.Shared`.
+/// Returns whether the host texture-upload hint encodes an empty region.
 pub(super) fn hint_region_is_empty(hint: &TextureUploadHint) -> bool {
     if hint.has_region == 0 {
         return false;

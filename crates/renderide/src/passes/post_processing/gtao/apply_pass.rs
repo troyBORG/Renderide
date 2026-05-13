@@ -1,4 +1,4 @@
-//! `gtao_apply` raster pass -- XeGTAO final iteration that folds AO modulation into the
+//! `gtao_apply` raster pass -- GTAO final iteration that folds AO modulation into the
 //! kernel.
 //!
 //! Reads the post-processing chain's HDR scene-color input plus the AO term and packed

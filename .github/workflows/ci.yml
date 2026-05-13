@@ -158,6 +158,6 @@ jobs:
       - name: Build (warnings as errors)
         run: dotnet build generators/SharedTypeGenerator.Tests/SharedTypeGenerator.Tests.csproj --configuration Release --no-restore -warnaserror
 
-      # Hosted runners do not have Renderite.Shared.dll: roundtrip sources are excluded at compile time (see SharedTypeGenerator.Tests.csproj).
+      # Hosted runners do not have the host shared assembly: roundtrip sources are excluded at compile time (see SharedTypeGenerator.Tests.csproj).
       - name: Test
         run: dotnet test generators/SharedTypeGenerator.Tests/SharedTypeGenerator.Tests.csproj --configuration Release --no-build --no-restore

@@ -64,11 +64,13 @@ pub fn apply_window_event(
             profiling::scope!("frontend::window_event", "modifiers");
             acc.set_keyboard_modifiers(modifiers.state());
         }
-        WindowEvent::PointerButton { state, button, .. } => {
+        WindowEvent::PointerButton {
+            state,
+            button: ButtonSource::Mouse(mouse_button),
+            ..
+        } => {
             profiling::scope!("frontend::window_event", "mouse_button");
-            if let ButtonSource::Mouse(mouse_button) = button {
-                apply_mouse_button(acc, *state, *mouse_button);
-            }
+            apply_mouse_button(acc, *state, *mouse_button);
         }
         WindowEvent::MouseWheel { delta, .. } => {
             profiling::scope!("frontend::window_event", "scroll");

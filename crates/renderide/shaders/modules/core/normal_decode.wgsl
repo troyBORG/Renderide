@@ -6,8 +6,8 @@
 
 /// Decode a tangent-space normal from an RGB normal map sample (standard path).
 ///
-/// `scale` is applied to tangent-plane XY before Z reconstruction, matching Unity's packed
-/// normal behavior for `_NormalScale` / `_BumpScale`.
+/// `scale` is applied to tangent-plane XY before Z reconstruction for `_NormalScale` /
+/// `_BumpScale`.
 fn decode_ts_normal(raw: vec3<f32>, scale: f32) -> vec3<f32> {
     let xy = (raw.xy * 2.0 - 1.0) * scale;
     return reconstruct_ts_normal_from_scaled_xy(xy);

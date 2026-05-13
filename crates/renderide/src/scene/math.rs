@@ -17,7 +17,7 @@ pub(crate) fn render_transform_has_degenerate_scale(t: &RenderTransform) -> bool
         || scale.z.abs() <= MIN_RENDER_SCALE
 }
 
-/// Builds column-major TRS = `T * R * S`, matching Unity / host `RenderTransform` convention.
+/// Builds column-major TRS = `T * R * S`, matching the host `RenderTransform` convention.
 #[inline]
 pub fn render_transform_to_matrix(t: &RenderTransform) -> Mat4 {
     let sx = if t.scale.x.is_finite() && t.scale.x.abs() >= MIN_RENDER_SCALE {

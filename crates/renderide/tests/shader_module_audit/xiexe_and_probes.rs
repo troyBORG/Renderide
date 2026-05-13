@@ -3,6 +3,25 @@
 use super::*;
 
 #[test]
+fn xiexe_transparent_keeps_premultiplied_transparent_pass_directive() -> io::Result<()> {
+    let src = material_source("xstoon2.0-transparent.wgsl")?;
+    assert!(
+        src.contains("//#pass forward_premultiplied_transparent"),
+        "xstoon2.0-transparent.wgsl must use the source-authored premultiplied transparent pass"
+    );
+    assert!(
+        !src.contains("//#pass forward\n"),
+        "xstoon2.0-transparent.wgsl must not alias the opaque forward pass"
+    );
+    let main_src = source_file(manifest_dir().join("shaders/modules/xiexe/toon2/main.wgsl"))?;
+    assert!(
+        !main_src.contains("rgb = rgb * alpha"),
+        "XSToon transparent must not premultiply the entire lit RGB result like straight alpha"
+    );
+    Ok(())
+}
+
+#[test]
 fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     let globals_src = source_file(manifest_dir().join("shaders/modules/frame/globals.wgsl"))?;
     assert!(
@@ -33,7 +52,7 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     );
     assert!(
         lighting_src.contains("spec = spec * (ambient + dominant_light_col_atten * 0.5);"),
-        "Xiexe matcaps must receive the Unity 2.0 light-scaling term (`XSLightingFunctions.cginc:231`)"
+        "Xiexe matcaps must receive the host-compatible light-scaling term"
     );
     for forbidden in [
         "reflection_is_multiplicative",
@@ -53,7 +72,7 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
 }
 
 #[test]
-fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
+fn xiexe_primary_direct_specular_uses_ggx_pbr_core() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
 
@@ -63,7 +82,7 @@ fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
         "fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> DirectSpecularTerms {",
         "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
         "let energy_compensation = brdf::energy_compensation_from_dfg(dfg, specular_reflectance);",
-        "fn direct_specular_filament(",
+        "fn direct_specular_ggx(",
         "let alpha = max(perceptual_roughness * perceptual_roughness, brdf::MIN_ALPHA);",
         "let f_term = brdf::f_schlick(specular_reflectance, brdf::f90_from_f0(specular_reflectance), ldh);",
         "var specular = max(vec3<f32>(0.0), d_term * v_term * f_term * energy_compensation);",
@@ -74,7 +93,7 @@ fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
     ] {
         assert!(
             lighting_src.contains(required),
-            "Xiexe primary direct specular must use Filament/PBS term `{required}`"
+            "Xiexe primary direct specular must use PBS GGX term `{required}`"
         );
     }
 
@@ -201,13 +220,13 @@ fn xiexe_indirect_diffuse_uses_pbs_energy_split() -> io::Result<()> {
 }
 
 #[test]
-fn xiexe_direct_diffuse_uses_filament_lambert_with_ramp_tint() -> io::Result<()> {
+fn xiexe_direct_diffuse_uses_lambert_with_ramp_tint() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
     assert!(
         lighting_src
             .contains("s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp"),
-        "Per-light direct diffuse must route through Filament Lambert × Renderide's π-boosted attenuation × toon ramp; saw:\n{lighting_src}"
+        "Per-light direct diffuse must route through Lambert, boosted attenuation, and toon ramp; saw:\n{lighting_src}"
     );
     assert!(
         !lighting_src.contains("s.albedo.rgb * ramp * light_col_atten"),

@@ -94,7 +94,7 @@ pub(super) fn clock_time_from_seconds(seconds: f64) -> gstreamer::ClockTime {
 
 /// Returns the host-expected playback position right now, given the last received update.
 ///
-/// Faithful port of `VideoTextureUpdate.AdjustedPosition` in `Renderite.Shared`:
+/// Host-expected `AdjustedPosition` calculation:
 /// `position + (now - decoded_time).total_seconds()`, with no play-state guard.
 pub(super) fn adjusted_host_position(update: &VideoTextureUpdate, now_nanos: i128) -> f64 {
     let elapsed_nanos = now_nanos - update.decoded_time;

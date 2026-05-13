@@ -64,7 +64,7 @@ pub(crate) enum CubemapUploadCompletion {
     Continue,
     /// One face/mip was uploaded.
     UploadedOne {
-        /// Whether the written face/mip used host-V-inverted storage.
+        /// Whether the written face/mip needs storage-orientation compensation.
         storage_v_inverted: bool,
     },
     /// The task is waiting on background decode/downsample work.
@@ -73,7 +73,7 @@ pub(crate) enum CubemapUploadCompletion {
     Complete {
         /// Number of face/mip writes completed by this upload.
         uploaded_face_mips: u32,
-        /// Whether any written face/mip used host-V-inverted storage.
+        /// Whether any written face/mip needs storage-orientation compensation.
         storage_v_inverted: bool,
     },
 }

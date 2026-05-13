@@ -12,12 +12,12 @@ pub type BloomMaxMipDimension =
 
 /// Physically-based bloom configuration.
 ///
-/// Persisted as `[post_processing.bloom]`. Implements the Call of Duty: Advanced Warfare
-/// dual-filter technique (13-tap downsample + 3x3 tent upsample) with Karis-average firefly
-/// reduction on the first downsample. Runs after auto-exposure and before tonemapping so it scatters
-/// exposed HDR-linear light; the tonemap pass then compresses the combined value. Energy-conserving
-/// composition redistributes the same source term that enters the bloom pyramid, including the
-/// soft-thresholded source when a prefilter threshold is enabled.
+/// Persisted as `[post_processing.bloom]`. Implements a dual-filter technique with a 13-tap
+/// downsample and 3x3 tent upsample, plus Karis-average firefly reduction on the first downsample.
+/// Runs after auto-exposure and before tonemapping so it scatters exposed HDR-linear light; the
+/// tonemap pass then compresses the combined value. Energy-conserving composition redistributes
+/// the same source term that enters the bloom pyramid, including the soft-thresholded source when
+/// a prefilter threshold is enabled.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BloomSettings {
@@ -46,7 +46,7 @@ pub struct BloomSettings {
     /// Target height (in pixels) of the largest bloom mip. Each subsequent mip halves the
     /// resolution; smaller values are faster but less wide-spread. Arbitrary values are accepted
     /// in config/UI, then clamped and rounded down to a power of two by
-    /// [`Self::effective_max_mip_dimension`]. 512 matches Bevy's default.
+    /// [`Self::effective_max_mip_dimension`]. The default is 512.
     pub max_mip_dimension: u32,
 }
 

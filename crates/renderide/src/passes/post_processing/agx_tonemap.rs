@@ -1,9 +1,9 @@
 //! Analytic AgX tonemap render pass.
 //!
-//! Reads an HDR scene-color array texture, applies the Filament-style analytic AgX transform, and
-//! writes a chain HDR transient that the next post pass (or [`crate::passes::SceneColorComposePass`])
-//! consumes. Output is in `[0, 1]` linear sRGB so the existing sRGB swapchain encodes gamma
-//! correctly without a separate gamma pass.
+//! Reads an HDR scene-color array texture, applies the analytic AgX transform, and writes a chain
+//! HDR transient that the next post pass (or [`crate::passes::SceneColorComposePass`]) consumes.
+//! Output is in `[0, 1]` linear sRGB so the existing sRGB swapchain encodes gamma correctly
+//! without a separate gamma pass.
 
 mod pipeline;
 

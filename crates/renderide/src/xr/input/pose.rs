@@ -1,7 +1,7 @@
 //! Controller grip/aim pose math and OpenXR [`openxr::SpaceLocation`] conversion.
 //!
-//! Values are a port of the host-side pose convention from the original Unity renderer's
-//! `SteamVRDriver` (`UpdateController` and `InitHandData`). The host (`VR_Manager`) writes the
+//! Values follow the host-side pose convention expected by the `SteamVRDriver`-shaped
+//! controller data path. The host (`VR_Manager`) writes the
 //! received `position` / `rotation` straight into `RawPosition` / `RawRotation`, so the renderer
 //! is responsible for delivering poses in the exact frame the host was authored against.
 
@@ -14,8 +14,7 @@ use crate::xr::session::openxr_pose_to_host_tracking;
 use super::profile::ActiveControllerProfile;
 
 /// Builds a quaternion with the same Y-X-Z composition order Unity's `Quaternion.Euler` uses,
-/// so per-profile rotation constants taken from `SteamVRDriver.InitHandData` can be transcribed
-/// verbatim.
+/// so per-profile rotation constants align with the host controller calibration data.
 pub(super) fn unity_euler_deg(x: f32, y: f32, z: f32) -> Quat {
     Quat::from_rotation_y(y.to_radians())
         * Quat::from_rotation_x(x.to_radians())
@@ -46,21 +45,17 @@ pub(super) fn touch_pose_correction(
 /// [`crate::shared`] for bound-hand tracking (FrooxEngine `BodyNodePositionOffset` /
 /// `BodyNodeRotationOffset` on the hand device).
 ///
-/// Ported from the original Unity renderer's `SteamVRDriver.InitHandData` (decompiled
-/// `Assembly-CSharp` lines 259-414; source project lines 309-476). The host does not hardcode
-/// these: `VR_Manager` forwards IPC `handPosition` / `handRotation` into
+/// The host does not hardcode these: `VR_Manager` forwards IPC `handPosition` / `handRotation` into
 /// `MappableTrackedObject.Initialize` at registration.
 ///
 /// `generic_fix = unity_euler_deg(90, 90, 90).inverse()` reproduces Unity's post-multiply
 /// `Quaternion.Inverse(Quaternion.Euler(90,90,90))`, applied only to Vive / Touch / Generic in
 /// that driver.
 ///
-/// Divergence from Unity: `hasBoundHand` is returned `true` for every profile. Unity ties the
-/// flag to a runtime `DisableSkeletalModel` config (default `false`) for Index / Vive / Touch /
-/// Cosmos, falling back to skeletal hand tracking otherwise. The renderer has no skeletal hand
-/// tracking, so the bound-hand defaults are always surfaced; Index / Cosmos / ViveFocus3 return
-/// identity so the hand visual sits at the grip rather than at a wrist offset that was never
-/// calibrated for them.
+/// `hasBoundHand` is returned `true` for every profile. The host can otherwise prefer skeletal
+/// hand tracking for some profiles, but the renderer has no skeletal hand tracking, so the
+/// bound-hand defaults are always surfaced; Index / Cosmos / ViveFocus3 return identity so the
+/// hand visual sits at the grip rather than at a wrist offset that was never calibrated for them.
 pub(super) fn bound_hand_pose_defaults(
     profile: ActiveControllerProfile,
     side: Chirality,
@@ -239,8 +234,7 @@ mod tests {
         }
     }
 
-    /// Pico4 / PicoNeo3 / HpReverbG2 share the Windows MR bound-hand values (matching Unity's
-    /// PicoNeo2 / HPReverb / WindowsMR entries).
+    /// Pico4 / PicoNeo3 / HpReverbG2 share the Windows MR bound-hand values.
     #[test]
     fn pico_and_reverb_share_windowsmr_defaults() {
         let reference = [

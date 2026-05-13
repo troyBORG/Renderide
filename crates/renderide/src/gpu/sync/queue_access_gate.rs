@@ -3,19 +3,18 @@
 //! # wgpu-core lock ordering
 //!
 //! `Queue::write_texture` acquires the destination texture's `initialization_status`
-//! `RwLock` (write) at `wgpu-core-29 queue.rs:821` and then, with that guard still live,
-//! acquires `device.trackers` `Mutex` at `queue.rs:939`. `Queue::submit` does the
-//! opposite: `trackers` first at `queue.rs:1304`, then via `initialize_texture_memory`
-//! at `memory_init.rs:271` takes `initialization_status` write for every texture
-//! referenced by the baked command buffers. With `write_texture` on the main thread and
-//! `submit` on the [`super::driver_thread::DriverThread`], the two inner locks form an
-//! ABBA cycle -- observed as a futex hang with the main thread parked in
+//! `RwLock` (write) and then, with that guard still live, acquires `device.trackers`.
+//! `Queue::submit` does the opposite: `trackers` first, then texture initialization takes
+//! `initialization_status` write for every texture referenced by the baked command buffers.
+//! With `write_texture` on the main thread and `submit` on the
+//! [`super::driver_thread::DriverThread`], the two inner locks form an ABBA cycle -- observed as
+//! a futex hang with the main thread parked in
 //! `Queue::write_texture` and the driver parked in
 //! `BakedCommands::initialize_texture_memory`.
 //!
 //! `Queue::write_buffer` (the asymmetric cousin) takes `trackers` first and
-//! `initialization_status` second with no nesting (see `queue.rs:689-731`), so it is not
-//! part of this cycle and is left ungated.
+//! `initialization_status` second with no nesting, so it is not part of this cycle and is left
+//! ungated.
 //!
 //! # OpenXR queue ownership
 //!

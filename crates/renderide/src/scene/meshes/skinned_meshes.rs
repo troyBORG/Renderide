@@ -58,7 +58,7 @@ pub struct ExtractedSkinnedMeshRenderablesUpdate {
     /// Per-renderer posed object-space AABB rows from the host's
     /// [`SkinnedMeshRenderablesUpdate::bounds_updates`] buffer (terminated by
     /// `renderable_index < 0`). Each row carries the tight per-frame AABB computed by the host's
-    /// animation evaluation and is used verbatim for CPU frustum / Hi-Z culling.
+    /// animation evaluation and is used directly for CPU frustum / Hi-Z culling.
     pub bounds_updates: Vec<SkinnedMeshBoundsUpdate>,
 }
 

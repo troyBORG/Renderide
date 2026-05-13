@@ -33,9 +33,8 @@ fn text_mode_clamped(tm: f32) -> i32 {
 
 /// Derives the text mode int (`0`=MSDF, `1`=RASTER, `2`=SDF) from decoded variant bits.
 ///
-/// Defaults to MSDF when neither RASTER nor SDF is set, matching Unity's
-/// `#pragma multi_compile RASTER SDF MSDF` first-keyword default behavior after
-/// Froox's variant resolution.
+/// Defaults to MSDF when neither RASTER nor SDF is set, matching the material keyword default
+/// after Froox's variant resolution.
 fn text_mode_from_keywords(raster: bool, sdf: bool) -> i32 {
     if (raster) {
         return 1;

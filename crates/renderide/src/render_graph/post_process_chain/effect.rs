@@ -16,7 +16,7 @@ use crate::render_graph::resources::TextureHandle;
 pub enum PostProcessEffectId {
     /// Ground-Truth Ambient Occlusion (Jimenez et al. 2016), pre-tonemap HDR modulation.
     Gtao,
-    /// Dual-filter physically-based bloom (COD: Advanced Warfare / Bevy style), pre-tonemap HDR.
+    /// Dual-filter physically-based bloom, pre-tonemap HDR.
     Bloom,
     /// Histogram-based exposure adaptation, pre-tonemap HDR scale.
     AutoExposure,

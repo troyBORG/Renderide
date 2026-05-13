@@ -17,8 +17,8 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> fs::FullscreenVertexOutput {
     return fs::vertex_main(vid);
 }
 
-// Blender AgX Rec.2020 inset matrix from Filament. WGSL mat3x3 constructors take
-// column vectors, so these coefficients intentionally keep Filament's column grouping.
+// Blender AgX Rec.2020 inset matrix. WGSL mat3x3 constructors take column vectors, so these
+// coefficients intentionally keep the source column grouping.
 fn agx_inset_matrix() -> mat3x3<f32> {
     return mat3x3<f32>(
         vec3<f32>(0.8566271533, 0.1373189729, 0.1118982130),
@@ -27,7 +27,7 @@ fn agx_inset_matrix() -> mat3x3<f32> {
     );
 }
 
-// Inverse Blender AgX Rec.2020 outset matrix from Filament.
+// Inverse Blender AgX Rec.2020 outset matrix.
 fn agx_outset_matrix() -> mat3x3<f32> {
     return mat3x3<f32>(
         vec3<f32>( 1.12710058, -0.14132976, -0.14132976),

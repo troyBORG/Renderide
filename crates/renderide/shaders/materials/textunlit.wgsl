@@ -4,7 +4,7 @@
 //!
 //! Froox `#pragma multi_compile` keywords (`RASTER`/`SDF`/`MSDF`, `OUTLINE`) are decoded from
 //! the renderer-reserved `_RenderideVariantBits` uniform; bit positions match Froox's
-//! sorted `UniqueKeywords` list (`Elements/Elements/Assets/ShaderMetadata.cs::GenerateUniqueKeywords()`).
+//! sorted `UniqueKeywords` order.
 
 
 #import renderide::frame::globals as rg

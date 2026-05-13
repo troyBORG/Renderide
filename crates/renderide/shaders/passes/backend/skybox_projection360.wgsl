@@ -1,6 +1,6 @@
 //! Fullscreen Projection360 sky draw.
 //!
-//! Material struct mirrors `materials/projection360.wgsl` exactly so the reflected
+//! Material struct matches `materials/projection360.wgsl` so the reflected
 //! `@group(1) @binding(0)` layout (which is taken from the material-side shader) matches
 //! this pass-side shader's bind requirement. Froox variant bits populate
 //! `_RenderideVariantBits`; this shader decodes Projection360's shader-specific keyword

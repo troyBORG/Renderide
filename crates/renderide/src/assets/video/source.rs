@@ -41,7 +41,7 @@ mod tests {
     }
 
     #[test]
-    fn uri_source_is_preserved_verbatim() {
+    fn uri_source_is_preserved_directly() {
         assert_eq!(
             source_uri(Some("https://example.invalid/movie.mp4")).unwrap(),
             Some(String::from("https://example.invalid/movie.mp4"))

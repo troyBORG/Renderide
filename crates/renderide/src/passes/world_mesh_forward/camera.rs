@@ -32,7 +32,7 @@ pub(super) fn resolve_camera_world_pair(hc: &HostCameraFrame) -> (glam::Vec3, gl
 
 /// Resolves multiview use, [`MaterialPipelineDesc`], and [`ShaderPermutation`].
 pub(super) fn resolve_pass_config(
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     multiview_stereo: bool,
     scene_color_format: wgpu::TextureFormat,
     depth_stencil_format: wgpu::TextureFormat,
@@ -71,12 +71,12 @@ pub(super) fn resolve_pass_config(
 /// Render context, perspective projection for world draws, and optional ortho for overlays.
 pub(super) fn compute_view_projections(
     scene: &SceneCoordinator,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     render_context: RenderingContext,
     viewport_px: (u32, u32),
     draws: &[WorldMeshDrawItem],
 ) -> (RenderingContext, Mat4, Option<Mat4>) {
-    let projections = WorldProjectionSet::from_scene_host(scene, viewport_px, &hc);
+    let projections = WorldProjectionSet::from_scene_host(scene, viewport_px, hc);
 
     let has_overlay = !draws.is_empty() && draws.iter().any(|d| d.is_overlay);
     let overlay_proj = has_overlay.then_some(projections.overlay_proj);

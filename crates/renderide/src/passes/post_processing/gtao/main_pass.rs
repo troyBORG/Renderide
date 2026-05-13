@@ -1,11 +1,11 @@
-//! `gtao_main` raster pass -- XeGTAO production stage.
+//! `gtao_main` raster pass -- GTAO production stage.
 //!
-//! Reads the XeGTAO view-space depth mip chain plus the smooth view-space normal prepass,
+//! Reads the GTAO view-space depth mip chain plus the smooth view-space normal prepass,
 //! evaluates the horizon search, and writes:
 //!
 //! - `@location(0)` -- `saturate(visibility / OCCLUSION_TERM_SCALE)` to an `R8Unorm` ping-pong
-//!   target. The `1 / 1.5` scale is XeGTAO's `XeGTAO_OutputWorkingTerm` headroom convention;
-//!   the apply stage multiplies by `OCCLUSION_TERM_SCALE` to recover the true visibility.
+//!   target. The `1 / 1.5` scale leaves headroom for the denoise kernel; the apply stage
+//!   multiplies by `OCCLUSION_TERM_SCALE` to recover the true visibility.
 //! - `@location(1)` -- packed `LRTB` depth-edge weights (`gtao_pack_edges`) to an `R8Unorm`
 //!   ping-pong target sampled by the depth-aware denoise / apply stages.
 

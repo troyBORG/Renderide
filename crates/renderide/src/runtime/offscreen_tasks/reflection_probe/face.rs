@@ -141,7 +141,7 @@ pub(super) fn probe_face_world_matrix(position: Vec3, face: ProbeCubeFace) -> Ma
 }
 
 pub(super) fn host_camera_frame_for_probe_face(
-    base: HostCameraFrame,
+    base: &HostCameraFrame,
     state: ReflectionProbeState,
     viewport_px: (u32, u32),
     position: Vec3,

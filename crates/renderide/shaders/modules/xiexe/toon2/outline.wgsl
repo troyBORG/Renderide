@@ -1,11 +1,10 @@
 //! Xiexe Toon 2.0 outline pass: vertex extrusion + per-fragment outline shading.
 //!
-//! Parity notes against the Unity 2.0 reference:
+//! Outline behavior notes:
 //!
-//! - Vertex extrusion uses `_OutlineMask`-modulated width with a distance fade matching
-//!   `min(distance * 3, 1)` from `XSGeom.cginc:55`. The mask is sampled at the raw UV0
-//!   (Unity's geometry shader uses `IN[i].uv` regardless of `_UVSet*`) so masks authored
-//!   for UV0 keep working when albedo's UV-set selector is set to UV1.
+//! - Vertex extrusion uses `_OutlineMask`-modulated width with a `min(distance * 3, 1)` distance
+//!   fade. The mask is sampled at raw UV0 so masks authored for UV0 keep working when albedo's
+//!   UV-set selector is set to UV1.
 //!
 //! - Outline fragments do **not** flip the world normal on back-faces. The visible
 //!   outline pixels under front-face culling are back-faces of the extruded shell whose
@@ -13,7 +12,7 @@
 //!   into the camera and constant ~=1 NdotV, which manifested as the "outline explodes
 //!   all lighting" bug.
 //!
-//! - The outline lighting branch follows `calcOutlineColor`:
+//! - The outline lighting branch follows the material's outline-mode controls:
 //!   - `_OutlineEmissive` / `_OutlineLighting` / `_OutlineEmissiveues` != 0 -> flat
 //!     `_OutlineColor` (with optional `_OutlineAlbedoTint` x albedo).
 //!   - All three flags = 0 (Lit mode) -> `ol * saturate(att * NdotL) * lightCol +
@@ -31,7 +30,7 @@
 #import renderide::draw::per_draw as pd
 #import renderide::core::uv as uvu
 
-/// Outline vertex transform. Samples `_OutlineMask` at UV0 (Unity-faithful), extrudes
+/// Outline vertex transform. Samples `_OutlineMask` at UV0, extrudes
 /// the vertex along its object-space normal by `_OutlineWidth * 0.01 * mask * dist_scale`,
 /// then runs the standard vertex pipeline so downstream interpolants stay consistent
 /// with the forward path. The output color is overridden with `_OutlineColor` so the
@@ -48,8 +47,8 @@ fn vertex_outline(
 ) -> xb::VertexOutput {
     let d = pd::get_draw(instance_index);
     let base_world = d.model * vec4<f32>(pos.xyz, 1.0);
-    // Outline mask is authored against UV0 in Unity (`IN[i].uv` in XSGeom.cginc),
-    // independent of `_UVSetAlbedo`. Sampling at `uv_primary` directly preserves that.
+    // Outline mask is authored against UV0 independent of `_UVSetAlbedo`. Sampling at
+    // `uv_primary` directly preserves that.
     let mask = textureSampleLevel(xb::_OutlineMask, xb::_OutlineMask_sampler, uv_primary, 0.0).r;
     let dist_scale = min(distance(base_world.xyz, rg::camera_world_pos_for_view(view_idx)) * 3.0, 1.0);
     let outline_width = max(xb::mat._OutlineWidth, 0.0) * 0.01 * mask * dist_scale;
@@ -117,9 +116,7 @@ fn fragment_outline_for_layout(
     }
 
     // The three Unity property names are aliases for the same `Enum(Lit=0, Emissive=1)`
-    // selector (`XSToon2.0.shader` uses `_OutlineEmissiveues`, `XSToon2.0 Outlined.shader`
-    // uses `_OutlineLighting`, `XSDefines.cginc` declares `_OutlineEmissive`). Treat any
-    // non-zero flag as "Emissive".
+    // selector. Treat any non-zero flag as "Emissive".
     let emissive_mode = xb::prop_flag(xb::mat._OutlineLighting) || xb::prop_flag(xb::mat._OutlineEmissive) || xb::prop_flag(xb::mat._OutlineEmissiveues);
 
     var rgb: vec3<f32>;

@@ -1,9 +1,9 @@
 //! Cooperative [`SetCubemapData`] integration: one face x mip per step.
 
-use crate::assets::texture::upload_uses_storage_v_inversion;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::shared::{
-    RendererCommand, SetCubemapData, SetCubemapFormat, SetCubemapResult, TextureUpdateResultType,
+    RendererCommand, SetCubemapData, SetCubemapFormat, SetCubemapResult, TextureFormat,
+    TextureUpdateResultType,
 };
 
 use super::AssetTransferQueue;
@@ -55,7 +55,11 @@ impl CubemapUploadTask {
         ipc: &mut Option<&mut DualQueueIpc>,
     ) -> StepResult {
         let id = self.data.asset_id;
-        let storage_v_inverted = self.upload_uses_storage_v_inversion();
+        let storage_v_inverted = host_cubemap_upload_uses_storage_v_inversion(
+            self.format.format,
+            self.wgpu_format,
+            self.data.flip_y,
+        );
         if !self.storage_orientation_allows_upload(queue, storage_v_inverted) {
             self.finalize_failure(ipc);
             return StepResult::Done;
@@ -113,11 +117,6 @@ impl CubemapUploadTask {
                 StepResult::Done
             }
         }
-    }
-
-    /// Whether this upload will leave native compressed face bytes in host V orientation.
-    fn upload_uses_storage_v_inversion(&self) -> bool {
-        upload_uses_storage_v_inversion(self.format.format, self.wgpu_format, self.data.flip_y)
     }
 
     /// Returns `false` when this upload would mix storage orientations in one resident cubemap.
@@ -205,6 +204,14 @@ impl CubemapUploadTask {
     }
 }
 
+fn host_cubemap_upload_uses_storage_v_inversion(
+    _host_format: TextureFormat,
+    _wgpu_format: wgpu::TextureFormat,
+    _flip_y: bool,
+) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use crate::shared::{SetCubemapData, SetCubemapFormat, TextureFormat};
@@ -233,12 +240,18 @@ mod tests {
     }
 
     #[test]
-    fn host_cubemap_uploads_always_use_unity_orientation() {
-        // After the unified-orientation refactor every host cubemap upload is treated as
-        // Unity V=0 bottom regardless of host format or `flip_y`.
-        assert!(task(false, true, TextureFormat::BC7).upload_uses_storage_v_inversion());
-        assert!(task(false, false, TextureFormat::BC7).upload_uses_storage_v_inversion());
-        assert!(task(false, true, TextureFormat::BC1).upload_uses_storage_v_inversion());
-        assert!(task(false, false, TextureFormat::RGBA32).upload_uses_storage_v_inversion());
+    fn host_cubemap_uploads_use_native_cube_orientation() {
+        for task in [
+            task(false, true, TextureFormat::BC7),
+            task(false, false, TextureFormat::BC7),
+            task(false, true, TextureFormat::BC1),
+            task(false, false, TextureFormat::RGBA32),
+        ] {
+            assert!(!host_cubemap_upload_uses_storage_v_inversion(
+                task.format.format,
+                task.wgpu_format,
+                task.data.flip_y
+            ));
+        }
     }
 }

@@ -78,8 +78,8 @@ impl HiZUvRect {
 
 /// Picks the first mip from an approximate footprint extent expressed in base Hi-Z texels.
 ///
-/// This follows Godot's occlusion-buffer query: start coarse enough for the projected rectangle,
-/// then walk toward mip0 until a level proves full occlusion or the query fails open.
+/// Starts coarse enough for the projected rectangle, then walks toward mip0 until a level proves
+/// full occlusion or the query fails open.
 #[inline]
 fn hi_z_mip_for_pixel_extent(extent_base_px: f32) -> u32 {
     if !extent_base_px.is_finite() || extent_base_px <= 1.0 {

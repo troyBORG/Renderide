@@ -1,7 +1,7 @@
 //! Dual-queue IPC: Primary and Background subscriber/publisher pairs for [`RendererCommand`].
 //!
-//! Naming matches the managed client when the renderer is **non-authority**: subscribe on `...A`,
-//! publish on `...S` (see `Renderite.Shared.MessagingManager.Connect`).
+//! Naming matches the host client when the renderer is **non-authority**: subscribe on `...A`,
+//! publish on `...S`.
 
 use interprocess::{Publisher, QueueFactory, Subscriber};
 

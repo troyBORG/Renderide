@@ -11,8 +11,8 @@ use super::polymorphic_memory_packable_entity::PolymorphicEncode;
 
 /// Sequential binary writer for IPC buffers (writes `Pod` values as byte slices; works for unaligned buffers).
 ///
-/// Buffer overflow used to `panic!` via `assert!`; CLAUDE.md forbids panics in library/runtime
-/// paths. The packer now tracks the overflow as state: subsequent writes silently no-op so
+/// Buffer overflow used to `panic!` via `assert!`; runtime packing now reports recoverable
+/// overflow instead. The packer tracks the overflow as state: subsequent writes silently no-op so
 /// the trait-shaped `pack(&mut self, packer)` API used by both hand-written code and the
 /// `SharedTypeGenerator`-emitted `pack` methods does not need to thread `Result` through every
 /// write site. After encoding, callers must invoke [`MemoryPacker::into_result`] (or check

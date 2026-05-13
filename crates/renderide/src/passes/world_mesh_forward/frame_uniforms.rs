@@ -19,7 +19,7 @@ pub(super) fn write_per_view_frame_uniforms(
     frame: &GraphPassFrame<'_>,
     frame_plan: &PerViewFramePlan,
     use_multiview: bool,
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
 ) {
     let uniforms = build_frame_gpu_uniforms(
         hc,
@@ -44,7 +44,7 @@ pub(super) fn write_per_view_frame_uniforms(
 
 /// Resolves cluster + camera-world scratch into [`FrameGpuUniforms`] for one view.
 fn build_frame_gpu_uniforms(
-    hc: HostCameraFrame,
+    hc: &HostCameraFrame,
     scene: &SceneCoordinator,
     viewport_px: (u32, u32),
     light_count: u32,
@@ -52,13 +52,13 @@ fn build_frame_gpu_uniforms(
     skybox_specular: crate::gpu::frame_globals::SkyboxSpecularUniformParams,
 ) -> FrameGpuUniforms {
     let (vw, vh) = viewport_px;
-    let (camera_world, camera_world_right) = resolve_camera_world_pair(&hc);
+    let (camera_world, camera_world_right) = resolve_camera_world_pair(hc);
     let ambient_light = scene.active_main_ambient_light();
     let ambient_sh = FrameGpuUniforms::ambient_sh_from_render_sh2(&ambient_light);
     let ambient_sh_valid = FrameGpuUniforms::ambient_sh_is_valid(&ambient_light);
     let stereo_cluster = use_multiview && hc.active_stereo().is_some();
     let frame_idx = hc.frame_index as u32;
-    if stereo_cluster && let Some((left, right)) = cluster_frame_params_stereo(&hc, scene, (vw, vh))
+    if stereo_cluster && let Some((left, right)) = cluster_frame_params_stereo(hc, scene, (vw, vh))
     {
         return left.frame_gpu_uniforms(FrameGpuUniformBuildParams {
             camera_world_pos: camera_world,
@@ -73,7 +73,7 @@ fn build_frame_gpu_uniforms(
             ambient_sh,
         });
     }
-    if let Some(mono) = cluster_frame_params(&hc, scene, (vw, vh)) {
+    if let Some(mono) = cluster_frame_params(hc, scene, (vw, vh)) {
         let z = mono.view_space_z_coeffs();
         let p = mono.proj_params();
         return mono.frame_gpu_uniforms(FrameGpuUniformBuildParams {

@@ -1,7 +1,6 @@
-//! Unity unlit `Shader "Unlit/UnlitPolarMapping"`: remaps the mesh UV to polar coordinates and
-//! samples `_MainTex`. The Unity source uses `tex2Dgrad` with explicit derivatives to mask the
-//! discontinuity at the polar seam; this WGSL port mirrors that with `textureSampleGrad` and
-//! the same derivative reconstruction.
+//! Unlit polar mapping: remaps the mesh UV to polar coordinates and samples `_MainTex`.
+//! Explicit texture derivatives mask the discontinuity at the polar seam by using
+//! `textureSampleGrad` with reconstructed gradients.
 
 
 #import renderide::frame::globals as rg

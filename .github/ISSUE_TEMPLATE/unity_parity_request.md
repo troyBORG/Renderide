@@ -36,7 +36,7 @@ Impact:
 <!-- Screenshots, videos, GPU captures, material/property dumps, or small repro assets can go here. Label which captures are Unity and which are Renderide. -->
 
 
-**Logs / platform**
+**Logs**
 <!--
 Attach or paste the relevant renderer log. It already includes version, target, config, graphics API, GPU selection, validation state, and startup diagnostics.
 Include host/bootstrapper logs too if they help. If logs are unavailable, say why.

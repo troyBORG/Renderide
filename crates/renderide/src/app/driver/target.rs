@@ -6,6 +6,8 @@ use std::time::Duration;
 use thiserror::Error;
 use winit::event_loop::ActiveEventLoop;
 use winit::monitor::Fullscreen;
+#[cfg(target_os = "windows")]
+use winit::platform::windows::WindowAttributesWindows;
 use winit::window::{Window, WindowAttributes};
 
 use crate::diagnostics::crash_context::{self, TargetMode};
@@ -255,6 +257,10 @@ fn create_main_window(
         .with_maximized(true)
         .with_visible(true)
         .with_window_icon(try_embedded_window_icon());
+    #[cfg(target_os = "windows")]
+    let attrs = attrs.with_platform_attributes(Box::new(
+        WindowAttributesWindows::default().with_use_system_scroll_speed(false),
+    ));
 
     event_loop
         .create_window(attrs)

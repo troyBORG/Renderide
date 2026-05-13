@@ -28,7 +28,7 @@ pub trait XrHostCameraSync {
     /// Stores the center-eye world position used by mono fallback paths and CPU view sorting.
     fn set_eye_world_position(&mut self, position: Vec3);
     /// Stores per-eye stereo matrices used by the HMD multiview view this tick.
-    fn set_stereo(&mut self, stereo: Option<StereoViewMatrices>);
+    fn set_stereo(&mut self, stereo: Option<&StereoViewMatrices>);
     /// Hook when OpenXR `wait_frame` returns an error (recoverable; tick may skip XR work).
     fn note_openxr_wait_frame_failed(&mut self) {}
     /// Hook when OpenXR `locate_views` fails while the runtime expected rendering views.

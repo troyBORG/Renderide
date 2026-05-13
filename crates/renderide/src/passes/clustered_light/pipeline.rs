@@ -2,7 +2,7 @@
 //!
 //! Mirrors the `LazyLock<PipelineCache>` shape used by the post-processing passes
 //! (e.g. [`crate::passes::post_processing::AcesTonemapPass`]'s `AcesTonemapPipelineCache`),
-//! adapted to a compute pipeline. The bind-group layout and the compute pipeline are each
+//! specialized for compute dispatch. The bind-group layout and the compute pipeline are each
 //! held in an [`OnceGpu`] slot so the first call lazily creates them on the active device,
 //! and every subsequent call returns the cached references without locking.
 

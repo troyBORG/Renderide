@@ -6,8 +6,8 @@
 //! bright (or too dark on the inverse case), producing harshly aliased silhouettes between bright
 //! emissives / specular sparks and dark surfaces even with high MSAA.
 //!
-//! This pass implements the Karis bracket used by Filament's `customResolveAsSubpass`: each
-//! non-negative sample lobe is compressed by `x / (1 + max3(x))` (a reversible squish into roughly
+//! This pass implements a Karis bracket: each non-negative sample lobe is compressed by
+//! `x / (1 + max3(x))` (a reversible squish into roughly
 //! `[0, 1]`), the compressed values are linearly averaged, and the result is decompressed by
 //! `y / (1 - max3(y))`. Signed HDR is handled by resolving positive and negative lobes separately
 //! and reconstructing `positive - negative`.

@@ -201,6 +201,18 @@ fn resolves_filter_assets_from_asset_filenames() {
 }
 
 #[test]
+fn resolves_volume_assets_from_asset_filenames() {
+    assert_eq!(
+        embedded_default_stem_for_shader_asset_name("FogBoxVolume").as_deref(),
+        Some("fogboxvolume_default")
+    );
+    assert_eq!(
+        embedded_default_stem_for_shader_asset_name("VolumeUnlit").as_deref(),
+        Some("volumeunlit_default")
+    );
+}
+
+#[test]
 fn resolves_billboard_unlit_from_filename() {
     assert_eq!(
         embedded_default_stem_for_shader_asset_name("BillboardUnlit").as_deref(),

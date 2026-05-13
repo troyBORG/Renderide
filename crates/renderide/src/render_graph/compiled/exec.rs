@@ -439,7 +439,7 @@ impl CompiledRenderGraph {
                 helpers::GraphPassFrameViewInputs {
                     resolved: &resolved,
                     scene_color_format: mv_ctx.backend.scene_color_format_wgpu(),
-                    host_camera: work_item.host_camera,
+                    host_camera: &work_item.host_camera,
                     render_context: work_item.render_context,
                     clear: work_item.clear,
                     post_processing: work_item.post_processing,

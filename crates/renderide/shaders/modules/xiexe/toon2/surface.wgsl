@@ -4,8 +4,7 @@
 //! The forward and outline paths take separate normal-decoding routes. The forward path
 //! flips world-space `(N, T, B)` for back-facing fragments so two-sided meshes light
 //! correctly. The outline path skips that flip -- outline visible fragments are the
-//! back-faces of an extruded shell whose geometric normals already point outward (matching
-//! the Unity reference where outlines use the unflipped `i.ntb` of the front-face vertex).
+//! back-faces of an extruded shell whose geometric normals already point outward.
 
 #define_import_path renderide::xiexe::toon2::surface
 
@@ -54,10 +53,9 @@ fn vertex_main(
     return out;
 }
 
-/// Builds a perturbed TBN from the interpolated geometry frame. When the `NORMAL_MAP`
-/// keyword is set, `_BumpMap` is sampled and decoded via Unity's `UnpackScaleNormal`
-/// (`XSHelperFunctions.cginc:1-27`). Detail-normal blending is an XSToon3 feature absent
-/// from 2.0 and is not performed here.
+/// Builds a perturbed TBN from the interpolated geometry frame. When the `NORMAL_MAP` keyword is
+/// set, `_BumpMap` is sampled and decoded via Unity's `UnpackScaleNormal`. Detail-normal blending
+/// is an XSToon3 feature absent from 2.0 and is not performed here.
 ///
 /// `flip_back_face` toggles the dual-sided correction. The forward path passes `true` so
 /// back-facing fragments of two-sided meshes light from the visible side; the outline
@@ -170,10 +168,8 @@ fn sample_surface_for_layout(
     if (xvb::vertex_color_albedo_enabled_for_layout(keyword_layout)) {
         albedo = vec4<f32>(albedo.rgb * color.rgb, albedo.a);
     }
-    // `diffuse_color` keeps the original (saturated) base color for tinting paths
-    // (specular albedo tint, rim/shadow-rim tints, outline tint) -- see
-    // `XSFrag.cginc:81` (`o.diffuseColor = o.albedo.rgb` *before* the metallic discount)
-    // followed by `BRDF_XSLighting:35` (saturation pass).
+    // `diffuse_color` keeps the saturated base color for tinting paths before the metallic
+    // discount (specular albedo tint, rim/shadow-rim tints, outline tint).
     let diffuse_color = xb::maybe_saturate_color(albedo.rgb);
     let raw_normal = select(
         xb::safe_normalize(world_n, vec3<f32>(0.0, 1.0, 0.0)),
@@ -201,10 +197,9 @@ fn sample_surface_for_layout(
     var roughness = 1.0 - smoothness;
     roughness = clamp(roughness * (1.7 - 0.7 * roughness), 0.045, 1.0);
 
-    // Direct-lighting albedo is the metallic-discounted tinted base -- `BRDF_XSLighting:33`
-    // does `i.albedo.rgb *= (1 - metallic)` before the lighting walk so a perfect metal
-    // contributes no diffuse term. Multiplication is linear w.r.t. the saturation lerp,
-    // so applying `(1 - metallic)` after the desaturation is equivalent to before.
+    // Direct-lighting albedo is the metallic-discounted tinted base so a perfect metal
+    // contributes no diffuse term. Multiplication is linear w.r.t. the saturation lerp, so
+    // applying `(1 - metallic)` after the desaturation is equivalent to before.
     albedo = vec4<f32>(diffuse_color * (1.0 - metallic), albedo.a);
 
     let reflectivity = clamp(xb::mat._Reflectivity, 0.0, 1.0);

@@ -1,4 +1,4 @@
-//! Bevy-style instance grouping for world-mesh forward draws.
+//! Instance grouping for world-mesh forward draws.
 //!
 //! Produces an [`InstancePlan`] that groups `(batch_key, mesh, submesh)` runs into a
 //! contiguous per-draw-slab range regardless of where the sort placed individual members.
@@ -9,9 +9,6 @@
 //! pipeline whose merge requirement was *adjacency in the sorted draw array* -- that policy
 //! silently fragmented instancing whenever the sort cascade interleaved same-mesh draws
 //! with different-mesh draws (e.g. varying `sorting_order` within one material).
-//!
-//! References: Bevy's `RenderMeshInstances` / `GpuArrayBuffer<MeshUniform>` model
-//! (`bevy_pbr/src/render/mesh.rs`, `bevy_render/src/batching/mod.rs::GetBatchData`).
 
 mod batch_window;
 mod scratch;

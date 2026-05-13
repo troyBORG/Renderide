@@ -29,17 +29,6 @@ Expected:
 
 Observed:
 
-
-**Measurements**
-<!-- Approximate numbers are useful if exact captures are unavailable. Mention the tool, HUD, trace, or capture used. -->
-
-Renderide result:
-
-Baseline or Unity result:
-
-Capture tool or HUD used:
-
-
 **Extra materials**
 <!-- Tracy captures, GPU captures, HUD screenshots, videos, pass timing logs, or small repro assets can go here. -->
 

@@ -9,7 +9,7 @@ use super::wire_tables::unity_blend_factor;
 
 /// Resonite/Froox material blend mode, or the shader stem's default when no material field is present.
 ///
-/// Reconstructed from the `_SrcBlend` / `_DstBlend` Unity blend-factor floats that FrooxEngine
+/// Reconstructed from the `_SrcBlend` / `_DstBlend` blend-factor floats that FrooxEngine
 /// writes for every material (see [`MaterialBlendMode::from_unity_blend_factors`]). The host
 /// never sends a named `BlendMode` enum value on the wire -- `MaterialProvider.SetBlendMode(Alpha)`
 /// on the C# side simply translates to `SrcBlend=SrcAlpha` / `DstBlend=OneMinusSrcAlpha` floats --
@@ -20,13 +20,13 @@ pub enum MaterialBlendMode {
     /// No material-level override; use the stem's normal static behavior.
     #[default]
     StemDefault,
-    /// Canonical Unity `Blend One Zero` -- opaque, no color blend.
+    /// Canonical `Blend One Zero` -- opaque, no color blend.
     Opaque,
-    /// Direct Unity `Blend[src][dst], One One` factors from `_SrcBlend` / `_DstBlend`.
+    /// Direct `Blend[src][dst], One One` factors from `_SrcBlend` / `_DstBlend`.
     UnityBlend {
-        /// Unity source blend factor enum value.
+        /// Source blend factor enum value.
         src: u8,
-        /// Unity destination blend factor enum value.
+        /// Destination blend factor enum value.
         dst: u8,
     },
 }

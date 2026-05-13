@@ -56,8 +56,8 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
         self.host_camera.eye_world_position = Some(position);
     }
 
-    fn set_stereo(&mut self, stereo: Option<StereoViewMatrices>) {
-        self.host_camera.stereo = stereo;
+    fn set_stereo(&mut self, stereo: Option<&StereoViewMatrices>) {
+        self.host_camera.stereo = stereo.copied();
     }
 
     fn note_openxr_wait_frame_failed(&mut self) {

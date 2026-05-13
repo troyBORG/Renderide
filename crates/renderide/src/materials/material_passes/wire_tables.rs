@@ -1,7 +1,7 @@
-//! Unity `CompareFunction`, depth test, stencil op, color mask, and blend enum mappings to `wgpu`.
+//! Host material enum mappings to `wgpu`.
 //!
-//! These tables mirror Unity/Resonite material inspector values used by [`super::render_state`]
-//! and multi-pass blend materialization in [`super::material_passes`].
+//! These tables cover material inspector values used by [`super::render_state`] and multi-pass
+//! blend materialization in [`super::material_passes`].
 
 /// Host `_ZTest` value for an always-passing depth test.
 pub(crate) const ZTEST_ALWAYS: u8 = 6;
@@ -27,10 +27,8 @@ pub(crate) fn unity_compare_function(value: u8) -> wgpu::CompareFunction {
 ///
 /// The host's `ZTest` enum layout is:
 /// `Less=0, Greater=1, LessOrEqual=2, GreaterOrEqual=3, Equal=4, NotEqual=5, Always=6`. This
-/// differs from Unity's `CompareFunction` (which uses `Disabled=0, Never=1, Less=2, Equal=3,
-/// LessEqual=4, Greater=5, NotEqual=6, GreaterEqual=7, Always=8`); the host casts
-/// `Sync<ZTest>.Value` to float without any remapping, so the renderer must decode it with the
-/// host's layout.
+/// uses its own layout; the host casts `Sync<ZTest>.Value` to float without any remapping, so the
+/// renderer must decode it with the host's layout.
 ///
 /// Depth-test comparisons invert under reverse-Z (near fragments have greater depth), so e.g.
 /// `ZTest.LessOrEqual` -- the usual opaque-pass default -- becomes `wgpu::CompareFunction::GreaterEqual`.
@@ -97,7 +95,7 @@ pub(crate) fn unity_blend_factor(value: u8) -> Option<wgpu::BlendFactor> {
     }
 }
 
-/// Builds separate RGBA blend state matching Unity `Blend[src][dst], One One` + `BlendOp Add, Max` on alpha.
+/// Builds separate RGBA blend state for `Blend[src][dst], One One` + `BlendOp Add, Max` on alpha.
 pub(crate) fn unity_blend_state(src: u8, dst: u8) -> Option<wgpu::BlendState> {
     if src == 1 && dst == 0 {
         return None;

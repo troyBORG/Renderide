@@ -1,7 +1,6 @@
 //! Graphviz DOT export of a [`super::CompiledRenderGraph`].
 //!
-//! Mirrors Filament's `FrameGraph::export_graphviz` so the same mental model applies: the dump is
-//! a snapshot of the retained (post-cull, post-topo-sort) graph with resources and passes on
+//! Emits a snapshot of the retained (post-cull, post-topo-sort) graph with resources and passes on
 //! separate node shapes and edges colored by access type. Two clusters separate
 //! [`super::super::pass::PassPhase::FrameGlobal`] and [`super::super::pass::PassPhase::PerView`]
 //! passes.

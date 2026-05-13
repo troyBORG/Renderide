@@ -247,7 +247,7 @@ mod tests {
 
     /// SIMD-vs-scalar parity across a wide sweep of projections, camera positions, and AABB
     /// shapes. Both paths execute the same arithmetic in the same order on the same hardware so
-    /// every sample must match bit-for-bit; if a future glam release breaks that, this surfaces
+    /// every sample must match; if a future glam release breaks that, this surfaces
     /// the regression immediately rather than letting cull stats silently drift.
     #[test]
     fn simd_aabb_screen_footprint_matches_scalar_reference_across_random_inputs() {

@@ -21,7 +21,7 @@ pub const VR_MIRROR_EYE_LAYER: u32 = 0;
 /// HMD swapchain color format the eye-to-staging blit reads and writes.
 ///
 /// Matches the OpenXR swapchain format used by the XR layer. The staging texture matches it
-/// byte-for-byte so the desktop mirror can copy an HMD eye without importing XR modules.
+/// layout-compatible so the desktop mirror can copy an HMD eye without importing XR modules.
 pub(crate) const HMD_MIRROR_SOURCE_FORMAT: wgpu::TextureFormat =
     wgpu::TextureFormat::Rgba8UnormSrgb;
 

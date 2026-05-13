@@ -705,11 +705,11 @@ mod tests {
         let model_inv = model.inverse();
         let cam_obj = model_inv.transform_point3(cam_world);
         let frag_obj = v_obj[0] * bary[0] + v_obj[1] * bary[1] + v_obj[2] * bary[2];
-        let unity_dir = (cam_obj - frag_obj).normalize();
+        let expected_dir = (cam_obj - frag_obj).normalize();
 
         assert!(
-            (frag_dir - unity_dir).length() < 1e-5,
-            "interpolated obj_view_dir = {frag_dir:?}, unity reference = {unity_dir:?}",
+            (frag_dir - expected_dir).length() < 1e-5,
+            "interpolated obj_view_dir = {frag_dir:?}, expected = {expected_dir:?}",
         );
     }
 }

@@ -6,9 +6,8 @@
 
 #define_import_path renderide::material::voronoi
 
-/// Pseudo-random 2D vector seeded by integer cell coordinate. Identical to the
-/// `Resonite.UnityShaders/.../Voronoi.cginc` `random2` helper so output matches the original
-/// noise pattern bit-for-bit when fed equivalent inputs.
+/// Pseudo-random 2D vector seeded by integer cell coordinate. Constants are kept stable so the
+/// generated noise pattern remains compatible with existing material tuning.
 fn random2(p: vec2<f32>) -> vec2<f32> {
     let s = vec2<f32>(dot(p, vec2<f32>(127.1, 311.7)), dot(p, vec2<f32>(269.5, 183.3)));
     return fract(sin(s) * 43758.5453);
@@ -59,8 +58,8 @@ fn voronoi_full(uv_scaled: vec2<f32>, scale: vec2<f32>, anim_offset: f32) -> Vor
     return VoronoiResult(min_dist, second_min, min_point);
 }
 
-/// Unwrapped animated Voronoi returning only the nearest cell distance. Matches the
-/// `Voronoi.cginc` reference used by `Hidden/Voronoi`. Caller is responsible for any pre-scaling.
+/// Unwrapped animated Voronoi returning only the nearest cell distance. Caller is responsible for
+/// any pre-scaling.
 fn voronoi_min_dist(uv_scaled: vec2<f32>, anim_offset: f32) -> f32 {
     let i_uv = floor(uv_scaled);
     let f_uv = fract(uv_scaled);

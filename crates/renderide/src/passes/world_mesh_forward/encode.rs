@@ -486,7 +486,7 @@ fn issue_material_pipeline_passes(
 
 /// Resolves the `instance_range` argument to `draw_indexed` for one [`DrawGroup`].
 ///
-/// On base-instance-capable devices, the group's slab range is passed verbatim -- the GPU
+/// On base-instance-capable devices, the group's slab range is passed directly; the GPU
 /// `instance_index` walks `instance_range.start..instance_range.end`, addressing the
 /// per-draw slab directly. On downlevel devices, every group has `instance_range.len() == 1`
 /// (forced by `build_plan`'s `supports_base_instance = false` gate), and the slab

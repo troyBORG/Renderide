@@ -6,16 +6,15 @@ use serde::{Deserialize, Serialize};
 ///
 /// Persisted as `[post_processing.gtao]`. GTAO runs pre-tonemap and modulates HDR scene
 /// color by a visibility factor reconstructed from the depth buffer. View-space normals are
-/// reconstructed from depth derivatives (no separate GBuffer). Defaults track XeGTAO's tuned
-/// values so the effect stays local and contact-shadow-like instead of behaving like a broad
-/// full-scene darkener.
+/// reconstructed from depth derivatives (no separate GBuffer). Defaults keep the effect local
+/// and contact-shadow-like instead of behaving like a broad full-scene darkener.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GtaoSettings {
     /// Whether GTAO runs in the post-processing chain when post-processing is enabled.
     pub enabled: bool,
     /// Quality preset: `0` low, `1` medium, `2` high, `3` ultra. Higher presets add slice
-    /// directions before adding more per-slice steps, matching XeGTAO's sampling layout.
+    /// directions before adding more per-slice steps.
     pub quality_level: u32,
     /// World-space horizon search radius (meters), before [`Self::radius_multiplier`] is
     /// applied. Larger values create broader indirect shadows.
@@ -33,15 +32,15 @@ pub struct GtaoSettings {
     pub step_count: u32,
     /// Distance-falloff range as a fraction of [`Self::radius_meters`]. Candidate samples
     /// are linearly faded toward the tangent-plane horizon over the last `falloff_range *
-    /// radius_meters` of the search radius (matches XeGTAO's `FalloffRange`). Smaller =
-    /// harder cutoff; larger = smoother transition but more distant influence.
+    /// radius_meters` of the search radius. Smaller = harder cutoff; larger = smoother transition
+    /// but more distant influence.
     pub falloff_range: f32,
     /// Power curve applied to per-step offsets. Higher values concentrate samples near the
     /// shaded pixel where contact detail matters most.
     pub sample_distribution_power: f32,
     /// Additional thickness compensation for depth-discontinuous thin occluders.
     pub thin_occluder_compensation: f32,
-    /// Final visibility power used by XeGTAO's tuned fit.
+    /// Final visibility power applied after slice averaging.
     pub final_value_power: f32,
     /// Bias for selecting depth MIP levels during horizon sampling. Larger values keep samples
     /// on more detailed mips; smaller values reduce bandwidth at the cost of stability.
@@ -50,18 +49,17 @@ pub struct GtaoSettings {
     /// light lost by assuming fully-absorbing occluders. Set lower for darker scenes,
     /// higher for brighter.
     pub albedo_multibounce: f32,
-    /// Number of XeGTAO-style depth-aware denoise iterations applied to the AO term before
+    /// Number of depth-aware denoise iterations applied to the AO term before
     /// it modulates HDR scene color. `0` disables the bilateral filter (apply pass uses the
-    /// raw single-tap AO term); `1` runs only the final-apply kernel; `2` (XeGTAO's
-    /// recommended default) runs an intermediate iteration at `denoise_blur_beta / 5`
+    /// raw single-tap AO term); `1` runs only the final-apply kernel; `2` runs an intermediate
+    /// iteration at `denoise_blur_beta / 5`
     /// followed by the apply iteration at the full `denoise_blur_beta`. `3` adds a second
     /// intermediate ping-pong iteration for a softer MXAO-style result. Values above `3` are
     /// clamped at runtime.
     pub denoise_passes: u32,
-    /// Bilateral blur strength used by the depth-aware denoise kernel -- XeGTAO's
-    /// `DenoiseBlurBeta` constant. Higher values smooth more aggressively across cardinal
-    /// neighbours; lower values keep more detail. Has no effect when [`Self::denoise_passes`]
-    /// is `0`.
+    /// Bilateral blur strength used by the depth-aware denoise kernel. Higher values smooth more
+    /// aggressively across cardinal neighbours; lower values keep more detail. Has no effect when
+    /// [`Self::denoise_passes`] is `0`.
     pub denoise_blur_beta: f32,
 }
 

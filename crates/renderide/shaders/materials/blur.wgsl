@@ -3,7 +3,7 @@
 //! Reads scene color via the grab pass and accumulates either a circular or Poisson-disc tap set
 //! around the fragment's screen UV, optionally offset by view-space refraction (with normal-map
 //! perturbation). The `SPREAD_TEX`, `REFRACT`/`REFRACT_NORMALMAP`, `RECTCLIP`, and `POISSON_DISC`
-//! variant bits mirror Unity `#pragma multi_compile _ ...` groups on the source shader.
+//! variant bits follow the material keyword groups.
 
 #import renderide::post::filter_math as fm
 #import renderide::post::filter_vertex as fv

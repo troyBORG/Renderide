@@ -3,8 +3,8 @@
 //! `_StencilOp`, `_StencilReadMask`, `_StencilWriteMask`, and `_ColorMask` material properties.
 //!
 //! Stencil state is CPU-side (it lives in the wgpu pipeline descriptor, not a shader binding), so
-//! the WGSL itself is effectively `pbsmetallic` with the keyword surface scoped down to the
-//! Unity reference's smaller property block. Mirrors `pbsdualsided.wgsl` shading without the
+//! the WGSL itself is effectively `pbsmetallic` with the keyword surface scoped down to this
+//! material's smaller property block. It shares `pbsdualsided.wgsl` shading without the
 //! front-face flip.
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSStencil's
