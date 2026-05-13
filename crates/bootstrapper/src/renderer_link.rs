@@ -1,4 +1,4 @@
-//! Ensures the Host-visible renderer path (`Renderite.Renderer`) points at the real `renderide` binary on Unix.
+//! Ensures the Host-visible renderer path (`Renderite.Renderer`) points at the real renderer binary on Unix.
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::fs;
@@ -17,12 +17,12 @@ fn same_filesystem_inode(lhs: &std::path::Path, rhs: &std::path::Path) -> bool {
 
 /// On Linux, creates a symlink; on macOS, a hard link so argv0 / process naming match the real binary.
 ///
-/// No-op on Windows and when `renderide` does not exist beside the bootstrapper.
+/// No-op on Windows and when `renderide-renderer` does not exist beside the launcher.
 pub fn ensure_link(config: &ResoBootConfig) {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let symlink = &config.renderite_executable;
-        let target = config.renderite_directory.join("renderide");
+        let target = config.renderite_directory.join("renderide-renderer");
         let needs_renderer_stub = target.exists() && {
             #[cfg(target_os = "linux")]
             {
@@ -75,7 +75,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("bootstrapper_stub_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        let target = tmp.join("renderide");
+        let target = tmp.join("renderide-renderer");
         fs::write(&target, b"").unwrap();
         let link = tmp.join("Renderite.Renderer");
         let c = cfg_with_dirs(&tmp, &link);
@@ -91,7 +91,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("bootstrapper_stub2_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        let target = tmp.join("renderide");
+        let target = tmp.join("renderide-renderer");
         fs::write(&target, b"").unwrap();
         let link = tmp.join("Renderite.Renderer");
         std::os::unix::fs::symlink(tmp.join("wrong"), &link).unwrap();
@@ -103,7 +103,7 @@ mod tests {
 
     /// When the renderer binary is not yet present (early-startup race or non-bundled deployment),
     /// `ensure_link` must not create a dangling symlink -- the linker stub is only useful when the
-    /// real `renderide` binary already exists in the renderer directory.
+    /// real `renderide-renderer` binary already exists in the renderer directory.
     #[test]
     fn ensure_link_is_noop_when_target_missing() {
         let tmp = std::env::temp_dir().join(format!("bootstrapper_stub3_{}", std::process::id()));
@@ -145,7 +145,7 @@ mod tests_macos {
             std::env::temp_dir().join(format!("bootstrapper_stub_mac_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        let target = tmp.join("renderide");
+        let target = tmp.join("renderide-renderer");
         fs::write(&target, b"bin").unwrap();
         let link = tmp.join("Renderite.Renderer");
         let c = cfg_with_dirs(&tmp, &link);
@@ -156,7 +156,7 @@ mod tests_macos {
 
     /// When the renderer binary is not yet present (early-startup race or non-bundled deployment),
     /// `ensure_link` must not create a dangling hard link -- the linker stub is only useful when the
-    /// real `renderide` binary already exists in the renderer directory.
+    /// real `renderide-renderer` binary already exists in the renderer directory.
     #[test]
     fn ensure_link_is_noop_when_target_missing() {
         let tmp =
