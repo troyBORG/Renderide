@@ -16,9 +16,13 @@ use super::super::RendererRuntime;
 use super::render::FrameRenderMode;
 use super::view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
 
-/// MSAA policy used for host RenderTexture camera outputs.
+/// MSAA policy used for persistent host RenderTexture camera outputs.
+///
+/// Photo/readback [`crate::shared::CameraRenderTask`] captures keep their own MSAA policy in
+/// [`crate::runtime::offscreen_tasks::camera`]; secondary world cameras can create many large
+/// persistent targets, so they render single-sample and avoid full-size transient MSAA stacks.
 const SECONDARY_CAMERA_SAMPLE_COUNT_POLICY: OffscreenSampleCountPolicy =
-    OffscreenSampleCountPolicy::MasterMsaa;
+    OffscreenSampleCountPolicy::SingleSample;
 
 /// Returns the stable logical identity for one secondary camera view.
 pub(in crate::runtime) fn secondary_camera_view_id(
@@ -303,10 +307,10 @@ mod tests {
     }
 
     #[test]
-    fn secondary_cameras_use_master_msaa_policy() {
+    fn secondary_cameras_use_single_sample_policy() {
         assert_eq!(
             SECONDARY_CAMERA_SAMPLE_COUNT_POLICY,
-            OffscreenSampleCountPolicy::MasterMsaa
+            OffscreenSampleCountPolicy::SingleSample
         );
     }
 

@@ -8,8 +8,9 @@ mod update;
 mod upload;
 mod validation;
 
-pub use fingerprint::mesh_upload_input_fingerprint;
-pub use validation::{compute_and_validate_mesh_layout, try_upload_mesh_from_raw};
+pub(crate) use fingerprint::mesh_upload_input_fingerprint;
+pub(crate) use upload::MeshGpuUploadContext;
+pub(crate) use validation::{compute_and_validate_mesh_layout, try_upload_mesh_from_raw};
 
 use std::fmt;
 use std::sync::Arc;
@@ -26,14 +27,14 @@ use super::layout::{
     extract_float3_position_normal_as_vec4_streams, split_bone_weights_tail_for_gpu,
     uv0_float2_stream_bytes, vertex_float2_stream_bytes,
 };
-use tangent_generation::{TangentStreamSource, tangent_stream_bytes};
-
-use crate::gpu::GpuLimits;
+use tangent_generation::{
+    TangentStreamSource, raw_tangent_payload_stream_bytes, tangent_stream_bytes,
+};
 
 use upload::{
     create_core_vertex_index_buffers, extract_derived_vertex_streams, padded_sparse_bytes,
-    resident_bytes_for_mesh_upload, upload_blendshape_buffer, upload_bone_and_skin_buffers,
-    validate_mesh_upload_layout,
+    queue_init_buffer_size_matches, resident_bytes_for_mesh_upload, upload_blendshape_buffer,
+    upload_bone_and_skin_buffers, validate_mesh_upload_layout, write_mesh_queue_buffer,
 };
 
 use hints::{
@@ -136,6 +137,8 @@ pub struct GpuMesh {
     pub color_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec4<f32>` tangent stream for shaders using extended vertex inputs.
     pub tangent_buffer: Option<Arc<wgpu::Buffer>>,
+    /// Raw `vec4<f32>` tangent payload for UI shaders that use the tangent semantic as data.
+    pub raw_tangent_buffer: Option<Arc<wgpu::Buffer>>,
     /// Tangent fallback policy used for the current tangent stream.
     pub tangent_fallback_mode: EmbeddedTangentFallbackMode,
     /// `vec2<f32>` UV1 stream for shaders using extended vertex inputs.
@@ -178,7 +181,7 @@ pub(super) fn blendshape_and_deform_buffers_match_for_in_place(
         let Some(sb) = mesh.blendshape_sparse_buffer.as_ref() else {
             return false;
         };
-        if sb.size() != sparse_expect.len() as u64 {
+        if !queue_init_buffer_size_matches(sb.size(), sparse_expect.len()) {
             return false;
         }
         if mesh.blendshape_frame_ranges != extracted.frame_ranges {
@@ -225,10 +228,18 @@ pub(super) fn compatible_for_in_place_real_skeleton(
         &raw[layout.bone_weights_start..layout.bone_weights_start + layout.bone_weights_length];
     match split_bone_weights_tail_for_gpu(bc, bw, vc_usize) {
         Some((ref ib, ref wb)) => {
-            if mesh.bone_indices_buffer.as_ref().map(|b| b.size()) != Some(ib.len() as u64) {
+            if !mesh
+                .bone_indices_buffer
+                .as_ref()
+                .is_some_and(|b| queue_init_buffer_size_matches(b.size(), ib.len()))
+            {
                 return false;
             }
-            if mesh.bone_weights_vec4_buffer.as_ref().map(|b| b.size()) != Some(wb.len() as u64) {
+            if !mesh
+                .bone_weights_vec4_buffer
+                .as_ref()
+                .is_some_and(|b| queue_init_buffer_size_matches(b.size(), wb.len()))
+            {
                 return false;
             }
         }
@@ -238,11 +249,18 @@ pub(super) fn compatible_for_in_place_real_skeleton(
             }
         }
     }
-    if mesh.bone_counts_buffer.as_ref().map(|b| b.size()) != Some(layout.bone_counts_length as u64)
+    if !mesh
+        .bone_counts_buffer
+        .as_ref()
+        .is_some_and(|b| queue_init_buffer_size_matches(b.size(), layout.bone_counts_length))
     {
         return false;
     }
-    if mesh.bind_poses_buffer.as_ref().map(|b| b.size()) != Some(layout.bind_poses_length as u64) {
+    if !mesh
+        .bind_poses_buffer
+        .as_ref()
+        .is_some_and(|b| queue_init_buffer_size_matches(b.size(), layout.bind_poses_length))
+    {
         return false;
     }
     if mesh.skinning_bind_matrices.len() != data.bone_count.max(0) as usize {
@@ -322,6 +340,7 @@ pub(super) fn extended_vertex_stream_source_from_raw(
 pub(super) fn extended_vertex_stream_bytes(mesh: &GpuMesh) -> u64 {
     [
         mesh.tangent_buffer.as_ref(),
+        mesh.raw_tangent_buffer.as_ref(),
         mesh.uv1_buffer.as_ref(),
         mesh.uv2_buffer.as_ref(),
         mesh.uv3_buffer.as_ref(),
@@ -342,7 +361,8 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
     if write_vertex {
         {
             profiling::scope!("asset::mesh_write_in_place::write_interleaved_vertex");
-            ctx.queue.write_buffer(
+            write_mesh_queue_buffer(
+                ctx.queue,
                 ctx.mesh.vertex_buffer.as_ref(),
                 0,
                 &ctx.raw[..ctx.layout.vertex_size],
@@ -367,8 +387,8 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                 )
                 .as_ref(),
             ) {
-                ctx.queue.write_buffer(pb.as_ref(), 0, pvec);
-                ctx.queue.write_buffer(nb.as_ref(), 0, nvec);
+                write_mesh_queue_buffer(ctx.queue, pb.as_ref(), 0, pvec);
+                write_mesh_queue_buffer(ctx.queue, nb.as_ref(), 0, nvec);
             }
         }
 
@@ -383,7 +403,7 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                     &ctx.data.vertex_attributes,
                 ),
             ) {
-                ctx.queue.write_buffer(uvb.as_ref(), 0, &uv);
+                write_mesh_queue_buffer(ctx.queue, uvb.as_ref(), 0, &uv);
             }
         }
 
@@ -398,30 +418,34 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                     &ctx.data.vertex_attributes,
                 ),
             ) {
-                ctx.queue.write_buffer(cb.as_ref(), 0, &c);
+                write_mesh_queue_buffer(ctx.queue, cb.as_ref(), 0, &c);
             }
         }
     }
 
     {
         profiling::scope!("asset::mesh_write_in_place::write_tangent_stream");
+        let source = TangentStreamSource {
+            vertex_data: vertex_slice,
+            index_data: &ctx.raw[ctx.layout.index_buffer_start
+                ..ctx.layout.index_buffer_start + ctx.layout.index_buffer_length],
+            vertex_count: ctx.vertex_count,
+            stride: ctx.vertex_stride,
+            attrs: &ctx.data.vertex_attributes,
+            index_format: ctx.data.index_buffer_format,
+            submeshes: &ctx.data.submeshes,
+        };
         if let (Some(tb), Some(t)) = (
             ctx.mesh.tangent_buffer.as_ref(),
-            tangent_stream_bytes(
-                TangentStreamSource {
-                    vertex_data: vertex_slice,
-                    index_data: &ctx.raw[ctx.layout.index_buffer_start
-                        ..ctx.layout.index_buffer_start + ctx.layout.index_buffer_length],
-                    vertex_count: ctx.vertex_count,
-                    stride: ctx.vertex_stride,
-                    attrs: &ctx.data.vertex_attributes,
-                    index_format: ctx.data.index_buffer_format,
-                    submeshes: &ctx.data.submeshes,
-                },
-                ctx.mesh.tangent_fallback_mode.generate_missing(),
-            ),
+            tangent_stream_bytes(source, ctx.mesh.tangent_fallback_mode.generate_missing()),
         ) {
-            ctx.queue.write_buffer(tb.as_ref(), 0, &t);
+            write_mesh_queue_buffer(ctx.queue, tb.as_ref(), 0, &t);
+        }
+        if let (Some(tb), Some(t)) = (
+            ctx.mesh.raw_tangent_buffer.as_ref(),
+            raw_tangent_payload_stream_bytes(source),
+        ) {
+            write_mesh_queue_buffer(ctx.queue, tb.as_ref(), 0, &t);
         }
     }
 
@@ -449,7 +473,7 @@ fn write_in_place_uv1_to_uv3_streams(ctx: &MeshInPlaceWriteContext<'_>, vertex_s
                 target,
             ),
         ) {
-            ctx.queue.write_buffer(buffer.as_ref(), 0, &uv);
+            write_mesh_queue_buffer(ctx.queue, buffer.as_ref(), 0, &uv);
         }
     }
 }
@@ -468,7 +492,7 @@ pub(super) fn write_in_place_index_buffer(
     }
     let ib_slice =
         &raw[layout.index_buffer_start..layout.index_buffer_start + layout.index_buffer_length];
-    queue.write_buffer(mesh.index_buffer.as_ref(), 0, ib_slice);
+    write_mesh_queue_buffer(queue, mesh.index_buffer.as_ref(), 0, ib_slice);
 }
 
 /// Per-buffer hint flags driving [`write_in_place_bone_buffers`].
@@ -510,14 +534,14 @@ pub(super) fn write_in_place_bone_buffers(
             let bw = &ctx.raw[ctx.layout.bone_weights_start
                 ..ctx.layout.bone_weights_start + ctx.layout.bone_weights_length];
             if let Some(bcb) = &ctx.mesh.bone_counts_buffer {
-                ctx.queue.write_buffer(bcb.as_ref(), 0, bc);
+                write_mesh_queue_buffer(ctx.queue, bcb.as_ref(), 0, bc);
             }
             if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bc, bw, ctx.vertex_count) {
                 if let Some(bi) = &ctx.mesh.bone_indices_buffer {
-                    ctx.queue.write_buffer(bi.as_ref(), 0, &ib);
+                    write_mesh_queue_buffer(ctx.queue, bi.as_ref(), 0, &ib);
                 }
                 if let Some(bwt) = &ctx.mesh.bone_weights_vec4_buffer {
-                    ctx.queue.write_buffer(bwt.as_ref(), 0, &wb);
+                    write_mesh_queue_buffer(ctx.queue, bwt.as_ref(), 0, &wb);
                 }
             }
         }
@@ -530,7 +554,7 @@ pub(super) fn write_in_place_bone_buffers(
                     .iter()
                     .flat_map(|m| bytemuck::bytes_of(m).iter().copied())
                     .collect();
-                ctx.queue.write_buffer(bp.as_ref(), 0, &bp_bytes);
+                write_mesh_queue_buffer(ctx.queue, bp.as_ref(), 0, &bp_bytes);
             }
         }
     }
@@ -563,7 +587,7 @@ pub(super) fn write_in_place_blendshape_buffer(
     };
     {
         profiling::scope!("asset::mesh_write_in_place::write_blendshape_gpu_buffers");
-        queue.write_buffer(sb.as_ref(), 0, &sparse);
+        write_mesh_queue_buffer(queue, sb.as_ref(), 0, &sparse);
     }
     Some(())
 }
@@ -618,6 +642,7 @@ impl GpuMesh {
             uv0_buffer: None,
             color_buffer: None,
             tangent_buffer: None,
+            raw_tangent_buffer: None,
             tangent_fallback_mode: EmbeddedTangentFallbackMode::default(),
             uv1_buffer: None,
             uv2_buffer: None,
@@ -633,17 +658,16 @@ impl GpuMesh {
     ///
     /// `raw` must be the mapping for `data.buffer` only for the duration of this call.
     pub fn upload(
-        device: &wgpu::Device,
-        gpu_limits: &GpuLimits,
+        ctx: MeshGpuUploadContext<'_>,
         raw: &[u8],
         data: &MeshUploadData,
         layout: &MeshBufferLayout,
     ) -> Option<Self> {
         profiling::scope!("asset::mesh_full_gpu_upload");
-        let max_buf = gpu_limits.max_buffer_size();
+        let max_buf = ctx.gpu_limits.max_buffer_size();
         {
             profiling::scope!("asset::mesh_validate_upload_layout");
-            if !validate_mesh_upload_layout(raw, data, layout, gpu_limits) {
+            if !validate_mesh_upload_layout(raw, data, layout, ctx.gpu_limits) {
                 return None;
             }
         }
@@ -651,26 +675,18 @@ impl GpuMesh {
         let use_blendshapes =
             data.upload_hint.flags.blendshapes() && !data.blendshape_buffers.is_empty();
 
-        let core = create_core_vertex_index_buffers(device, raw, data, layout)?;
+        let core = create_core_vertex_index_buffers(ctx, raw, data, layout)?;
         let vc_usize = data.vertex_count.max(0) as usize;
 
-        let derived = extract_derived_vertex_streams(device, raw, data, layout, &core);
+        let derived = extract_derived_vertex_streams(ctx, raw, data, layout, &core)?;
         let extended_vertex_stream_source = {
             profiling::scope!("asset::mesh_capture_extended_stream_source");
             extended_vertex_stream_source_from_raw(raw, data, layout)
         };
 
-        let bone_skin = upload_bone_and_skin_buffers(device, raw, data, layout, vc_usize)?;
+        let bone_skin = upload_bone_and_skin_buffers(ctx, raw, data, layout, vc_usize)?;
 
-        let blend_up = upload_blendshape_buffer(
-            device,
-            gpu_limits,
-            raw,
-            data,
-            layout,
-            use_blendshapes,
-            max_buf,
-        );
+        let blend_up = upload_blendshape_buffer(ctx, raw, data, layout, use_blendshapes, max_buf)?;
         let num_blendshapes = blend_up.num_blendshapes;
 
         let (submeshes, submesh_topologies) = {
@@ -719,6 +735,7 @@ impl GpuMesh {
             uv0_buffer: derived.uv0_buffer,
             color_buffer: derived.color_buffer,
             tangent_buffer: derived.tangent_buffer,
+            raw_tangent_buffer: derived.raw_tangent_buffer,
             tangent_fallback_mode: EmbeddedTangentFallbackMode::default(),
             uv1_buffer: derived.uv1_buffer,
             uv2_buffer: derived.uv2_buffer,
