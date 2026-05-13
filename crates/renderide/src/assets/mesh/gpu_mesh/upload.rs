@@ -1,5 +1,6 @@
 //! Helpers for [`super::GpuMesh::upload`](GpuMesh::upload); keeps the `impl` readable.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use glam::Mat4;
@@ -200,7 +201,8 @@ pub(super) fn validate_mesh_upload_layout(
     true
 }
 
-fn queue_init_buffer_size(contents_len: usize) -> wgpu::BufferAddress {
+/// Returns the GPU buffer size needed for queue-backed initialization of `contents_len` bytes.
+pub(super) fn queue_init_buffer_size(contents_len: usize) -> wgpu::BufferAddress {
     let unpadded_size = contents_len as wgpu::BufferAddress;
     if unpadded_size == 0 {
         return 0;
@@ -208,6 +210,38 @@ fn queue_init_buffer_size(contents_len: usize) -> wgpu::BufferAddress {
 
     let align_mask = wgpu::COPY_BUFFER_ALIGNMENT - 1;
     ((unpadded_size + align_mask) & !align_mask).max(wgpu::COPY_BUFFER_ALIGNMENT)
+}
+
+/// Returns whether `actual_size` matches the queue-backed allocation size for `contents_len`.
+pub(super) fn queue_init_buffer_size_matches(actual_size: u64, contents_len: usize) -> bool {
+    actual_size == queue_init_buffer_size(contents_len)
+}
+
+fn queue_write_bytes(contents: &[u8]) -> Cow<'_, [u8]> {
+    let padded_size = queue_init_buffer_size(contents.len()) as usize;
+    if contents.len() == padded_size {
+        return Cow::Borrowed(contents);
+    }
+
+    let mut padded = Vec::with_capacity(padded_size);
+    padded.extend_from_slice(contents);
+    padded.resize(padded_size, 0);
+    Cow::Owned(padded)
+}
+
+/// Writes mesh bytes through `queue.write_buffer`, padding the payload length when wgpu requires it.
+pub(super) fn write_mesh_queue_buffer(
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    offset: wgpu::BufferAddress,
+    contents: &[u8],
+) {
+    if contents.is_empty() {
+        return;
+    }
+
+    let bytes = queue_write_bytes(contents);
+    queue.write_buffer(buffer, offset, bytes.as_ref());
 }
 
 fn mapped_buffer_generation_still_current(
@@ -285,7 +319,7 @@ fn try_create_buffer_init(
 
     if !desc.contents.is_empty() {
         let error_scope = ctx.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        ctx.queue.write_buffer(&buffer, 0, desc.contents);
+        write_mesh_queue_buffer(ctx.queue, &buffer, 0, desc.contents);
         if let Some(err) = pollster::block_on(error_scope.pop()) {
             logger::error!(
                 "mesh upload: queue write failed for {:?} ({} B, usage {:?}): {}",
@@ -936,7 +970,8 @@ mod tests {
     use crate::gpu::GpuMappedBufferHealth;
 
     use super::{
-        mapped_buffer_generation_still_current, queue_init_buffer_size, tangent_stream_usage,
+        mapped_buffer_generation_still_current, queue_init_buffer_size,
+        queue_init_buffer_size_matches, queue_write_bytes, tangent_stream_usage,
         vertex_stream_usage,
     };
 
@@ -944,6 +979,7 @@ mod tests {
     fn queue_init_buffer_size_matches_wgpu_copy_alignment() {
         assert_eq!(queue_init_buffer_size(0), 0);
         assert_eq!(queue_init_buffer_size(1), wgpu::COPY_BUFFER_ALIGNMENT);
+        assert_eq!(queue_init_buffer_size(6), wgpu::COPY_BUFFER_ALIGNMENT * 2);
         assert_eq!(
             queue_init_buffer_size(wgpu::COPY_BUFFER_ALIGNMENT as usize),
             wgpu::COPY_BUFFER_ALIGNMENT
@@ -952,6 +988,35 @@ mod tests {
             queue_init_buffer_size(wgpu::COPY_BUFFER_ALIGNMENT as usize + 1),
             wgpu::COPY_BUFFER_ALIGNMENT * 2
         );
+    }
+
+    #[test]
+    fn queue_init_buffer_size_match_accepts_padded_six_byte_index_buffer() {
+        assert!(queue_init_buffer_size_matches(8, 6));
+        assert!(!queue_init_buffer_size_matches(6, 6));
+    }
+
+    #[test]
+    fn queue_write_bytes_pads_unaligned_payloads_with_zeroes() {
+        let bytes = queue_write_bytes(&[1, 2, 3, 4, 5, 6]);
+
+        assert_eq!(bytes.as_ref(), &[1, 2, 3, 4, 5, 6, 0, 0]);
+    }
+
+    #[test]
+    fn queue_write_bytes_borrows_aligned_payloads() {
+        let source = [1, 2, 3, 4];
+        let bytes = queue_write_bytes(&source);
+
+        assert!(matches!(bytes, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(bytes.as_ref(), &source);
+    }
+
+    #[test]
+    fn queue_write_bytes_leaves_empty_payloads_empty() {
+        let bytes = queue_write_bytes(&[]);
+
+        assert!(bytes.is_empty());
     }
 
     #[test]

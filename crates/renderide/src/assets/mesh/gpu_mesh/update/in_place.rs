@@ -18,8 +18,8 @@ use super::super::hints::{
 use super::super::{
     BoneBufferWriteHints, ExtendedVertexStreamSource, GpuMesh, MeshInPlaceWriteContext,
     blendshape_and_deform_buffers_match_for_in_place, compatible_for_in_place_real_skeleton,
-    extended_vertex_stream_source_from_raw, write_in_place_blendshape_buffer,
-    write_in_place_bone_buffers, write_in_place_index_buffer,
+    extended_vertex_stream_source_from_raw, queue_init_buffer_size_matches,
+    write_in_place_blendshape_buffer, write_in_place_bone_buffers, write_in_place_index_buffer,
     write_in_place_vertex_and_derived_streams,
 };
 
@@ -48,8 +48,8 @@ impl GpuMesh {
         {
             return false;
         }
-        if self.vertex_buffer.size() != layout.vertex_size as u64
-            || self.index_buffer.size() != layout.index_buffer_length as u64
+        if !queue_init_buffer_size_matches(self.vertex_buffer.size(), layout.vertex_size)
+            || !queue_init_buffer_size_matches(self.index_buffer.size(), layout.index_buffer_length)
         {
             return false;
         }

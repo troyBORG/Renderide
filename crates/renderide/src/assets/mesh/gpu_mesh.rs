@@ -31,8 +31,8 @@ use tangent_generation::{TangentStreamSource, tangent_stream_bytes};
 
 use upload::{
     create_core_vertex_index_buffers, extract_derived_vertex_streams, padded_sparse_bytes,
-    resident_bytes_for_mesh_upload, upload_blendshape_buffer, upload_bone_and_skin_buffers,
-    validate_mesh_upload_layout,
+    queue_init_buffer_size_matches, resident_bytes_for_mesh_upload, upload_blendshape_buffer,
+    upload_bone_and_skin_buffers, validate_mesh_upload_layout, write_mesh_queue_buffer,
 };
 
 use hints::{
@@ -177,7 +177,7 @@ pub(super) fn blendshape_and_deform_buffers_match_for_in_place(
         let Some(sb) = mesh.blendshape_sparse_buffer.as_ref() else {
             return false;
         };
-        if sb.size() != sparse_expect.len() as u64 {
+        if !queue_init_buffer_size_matches(sb.size(), sparse_expect.len()) {
             return false;
         }
         if mesh.blendshape_frame_ranges != extracted.frame_ranges {
@@ -224,10 +224,18 @@ pub(super) fn compatible_for_in_place_real_skeleton(
         &raw[layout.bone_weights_start..layout.bone_weights_start + layout.bone_weights_length];
     match split_bone_weights_tail_for_gpu(bc, bw, vc_usize) {
         Some((ref ib, ref wb)) => {
-            if mesh.bone_indices_buffer.as_ref().map(|b| b.size()) != Some(ib.len() as u64) {
+            if !mesh
+                .bone_indices_buffer
+                .as_ref()
+                .is_some_and(|b| queue_init_buffer_size_matches(b.size(), ib.len()))
+            {
                 return false;
             }
-            if mesh.bone_weights_vec4_buffer.as_ref().map(|b| b.size()) != Some(wb.len() as u64) {
+            if !mesh
+                .bone_weights_vec4_buffer
+                .as_ref()
+                .is_some_and(|b| queue_init_buffer_size_matches(b.size(), wb.len()))
+            {
                 return false;
             }
         }
@@ -237,11 +245,18 @@ pub(super) fn compatible_for_in_place_real_skeleton(
             }
         }
     }
-    if mesh.bone_counts_buffer.as_ref().map(|b| b.size()) != Some(layout.bone_counts_length as u64)
+    if !mesh
+        .bone_counts_buffer
+        .as_ref()
+        .is_some_and(|b| queue_init_buffer_size_matches(b.size(), layout.bone_counts_length))
     {
         return false;
     }
-    if mesh.bind_poses_buffer.as_ref().map(|b| b.size()) != Some(layout.bind_poses_length as u64) {
+    if !mesh
+        .bind_poses_buffer
+        .as_ref()
+        .is_some_and(|b| queue_init_buffer_size_matches(b.size(), layout.bind_poses_length))
+    {
         return false;
     }
     if mesh.skinning_bind_matrices.len() != data.bone_count.max(0) as usize {
@@ -341,7 +356,8 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
     if write_vertex {
         {
             profiling::scope!("asset::mesh_write_in_place::write_interleaved_vertex");
-            ctx.queue.write_buffer(
+            write_mesh_queue_buffer(
+                ctx.queue,
                 ctx.mesh.vertex_buffer.as_ref(),
                 0,
                 &ctx.raw[..ctx.layout.vertex_size],
@@ -366,8 +382,8 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                 )
                 .as_ref(),
             ) {
-                ctx.queue.write_buffer(pb.as_ref(), 0, pvec);
-                ctx.queue.write_buffer(nb.as_ref(), 0, nvec);
+                write_mesh_queue_buffer(ctx.queue, pb.as_ref(), 0, pvec);
+                write_mesh_queue_buffer(ctx.queue, nb.as_ref(), 0, nvec);
             }
         }
 
@@ -382,7 +398,7 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                     &ctx.data.vertex_attributes,
                 ),
             ) {
-                ctx.queue.write_buffer(uvb.as_ref(), 0, &uv);
+                write_mesh_queue_buffer(ctx.queue, uvb.as_ref(), 0, &uv);
             }
         }
 
@@ -397,7 +413,7 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                     &ctx.data.vertex_attributes,
                 ),
             ) {
-                ctx.queue.write_buffer(cb.as_ref(), 0, &c);
+                write_mesh_queue_buffer(ctx.queue, cb.as_ref(), 0, &c);
             }
         }
     }
@@ -420,7 +436,7 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                 ctx.mesh.tangent_fallback_mode.generate_missing(),
             ),
         ) {
-            ctx.queue.write_buffer(tb.as_ref(), 0, &t);
+            write_mesh_queue_buffer(ctx.queue, tb.as_ref(), 0, &t);
         }
     }
 
@@ -448,7 +464,7 @@ fn write_in_place_uv1_to_uv3_streams(ctx: &MeshInPlaceWriteContext<'_>, vertex_s
                 target,
             ),
         ) {
-            ctx.queue.write_buffer(buffer.as_ref(), 0, &uv);
+            write_mesh_queue_buffer(ctx.queue, buffer.as_ref(), 0, &uv);
         }
     }
 }
@@ -467,7 +483,7 @@ pub(super) fn write_in_place_index_buffer(
     }
     let ib_slice =
         &raw[layout.index_buffer_start..layout.index_buffer_start + layout.index_buffer_length];
-    queue.write_buffer(mesh.index_buffer.as_ref(), 0, ib_slice);
+    write_mesh_queue_buffer(queue, mesh.index_buffer.as_ref(), 0, ib_slice);
 }
 
 /// Per-buffer hint flags driving [`write_in_place_bone_buffers`].
@@ -509,14 +525,14 @@ pub(super) fn write_in_place_bone_buffers(
             let bw = &ctx.raw[ctx.layout.bone_weights_start
                 ..ctx.layout.bone_weights_start + ctx.layout.bone_weights_length];
             if let Some(bcb) = &ctx.mesh.bone_counts_buffer {
-                ctx.queue.write_buffer(bcb.as_ref(), 0, bc);
+                write_mesh_queue_buffer(ctx.queue, bcb.as_ref(), 0, bc);
             }
             if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bc, bw, ctx.vertex_count) {
                 if let Some(bi) = &ctx.mesh.bone_indices_buffer {
-                    ctx.queue.write_buffer(bi.as_ref(), 0, &ib);
+                    write_mesh_queue_buffer(ctx.queue, bi.as_ref(), 0, &ib);
                 }
                 if let Some(bwt) = &ctx.mesh.bone_weights_vec4_buffer {
-                    ctx.queue.write_buffer(bwt.as_ref(), 0, &wb);
+                    write_mesh_queue_buffer(ctx.queue, bwt.as_ref(), 0, &wb);
                 }
             }
         }
@@ -529,7 +545,7 @@ pub(super) fn write_in_place_bone_buffers(
                     .iter()
                     .flat_map(|m| bytemuck::bytes_of(m).iter().copied())
                     .collect();
-                ctx.queue.write_buffer(bp.as_ref(), 0, &bp_bytes);
+                write_mesh_queue_buffer(ctx.queue, bp.as_ref(), 0, &bp_bytes);
             }
         }
     }
@@ -562,7 +578,7 @@ pub(super) fn write_in_place_blendshape_buffer(
     };
     {
         profiling::scope!("asset::mesh_write_in_place::write_blendshape_gpu_buffers");
-        queue.write_buffer(sb.as_ref(), 0, &sparse);
+        write_mesh_queue_buffer(queue, sb.as_ref(), 0, &sparse);
     }
     Some(())
 }
