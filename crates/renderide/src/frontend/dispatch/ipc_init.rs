@@ -1,6 +1,6 @@
 //! Pure IPC command routing by [`crate::frontend::InitState`].
 
-use std::sync::LazyLock;
+use std::borrow::Cow;
 
 use crate::frontend::InitState;
 use crate::shared::{
@@ -17,15 +17,18 @@ use super::renderer_command_kind::renderer_command_variant_tag;
 /// The commit suffix is supplied by `build.rs` via the `RENDERIDE_GIT_COMMIT`
 /// rustc env var; an empty value means git was unavailable at build time and
 /// the suffix is omitted.
-static RENDERER_IDENTIFIER: LazyLock<String> = LazyLock::new(|| {
-    let version = env!("CARGO_PKG_VERSION");
-    let commit = env!("RENDERIDE_GIT_COMMIT");
-    if commit.is_empty() {
-        format!("Renderide {version}")
+const RENDERER_IDENTIFIER: &str = const {
+    if env!("RENDERIDE_GIT_COMMIT").is_empty() {
+        concat!("Renderide ", env!("CARGO_PKG_VERSION"))
     } else {
-        format!("Renderide {version}-{commit}")
+        concat!(
+            "Renderide ",
+            env!("CARGO_PKG_VERSION"),
+            "-",
+            env!("RENDERIDE_GIT_COMMIT"),
+        )
     }
-});
+};
 
 /// Renderer capabilities reported during the init handshake.
 ///
@@ -34,7 +37,7 @@ static RENDERER_IDENTIFIER: LazyLock<String> = LazyLock::new(|| {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RendererInitCapabilities {
     /// Human-readable stereo mode reported to the host.
-    pub stereo_rendering_mode: String,
+    pub stereo_rendering_mode: Cow<'static, str>,
     /// Maximum host texture dimension accepted by the renderer.
     pub max_texture_size: i32,
     /// Host texture formats accepted by the renderer.
@@ -110,7 +113,7 @@ pub(crate) fn build_renderer_init_result(
 ) -> RendererInitResult {
     RendererInitResult {
         actual_output_device: output_device,
-        renderer_identifier: Some(RENDERER_IDENTIFIER.clone()),
+        renderer_identifier: Some(RENDERER_IDENTIFIER.into()),
         main_window_handle_ptr: 0,
         stereo_rendering_mode: Some(capabilities.stereo_rendering_mode),
         max_texture_size: capabilities.max_texture_size,
@@ -165,7 +168,7 @@ mod tests {
         let result = build_renderer_init_result(
             Default::default(),
             RendererInitCapabilities {
-                stereo_rendering_mode: "None".to_string(),
+                stereo_rendering_mode: "None".into(),
                 max_texture_size: 4096,
                 supported_texture_formats: vec![TextureFormat::RGBA32],
             },
