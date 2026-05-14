@@ -34,24 +34,17 @@ pub(super) fn complete_empty_mesh_upload(
 ) -> MeshUploadResult {
     profiling::scope!("asset::mesh_empty_upload_finalize");
     let asset_id = data.asset_id;
-    let (resident_replaced, resident_stored) = if let Some(device) = device {
+    let resident_replaced = if let Some(device) = device {
         let mesh = GpuMesh::empty(device, data);
-        (queue.pools.mesh_pool.insert(mesh), true)
+        queue.pools.mesh_pool.insert(mesh)
     } else {
-        (queue.pools.mesh_pool.remove(asset_id), false)
+        queue.pools.mesh_pool.remove(asset_id)
     };
     let result = MeshUploadResult {
         asset_id,
         instance_changed: !resident_replaced,
     };
     send_mesh_upload_result(ipc, result.clone());
-    logger::trace!(
-        "mesh {} completed empty upload (replaced={} resident_stored={} resident_bytes~={})",
-        asset_id,
-        resident_replaced,
-        resident_stored,
-        queue.pools.mesh_pool.accounting().total_resident_bytes()
-    );
     result
 }
 

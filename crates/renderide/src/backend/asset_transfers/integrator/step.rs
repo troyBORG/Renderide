@@ -155,7 +155,6 @@ fn step_point_render_buffer_task(
 ) -> StepResult {
     let upload = std::mem::take(upload);
     let asset_id = upload.asset_id;
-    let count = upload.count;
     asset
         .catalogs
         .point_render_buffer_uploads
@@ -170,7 +169,6 @@ fn step_point_render_buffer_task(
             );
         }
     }
-    logger::debug!("point render buffer {asset_id}: consumed placeholder upload count={count}");
     StepResult::Done
 }
 
@@ -181,8 +179,6 @@ fn step_trail_render_buffer_task(
 ) -> StepResult {
     let upload = std::mem::take(upload);
     let asset_id = upload.asset_id;
-    let trails_count = upload.trails_count;
-    let trail_point_count = upload.trail_point_count;
     asset
         .catalogs
         .trail_render_buffer_uploads
@@ -191,15 +187,8 @@ fn step_trail_render_buffer_task(
         let ack_queued = ipc.send_background_reliable(RendererCommand::TrailRenderBufferConsumed(
             TrailRenderBufferConsumed { asset_id },
         ));
-        if !ack_queued {
-            logger::warn!(
-                "trail render buffer {asset_id}: failed to enqueue reliable consumed ack"
-            );
-        }
+        if !ack_queued {}
     }
-    logger::debug!(
-        "trail render buffer {asset_id}: consumed placeholder upload trails={trails_count} points_per_trail={trail_point_count}"
-    );
     StepResult::Done
 }
 

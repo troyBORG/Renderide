@@ -119,15 +119,9 @@ pub fn on_trail_render_buffer_upload(
     upload: TrailRenderBufferUpload,
     _ipc: Option<&mut DualQueueIpc>,
 ) {
-    let asset_id = upload.asset_id;
-    let trails_count = upload.trails_count;
-    let trail_point_count = upload.trail_point_count;
     queue.integrator_mut().enqueue_lane(
         AssetTask::TrailRenderBuffer(upload),
         AssetTaskLane::Particle,
-    );
-    logger::trace!(
-        "trail render buffer {asset_id}: queued placeholder upload trails={trails_count} points_per_trail={trail_point_count}"
     );
 }
 
@@ -138,7 +132,6 @@ pub fn on_trail_render_buffer_unload(
 ) {
     let asset_id = unload.asset_id;
     queue.catalogs.trail_render_buffer_uploads.remove(&asset_id);
-    logger::debug!("trail render buffer {asset_id}: unloaded placeholder upload");
 }
 
 /// Stores the Gaussian splat renderer config.

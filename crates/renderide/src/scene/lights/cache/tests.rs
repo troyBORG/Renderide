@@ -9,6 +9,7 @@ use super::LightCache;
 const EPS: f32 = 0.000_001;
 const SRGB_HALF_LINEAR: f32 = 0.214_041_14;
 const SRGB_THRESHOLD_LINEAR: f32 = 0.04045 / 12.92;
+const SRGB_ONE_AND_A_QUARTER_LINEAR: f32 = 1.633_811_8;
 
 fn assert_close(actual: f32, expected: f32) {
     assert!(
@@ -83,7 +84,7 @@ fn store_full_linearizes_submitted_light_colors() {
     assert_eq!(lights.len(), 1);
     assert_close(lights[0].data.color.x, SRGB_HALF_LINEAR);
     assert_close(lights[0].data.color.y, SRGB_THRESHOLD_LINEAR);
-    assert_eq!(lights[0].data.color.z, 1.25);
+    assert_close(lights[0].data.color.z, SRGB_ONE_AND_A_QUARTER_LINEAR);
     assert_eq!(lights[0].data.intensity, 1.0);
     assert_eq!(lights[0].data.range, 10.0);
 }
@@ -238,7 +239,7 @@ fn regular_light_update_linearizes_state_color() {
     assert_eq!(lights.len(), 1);
     assert_close(lights[0].data.color.x, SRGB_HALF_LINEAR);
     assert_close(lights[0].data.color.y, SRGB_THRESHOLD_LINEAR);
-    assert_eq!(lights[0].data.color.z, 1.25);
+    assert_close(lights[0].data.color.z, SRGB_ONE_AND_A_QUARTER_LINEAR);
     assert_eq!(lights[0].data.intensity, 2.0);
     assert_eq!(lights[0].data.range, 30.0);
     assert_eq!(lights[0].state.shadow_strength, 0.5);

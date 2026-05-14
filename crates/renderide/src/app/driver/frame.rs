@@ -1,6 +1,7 @@
 //! Per-redraw frame phase orchestration for the app driver.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Instant;
 
 use winit::event_loop::ActiveEventLoop;
@@ -16,6 +17,12 @@ use crate::xr::OpenxrFrameTick;
 
 use super::super::exit::ExitReason;
 use super::AppDriver;
+
+/// Sentinel used before the first frame render mode has been observed.
+const UNSEEN_FRAME_RENDER_MODE: u8 = u8::MAX;
+
+/// Last render mode logged by the app driver.
+static LAST_FRAME_RENDER_MODE: AtomicU8 = AtomicU8::new(UNSEEN_FRAME_RENDER_MODE);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FrameTickOutcome {
@@ -79,6 +86,9 @@ impl AppDriver {
         if self.handle_runtime_exit_requests(event_loop) {
             return FrameTickOutcome::ExitRequested;
         }
+        if self.handle_gpu_device_loss_request(event_loop) {
+            return FrameTickOutcome::ExitRequested;
+        }
         self.runtime.update_decoupling_activation(Instant::now());
         {
             profiling::scope!("tick::asset_integration");
@@ -115,7 +125,15 @@ impl AppDriver {
         let Some(render_outcome) = self.render_views(&window, xr_tick.as_ref()) else {
             return FrameTickOutcome::MissingTarget;
         };
-        self.present_and_diagnostics(xr_tick, render_outcome.hmd_projection_ended);
+        let hmd_projection_ended = render_outcome.hmd_projection_ended;
+        if self.handle_gpu_device_loss_request(event_loop) {
+            if !hmd_projection_ended {
+                self.queue_empty_openxr_frame_if_needed(xr_tick);
+            }
+            self.poll_graceful_shutdown(event_loop);
+            return FrameTickOutcome::ExitRequested;
+        }
+        self.present_and_diagnostics(xr_tick, hmd_projection_ended);
         FrameTickOutcome::Presented
     }
 
@@ -234,6 +252,22 @@ impl AppDriver {
         true
     }
 
+    /// Requests renderer shutdown when wgpu reports that the active device is lost.
+    fn handle_gpu_device_loss_request(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
+        let Some(generation) = self
+            .target
+            .as_mut()
+            .and_then(|target| target.gpu_mut().take_device_lost())
+        else {
+            return false;
+        };
+
+        logger::error!("GPU device lost; shutting down renderer: generation={generation}");
+        self.runtime.log_compact_renderer_summary("gpu-device-lost");
+        self.request_exit(ExitReason::GpuDeviceLost, event_loop);
+        true
+    }
+
     fn handle_openxr_exit_request(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
         if let Some(target) = self.target.as_ref()
             && let Some(session) = target.xr_session()
@@ -271,6 +305,7 @@ impl AppDriver {
             FrameRenderMode::VrSecondaryOnly => RenderMode::VrSecondariesOnly,
             FrameRenderMode::Desktop => RenderMode::IpcDesktop,
         });
+        log_frame_render_mode_transition(mode, hmd_projection_ended, self.runtime.vr_active());
         logger::trace!(
             "frame render mode: {:?} hmd_projection_ended={} vr_active={}",
             mode,
@@ -385,9 +420,61 @@ impl AppDriver {
     }
 }
 
+/// Logs first-observed and changed render modes without emitting per-frame debug noise.
+fn log_frame_render_mode_transition(
+    mode: FrameRenderMode,
+    hmd_projection_ended: bool,
+    vr_active: bool,
+) {
+    let code = frame_render_mode_code(mode);
+    let previous = LAST_FRAME_RENDER_MODE.swap(code, Ordering::Relaxed);
+    if previous == code {
+        return;
+    }
+    logger::debug!(
+        "frame render mode selected: {} previous={} hmd_projection_ended={} vr_active={}",
+        frame_render_mode_label(mode),
+        frame_render_mode_code_label(previous),
+        hmd_projection_ended,
+        vr_active,
+    );
+}
+
+/// Stable compact code for one frame render mode.
+fn frame_render_mode_code(mode: FrameRenderMode) -> u8 {
+    match mode {
+        FrameRenderMode::HmdMultiview => 0,
+        FrameRenderMode::VrSecondaryOnly => 1,
+        FrameRenderMode::Desktop => 2,
+    }
+}
+
+/// Human-readable label for one frame render mode.
+fn frame_render_mode_label(mode: FrameRenderMode) -> &'static str {
+    match mode {
+        FrameRenderMode::HmdMultiview => "hmd-multiview",
+        FrameRenderMode::VrSecondaryOnly => "vr-secondaries-only",
+        FrameRenderMode::Desktop => "desktop",
+    }
+}
+
+/// Human-readable label for one compact frame render mode code.
+fn frame_render_mode_code_label(code: u8) -> &'static str {
+    match code {
+        0 => "hmd-multiview",
+        1 => "vr-secondaries-only",
+        2 => "desktop",
+        UNSEEN_FRAME_RENDER_MODE => "unseen",
+        _ => "unknown",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FrameRenderMode, RenderViewsOutcome, runtime_exit_reason};
+    use super::{
+        FrameRenderMode, RenderViewsOutcome, frame_render_mode_code, frame_render_mode_code_label,
+        frame_render_mode_label, runtime_exit_reason,
+    };
     use crate::app::exit::ExitReason;
 
     #[test]
@@ -416,5 +503,15 @@ mod tests {
     #[test]
     fn runtime_exit_reason_ignores_running_runtime() {
         assert_eq!(runtime_exit_reason(false, false), None);
+    }
+
+    #[test]
+    fn frame_render_mode_codes_have_stable_labels() {
+        assert_eq!(frame_render_mode_code(FrameRenderMode::HmdMultiview), 0);
+        assert_eq!(
+            frame_render_mode_label(FrameRenderMode::VrSecondaryOnly),
+            "vr-secondaries-only"
+        );
+        assert_eq!(frame_render_mode_code_label(2), "desktop");
     }
 }

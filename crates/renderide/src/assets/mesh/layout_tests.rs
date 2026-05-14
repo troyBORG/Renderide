@@ -5,11 +5,12 @@ use glam::Mat4;
 use super::layout::{
     BLENDSHAPE_PACKED_VECTOR_DELTA_RANGE, BLENDSHAPE_PACKED_VECTOR_SPARSE_ENTRY_SIZE,
     BLENDSHAPE_POSITION_SPARSE_ENTRY_SIZE, BlendshapeFrameRange, BlendshapeFrameSpan,
-    blendshape_deform_is_active, color_float4_stream_bytes, compute_index_count,
-    compute_mesh_buffer_layout, compute_vertex_stride, extract_blendshape_offsets,
-    extract_float3_position_normal_as_vec4_streams, index_bytes_per_element,
-    raw_float4_stream_bytes, select_blendshape_frame_coefficients, split_bone_weights_tail_for_gpu,
-    uv0_float2_stream_bytes, vertex_float2_stream_bytes, vertex_float4_stream_bytes,
+    WIDE_UV_VERTEX_STRIDE_BYTES, blendshape_deform_is_active, color_float4_stream_bytes,
+    compute_index_count, compute_mesh_buffer_layout, compute_vertex_stride,
+    extract_blendshape_offsets, extract_float3_position_normal_as_vec4_streams,
+    index_bytes_per_element, raw_float4_stream_bytes, select_blendshape_frame_coefficients,
+    split_bone_weights_tail_for_gpu, uv0_float2_stream_bytes, vertex_float2_stream_bytes,
+    vertex_float4_stream_bytes, wide_uv_stream_bytes,
 };
 use crate::shared::{
     BlendshapeBufferDescriptor, BlendshapeDataFlags, IndexBufferFormat, SubmeshBufferDescriptor,
@@ -70,6 +71,11 @@ fn read_f32x2_stream(bytes: &[u8], vertex: usize) -> [f32; 2] {
 
 fn read_f32x4_stream(bytes: &[u8], vertex: usize) -> [f32; 4] {
     let offset = vertex * 16;
+    bytemuck::pod_read_unaligned(&bytes[offset..offset + 16])
+}
+
+fn read_wide_uv_stream(bytes: &[u8], vertex: usize, channel: usize) -> [f32; 4] {
+    let offset = vertex * WIDE_UV_VERTEX_STRIDE_BYTES + channel * 16;
     bytemuck::pod_read_unaligned(&bytes[offset..offset + 16])
 }
 
@@ -452,6 +458,103 @@ fn vertex_float2_extracts_uv3_stream() {
         .expect("uv3 stream");
     let uv: [f32; 2] = bytemuck::pod_read_unaligned(&out[..8]);
     assert_eq!(uv, [5.25, 6.125]);
+}
+
+#[test]
+fn wide_uv_stream_packs_all_channels_as_vec4_rows() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV0,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 4,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV7,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        },
+    ];
+    let mut raw = Vec::new();
+    for value in [1.0f32, 2.0, 3.0, 4.0, 7.0, 8.0, 9.0] {
+        raw.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [10.0f32, 20.0, 30.0, 40.0, 70.0, 80.0, 90.0] {
+        raw.extend_from_slice(&value.to_le_bytes());
+    }
+
+    let out = wide_uv_stream_bytes(&raw, 2, 28, &attrs).expect("wide uv stream");
+    assert_eq!(out.len(), 2 * WIDE_UV_VERTEX_STRIDE_BYTES);
+
+    let uv0: [f32; 4] = bytemuck::pod_read_unaligned(&out[..16]);
+    let missing_uv4_offset = 4 * 16;
+    let missing_uv4: [f32; 4] =
+        bytemuck::pod_read_unaligned(&out[missing_uv4_offset..missing_uv4_offset + 16]);
+    let uv7_offset = 7 * 16;
+    let uv7: [f32; 4] = bytemuck::pod_read_unaligned(&out[uv7_offset..uv7_offset + 16]);
+    let second_uv0_offset = WIDE_UV_VERTEX_STRIDE_BYTES;
+    let second_uv0: [f32; 4] =
+        bytemuck::pod_read_unaligned(&out[second_uv0_offset..second_uv0_offset + 16]);
+
+    assert_eq!(uv0, [1.0, 2.0, 3.0, 4.0]);
+    assert_eq!(missing_uv4, [0.0, 0.0, 0.0, 0.0]);
+    assert_eq!(uv7, [7.0, 8.0, 9.0, 0.0]);
+    assert_eq!(second_uv0, [10.0, 20.0, 30.0, 40.0]);
+}
+
+#[test]
+fn large_wide_uv_stream_matches_expected() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV0,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 4,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV5,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV7,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 2,
+        },
+    ];
+    let verts = 1_100usize;
+    let stride = 36usize;
+    let mut raw = Vec::with_capacity(verts * stride);
+    for i in 0..verts {
+        let base = i as f32;
+        push_f32(&mut raw, base);
+        push_f32(&mut raw, base + 1.0);
+        push_f32(&mut raw, base + 2.0);
+        push_f32(&mut raw, base + 3.0);
+        push_f32(&mut raw, base + 50.0);
+        push_f32(&mut raw, base + 51.0);
+        push_f32(&mut raw, base + 52.0);
+        push_f32(&mut raw, base + 70.0);
+        push_f32(&mut raw, base + 71.0);
+    }
+
+    let out = wide_uv_stream_bytes(&raw, verts, stride, &attrs).expect("wide uv stream");
+    assert_eq!(out.len(), verts * WIDE_UV_VERTEX_STRIDE_BYTES);
+
+    for vertex in [0usize, 777, 1_099] {
+        let base = vertex as f32;
+        assert_eq!(
+            read_wide_uv_stream(&out, vertex, 0),
+            [base, base + 1.0, base + 2.0, base + 3.0]
+        );
+        assert_eq!(read_wide_uv_stream(&out, vertex, 3), [0.0; 4]);
+        assert_eq!(
+            read_wide_uv_stream(&out, vertex, 5),
+            [base + 50.0, base + 51.0, base + 52.0, 0.0]
+        );
+        assert_eq!(
+            read_wide_uv_stream(&out, vertex, 7),
+            [base + 70.0, base + 71.0, 0.0, 0.0]
+        );
+    }
 }
 
 #[test]
