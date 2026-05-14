@@ -1,6 +1,9 @@
 //! Grab-pass 3D LUT filter (`Shader "Filters/LUT"`).
 
 
+//#texture_default _LUT empty
+//#texture_default _SecondaryLUT empty
+
 #import renderide::post::filter_vertex as fv
 #import renderide::post::filter_common as fc
 #import renderide::core::texture_sampling as ts
