@@ -129,8 +129,9 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
         "let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr_for_layout(keyword_layout));",
         "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
         "let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);",
-        "let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);",
+        "let specular_visibility =\n        brdf::indirect_specular_visibility(n_dot_v, occlusion_scalar(s), roughness, specular_reflectance);",
         "let spec = rprobe::indirect_specular_with_energy(",
+        "specular_energy * specular_visibility",
         "let specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);",
         "spec = mix(spec, spec * dominant_ramp, roughness);",
         "col + reflection * clamp(s.reflectivity_mask, 0.0, 1.0)",
@@ -144,6 +145,10 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
     assert!(
         !lighting_src.contains("xiexe_specular_reflectance"),
         "Indirect specular must not call the removed `xiexe_specular_reflectance` helper"
+    );
+    assert!(
+        !lighting_src.contains("let specular_occlusion = brdf::specular_ao_lagarde"),
+        "Xiexe PBR reflections must route specular AO through PBS multi-bounce visibility"
     );
 
     let pbr_branch_pos = lighting_src
@@ -201,7 +206,10 @@ fn xiexe_indirect_diffuse_uses_pbs_energy_split() -> io::Result<()> {
         "let indirect_specular_reflectance = brdf::metallic_f0(s.diffuse_color, s.metallic);",
         "let indirect_specular_energy = brdf::indirect_specular_energy_from_dfg(",
         "let indirect_diffuse_energy_scale =\n        brdf::indirect_diffuse_energy_scale(indirect_specular_energy, indirect_specular_enabled);",
-        "diffuse = diffuse + s.albedo.rgb * ambient * indirect_diffuse_energy_scale * s.occlusion;",
+        "fn indirect_diffuse_visibility(s: xb::SurfaceData) -> vec3<f32>",
+        "let visibility = brdf::indirect_diffuse_visibility(scalar_occlusion, s.albedo.rgb);",
+        "return min(vec3<f32>(1.0), colored_occlusion * visibility / vec3<f32>(scalar_occlusion));",
+        "diffuse = diffuse + s.albedo.rgb * ambient * indirect_diffuse_energy_scale * indirect_diffuse_visibility(s);",
     ] {
         assert!(
             lighting_src.contains(required),
@@ -223,11 +231,18 @@ fn xiexe_indirect_diffuse_uses_pbs_energy_split() -> io::Result<()> {
 fn xiexe_direct_diffuse_uses_lambert_with_ramp_tint() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
-    assert!(
-        lighting_src
-            .contains("s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp"),
-        "Per-light direct diffuse must route through Lambert, boosted attenuation, and toon ramp; saw:\n{lighting_src}"
-    );
+    for required in [
+        "fn direct_diffuse_fresnel_transmission(",
+        "let f = brdf::f_schlick(",
+        "return brdf::direct_diffuse_fresnel_transmission(f, specular_reflectance);",
+        "let diffuse_transmission = direct_diffuse_fresnel_transmission(",
+        "s.albedo.rgb * diffuse_transmission * brdf::fd_lambert() * light.color * light.attenuation * ramp",
+    ] {
+        assert!(
+            lighting_src.contains(required),
+            "Per-light direct diffuse must preserve Lambert/ramp styling inside PBS Fresnel transmission; missing `{required}`"
+        );
+    }
     assert!(
         !lighting_src.contains("s.albedo.rgb * ramp * light_col_atten"),
         "The legacy un-normalized direct-diffuse accumulator must be removed"
@@ -237,6 +252,11 @@ fn xiexe_direct_diffuse_uses_lambert_with_ramp_tint() -> io::Result<()> {
     assert!(
         !lighting_src.contains("s.albedo.rgb * brdf::fd_lambert() * light.color * ramp"),
         "Direct diffuse must include `light.attenuation` so Renderide's `INTENSITY_BOOST = π` cancels `fd_lambert()`'s `1/π`"
+    );
+    assert!(
+        !lighting_src
+            .contains("s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp"),
+        "Direct diffuse must not bypass the PBS Fresnel transmission envelope"
     );
     Ok(())
 }
