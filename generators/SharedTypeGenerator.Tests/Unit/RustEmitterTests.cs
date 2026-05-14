@@ -11,9 +11,9 @@ namespace SharedTypeGenerator.Tests.Unit;
 /// <summary>Unit tests for generated Rust emitter decisions.</summary>
 public sealed class RustEmitterTests
 {
-    /// <summary>Single-member value enums emit <c>if</c> instead of a one-arm <c>match</c>.</summary>
+    /// <summary>Single-member <c>i32</c> value enums reuse the generated <c>EnumRepr</c> conversion.</summary>
     [Fact]
-    public void ValueEnum_single_member_emits_if_decode()
+    public void ValueEnum_single_member_i32_reuses_enum_repr_decode()
     {
         string text = Emit([
             ValueEnum("SingleEnum", [
@@ -21,8 +21,9 @@ public sealed class RustEmitterTests
             ]),
         ]);
 
-        Assert.Contains("*self = if raw == 0 {", text, StringComparison.Ordinal);
+        Assert.Contains("*self = Self::from_i32(raw);", text, StringComparison.Ordinal);
         Assert.Contains("if i == 0 {", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("*self = if raw == 0 {", text, StringComparison.Ordinal);
         Assert.DoesNotContain("*self = match raw", text, StringComparison.Ordinal);
         Assert.DoesNotContain("match i {", text, StringComparison.Ordinal);
     }

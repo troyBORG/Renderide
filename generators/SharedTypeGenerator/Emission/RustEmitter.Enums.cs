@@ -63,6 +63,13 @@ public partial class RustEmitter
         string defaultVariant = defaultMember.Name.HumanizeVariant();
 
         _w.Line($"let raw = unpacker.read::<{rustType}>()?;");
+        if (members.Count == 1 && rustType == "i32")
+        {
+            _w.Line("*self = Self::from_i32(raw);");
+            _w.Line("Ok(())");
+            return;
+        }
+
         if (members.Count == 1)
         {
             EnumMember member = members[0];
