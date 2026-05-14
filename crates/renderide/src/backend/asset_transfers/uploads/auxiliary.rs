@@ -126,9 +126,6 @@ pub fn on_trail_render_buffer_upload(
         AssetTask::TrailRenderBuffer(upload),
         AssetTaskLane::Particle,
     );
-    logger::trace!(
-        "trail render buffer {asset_id}: queued placeholder upload trails={trails_count} points_per_trail={trail_point_count}"
-    );
 }
 
 /// Removes a tracked trail render buffer upload.

@@ -191,14 +191,8 @@ fn step_trail_render_buffer_task(
             TrailRenderBufferConsumed { asset_id },
         ));
         if !ack_queued {
-            logger::warn!(
-                "trail render buffer {asset_id}: failed to enqueue reliable consumed ack"
-            );
         }
     }
-    logger::debug!(
-        "trail render buffer {asset_id}: consumed placeholder upload trails={trails_count} points_per_trail={trail_point_count}"
-    );
     StepResult::Done
 }
 
