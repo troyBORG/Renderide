@@ -60,6 +60,25 @@ fn packed_delta_x(bytes: &[u8], first_word: u32) -> f32 {
     unpack_snorm16_delta(xy)
 }
 
+fn push_f32(bytes: &mut Vec<u8>, value: f32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn read_f32x2_stream(bytes: &[u8], vertex: usize) -> [f32; 2] {
+    let offset = vertex * 8;
+    bytemuck::pod_read_unaligned(&bytes[offset..offset + 8])
+}
+
+fn read_f32x4_stream(bytes: &[u8], vertex: usize) -> [f32; 4] {
+    let offset = vertex * 16;
+    bytemuck::pod_read_unaligned(&bytes[offset..offset + 16])
+}
+
+fn read_wide_uv_stream(bytes: &[u8], vertex: usize, channel: usize) -> [f32; 4] {
+    let offset = vertex * WIDE_UV_VERTEX_STRIDE_BYTES + channel * 16;
+    bytemuck::pod_read_unaligned(&bytes[offset..offset + 16])
+}
+
 #[test]
 fn layout_no_bones_no_blend_matches_stride() {
     let sub = vec![SubmeshBufferDescriptor {
@@ -167,6 +186,46 @@ fn position_normal_stream_decodes_half_positions_and_signed_normals() {
 
     assert_eq!(pos0, [1.0, 2.0, 3.0, 1.0]);
     assert_eq!(nrm0, [0.0, 1.0, 0.0, 0.0]);
+}
+
+#[test]
+fn large_position_normal_stream_matches_expected() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Position,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Normal,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        },
+    ];
+    let verts = 1_100usize;
+    let stride = 24usize;
+    let mut raw = Vec::with_capacity(verts * stride);
+    for i in 0..verts {
+        let base = i as f32;
+        push_f32(&mut raw, base);
+        push_f32(&mut raw, base + 0.25);
+        push_f32(&mut raw, base + 0.5);
+        push_f32(&mut raw, 0.0);
+        push_f32(&mut raw, 1.0);
+        push_f32(&mut raw, 0.0);
+    }
+
+    let (pos, nrm) = extract_float3_position_normal_as_vec4_streams(&raw, verts, stride, &attrs)
+        .expect("streams");
+
+    for vertex in [0usize, 513, 1_099] {
+        let base = vertex as f32;
+        assert_eq!(
+            read_f32x4_stream(&pos, vertex),
+            [base, base + 0.25, base + 0.5, 1.0]
+        );
+        assert_eq!(read_f32x4_stream(&nrm, vertex), [0.0, 1.0, 0.0, 0.0]);
+    }
 }
 
 #[test]
@@ -443,6 +502,62 @@ fn wide_uv_stream_packs_all_channels_as_vec4_rows() {
 }
 
 #[test]
+fn large_wide_uv_stream_matches_expected() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV0,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 4,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV5,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV7,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 2,
+        },
+    ];
+    let verts = 1_100usize;
+    let stride = 36usize;
+    let mut raw = Vec::with_capacity(verts * stride);
+    for i in 0..verts {
+        let base = i as f32;
+        push_f32(&mut raw, base);
+        push_f32(&mut raw, base + 1.0);
+        push_f32(&mut raw, base + 2.0);
+        push_f32(&mut raw, base + 3.0);
+        push_f32(&mut raw, base + 50.0);
+        push_f32(&mut raw, base + 51.0);
+        push_f32(&mut raw, base + 52.0);
+        push_f32(&mut raw, base + 70.0);
+        push_f32(&mut raw, base + 71.0);
+    }
+
+    let out = wide_uv_stream_bytes(&raw, verts, stride, &attrs).expect("wide uv stream");
+    assert_eq!(out.len(), verts * WIDE_UV_VERTEX_STRIDE_BYTES);
+
+    for vertex in [0usize, 777, 1_099] {
+        let base = vertex as f32;
+        assert_eq!(
+            read_wide_uv_stream(&out, vertex, 0),
+            [base, base + 1.0, base + 2.0, base + 3.0]
+        );
+        assert_eq!(read_wide_uv_stream(&out, vertex, 3), [0.0; 4]);
+        assert_eq!(
+            read_wide_uv_stream(&out, vertex, 5),
+            [base + 50.0, base + 51.0, base + 52.0, 0.0]
+        );
+        assert_eq!(
+            read_wide_uv_stream(&out, vertex, 7),
+            [base + 70.0, base + 71.0, 0.0, 0.0]
+        );
+    }
+}
+
+#[test]
 fn vertex_float4_defaults_when_tangent_missing() {
     let attrs = [VertexAttributeDescriptor {
         attribute: VertexAttributeType::Position,
@@ -506,6 +621,71 @@ fn color_stream_decodes_uint8_rgba_as_normalized_color() {
     assert!((rgba[1] - (64.0 / 255.0)).abs() < 1e-6);
     assert!((rgba[2] - (128.0 / 255.0)).abs() < 1e-6);
     assert!((rgba[3] - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn large_uv_color_and_raw_float4_streams_match_expected() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV0,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 2,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Color,
+            format: VertexAttributeFormat::UInt8,
+            dimensions: 4,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Tangent,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 4,
+        },
+    ];
+    let verts = 1_100usize;
+    let stride = 28usize;
+    let mut raw = Vec::with_capacity(verts * stride);
+    for i in 0..verts {
+        let base = i as f32;
+        push_f32(&mut raw, base * 0.5);
+        push_f32(&mut raw, base + 2.0);
+        raw.extend_from_slice(&[
+            (i % 256) as u8,
+            ((i + 32) % 256) as u8,
+            ((i + 64) % 256) as u8,
+            255,
+        ]);
+        push_f32(&mut raw, base + 10.0);
+        push_f32(&mut raw, base + 11.0);
+        push_f32(&mut raw, base + 12.0);
+        push_f32(&mut raw, base + 13.0);
+    }
+
+    let uv = uv0_float2_stream_bytes(&raw, verts, stride, &attrs).expect("uv stream");
+    let color = color_float4_stream_bytes(&raw, verts, stride, &attrs).expect("color stream");
+    let tangent = raw_float4_stream_bytes(
+        &raw,
+        verts,
+        stride,
+        &attrs,
+        VertexAttributeType::Tangent,
+        [0.0; 4],
+    )
+    .expect("tangent stream");
+
+    for vertex in [0usize, 777, 1_099] {
+        let base = vertex as f32;
+        assert_eq!(read_f32x2_stream(&uv, vertex), [base * 0.5, base + 2.0]);
+        assert_eq!(
+            read_f32x4_stream(&tangent, vertex),
+            [base + 10.0, base + 11.0, base + 12.0, base + 13.0]
+        );
+        let rgba = read_f32x4_stream(&color, vertex);
+        assert!((rgba[0] - ((vertex % 256) as f32 / 255.0)).abs() < 1e-6);
+        assert!((rgba[1] - (((vertex + 32) % 256) as f32 / 255.0)).abs() < 1e-6);
+        assert!((rgba[2] - (((vertex + 64) % 256) as f32 / 255.0)).abs() < 1e-6);
+        assert_eq!(rgba[3], 1.0);
+    }
 }
 
 #[test]
