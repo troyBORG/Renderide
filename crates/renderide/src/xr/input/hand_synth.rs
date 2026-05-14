@@ -14,6 +14,11 @@
 //! [`HandState::tracks_metacarpals`] to `false`, so the host overrides non-thumb metacarpals to the
 //! avatar's own rest pose. Thumb is held at idle; index curl follows the trigger analog;
 //! middle/ring/pinky follow the squeeze (grip) analog.
+//!
+//! Valve Index controllers are deliberately excluded from this fallback. Their SteamVR path
+//! supplied a real skeletal hand with a different basis conversion, and treating the rough
+//! trigger/squeeze fallback as tracked Index skeleton data can override safer host-side behavior
+//! with malformed finger poses.
 
 mod presets;
 
@@ -148,9 +153,7 @@ fn extract_curl_inputs(controller: &VRControllerState) -> Option<ControllerCurlI
         VRControllerState::TouchControllerState(s) => {
             curl_inputs_from_source(curl_source!(s, grip = s.grip))
         }
-        VRControllerState::IndexControllerState(s) => {
-            curl_inputs_from_source(curl_source!(s, grip = s.grip))
-        }
+        VRControllerState::IndexControllerState(_) => None,
         VRControllerState::ViveControllerState(s) => {
             curl_inputs_from_source(curl_source!(s, grip = if s.grip { 1.0 } else { 0.0 }))
         }
@@ -548,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn index_clamps_out_of_range_grip_and_trigger() {
+    fn index_controller_does_not_emit_synthetic_hand_state() {
         use crate::shared::IndexControllerState;
         let s = IndexControllerState {
             side: Chirality::Right,
@@ -559,10 +562,11 @@ mod tests {
             trigger: -0.25,
             ..IndexControllerState::default()
         };
-        let inputs = extract_curl_inputs(&VRControllerState::IndexControllerState(s))
-            .expect("tracked controller should produce inputs");
-        assert_eq!(inputs.grip, 1.0, "grip > 1 must clamp to 1");
-        assert_eq!(inputs.trigger, 0.0, "trigger < 0 must clamp to 0");
+        let hands = synthesize_hand_states(&[VRControllerState::IndexControllerState(s)]);
+        assert!(
+            hands.is_empty(),
+            "Index controllers need real OpenXR hand joints instead of synthetic tracked hands"
+        );
     }
 
     #[test]
