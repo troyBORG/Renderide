@@ -45,13 +45,6 @@ pub(super) fn complete_empty_mesh_upload(
         instance_changed: !resident_replaced,
     };
     send_mesh_upload_result(ipc, result.clone());
-    logger::trace!(
-        "mesh {} completed empty upload (replaced={} resident_stored={} resident_bytes~={})",
-        asset_id,
-        resident_replaced,
-        resident_stored,
-        queue.pools.mesh_pool.accounting().mesh_resident_bytes()
-    );
     result
 }
 
