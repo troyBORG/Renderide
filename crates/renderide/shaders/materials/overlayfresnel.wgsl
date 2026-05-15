@@ -31,7 +31,7 @@ struct OverlayFresnelMaterial {
     _BehindNearTex_ST: vec4<f32>,
     _FrontFarTex_ST: vec4<f32>,
     _FrontNearTex_ST: vec4<f32>,
-    _NormalMap_ST: vec4<f32>,
+    _NormalMap_ST: vec4<f32>, // Not provided by FrooxEngine (upstream bug?)
     _Exp: f32,
     _GammaCurve: f32,
     _PolarPow: f32,
@@ -110,10 +110,8 @@ fn overlay_normal(in: mv::WorldVertexOutput) -> vec3<f32> {
     var n = normalize(in.world_n);
     let t = normalize(in.world_t);
     if (kw_NORMALMAP()) {
-        let uv_n = uvu::apply_st(
-            in.primary_uv,
-            mat._NormalMap_ST,
-        );
+        // let uv_n = uvu::apply_st(in.primary_uv,mat._NormalMap_ST);
+        let uv_n = in.primary_uv;
         let tbn = pnorm::orthonormal_tbn(n, t);
         let ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_n),
