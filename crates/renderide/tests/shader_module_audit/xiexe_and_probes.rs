@@ -199,6 +199,43 @@ fn reflection_probe_specular_samples_unity_oriented_atlas() -> io::Result<()> {
 }
 
 #[test]
+fn reflection_probe_specular_applies_horizon_occlusion() -> io::Result<()> {
+    let probe_src = module_source("lighting/reflection_probes.wgsl")?;
+    for required in [
+        "fn horizon_specular_occlusion(",
+        "let dir = dominant_reflection_dir(n, v, perceptual_roughness);",
+        "let base_n = horizon_normal(n, geometric_n);",
+        "let horizon = clamp(1.0 + dot(dir, base_n), 0.0, 1.0);",
+        "return horizon * horizon;",
+        "let horizon_occlusion = horizon_specular_occlusion(n, geometric_n, v, perceptual_roughness);",
+        "return radiance * specular_energy * clamp(specular_occlusion, 0.0, 1.0) * horizon_occlusion;",
+    ] {
+        assert!(
+            probe_src.contains(required),
+            "reflection probes must apply horizon specular occlusion; missing `{required}`"
+        );
+    }
+
+    let pbs_lighting = module_source("pbs/lighting.wgsl")?;
+    assert!(
+        pbs_lighting.contains("s.normal,\n        s.geometric_normal,\n        view_dir,"),
+        "PBS indirect specular must pass the base normal into reflection-probe horizon occlusion"
+    );
+
+    let xiexe_lighting = module_source("xiexe/toon2/lighting.wgsl")?;
+    assert!(
+        xiexe_lighting.contains("normal,\n        s.raw_normal,\n        view_dir,"),
+        "Xiexe indirect specular must pass the raw surface normal into reflection-probe horizon occlusion"
+    );
+    assert!(
+        xiexe_lighting.contains("rprobe::raw_indirect_specular_with_horizon(world_pos, s.normal, s.raw_normal, view_dir, s.roughness, true, view_layer)"),
+        "Xiexe environment tint must also use horizon-occluded raw probe radiance"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn xiexe_indirect_diffuse_uses_pbs_energy_split() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
@@ -228,19 +265,22 @@ fn xiexe_indirect_diffuse_uses_pbs_energy_split() -> io::Result<()> {
 }
 
 #[test]
-fn xiexe_direct_diffuse_uses_lambert_with_ramp_tint() -> io::Result<()> {
+fn xiexe_direct_diffuse_uses_burley_with_ramp_tint() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
     for required in [
         "fn direct_diffuse_fresnel_transmission(",
         "let f = brdf::f_schlick(",
         "return brdf::direct_diffuse_fresnel_transmission(f, specular_reflectance);",
+        "fn direct_diffuse_brdf(",
+        "return brdf::fd_burley(",
         "let diffuse_transmission = direct_diffuse_fresnel_transmission(",
-        "s.albedo.rgb * diffuse_transmission * brdf::fd_lambert() * light.color * light.attenuation * ramp",
+        "let diffuse_brdf = direct_diffuse_brdf(s.normal, light.direction, view_dir, s.roughness);",
+        "s.albedo.rgb * diffuse_transmission * diffuse_brdf * light.color * light.attenuation * ramp",
     ] {
         assert!(
             lighting_src.contains(required),
-            "Per-light direct diffuse must preserve Lambert/ramp styling inside PBS Fresnel transmission; missing `{required}`"
+            "Per-light direct diffuse must preserve ramp styling inside PBS Fresnel transmission and Burley diffuse; missing `{required}`"
         );
     }
     assert!(
@@ -251,12 +291,12 @@ fn xiexe_direct_diffuse_uses_lambert_with_ramp_tint() -> io::Result<()> {
     // PBSMetallic and washes out the toon shadow ramp.
     assert!(
         !lighting_src.contains("s.albedo.rgb * brdf::fd_lambert() * light.color * ramp"),
-        "Direct diffuse must include `light.attenuation` so Renderide's `INTENSITY_BOOST = π` cancels `fd_lambert()`'s `1/π`"
+        "Direct diffuse must include `light.attenuation` and must not use Lambert directly"
     );
     assert!(
         !lighting_src
             .contains("s.albedo.rgb * brdf::fd_lambert() * light.color * light.attenuation * ramp"),
-        "Direct diffuse must not bypass the PBS Fresnel transmission envelope"
+        "Direct diffuse must not bypass the PBS Fresnel transmission envelope or Burley diffuse"
     );
     Ok(())
 }
@@ -291,7 +331,6 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
         ("XTOON_KW_RAMPMASK_OUTLINEMASK_THICKNESS", 6),
         ("XTOON_KW_TRANSPARENT", 7),
         ("XTOON_KW_VERTEX_COLOR_ALBEDO", 8),
-        ("XTOON_KW_VERTEXLIGHT_ON", 9),
     ] {
         assert!(
             variant_bits_src.contains(&format!("const {constant}: u32 = 1u << {bit}u;")),
@@ -301,16 +340,15 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> 
     for required in [
         "const XTOON_KEYWORD_LAYOUT_GENERIC: u32 = 0u;",
         "const XTOON_KEYWORD_LAYOUT_STATIC_VERTEXLIGHT: u32 = 1u;",
-        "const XTOON_STATIC_KW_VERTEXLIGHT_ON: u32 = 1u << 0u;",
-        "fn kw_VERTEXLIGHT_ON_for_layout(keyword_layout: u32) -> bool",
-        "return xtoon_static_kw(XTOON_STATIC_KW_VERTEXLIGHT_ON);",
+        "fn static_vertexlight_layout(keyword_layout: u32) -> bool",
+        "return keyword_layout == XTOON_KEYWORD_LAYOUT_STATIC_VERTEXLIGHT;",
         "fn resolved_alpha_mode_from_bits_for_layout(static_alpha_mode: u32, keyword_layout: u32) -> u32",
         "fn resolved_alpha_mode_from_bits(static_alpha_mode: u32) -> u32",
-        "kw_Cutout()",
+        "kw_Cutout_for_layout(keyword_layout)",
         "return xb::ALPHA_CUTOUT;",
-        "kw_Transparent()",
+        "kw_Transparent_for_layout(keyword_layout)",
         "return xb::ALPHA_TRANSPARENT;",
-        "kw_AlphaBlend()",
+        "kw_AlphaBlend_for_layout(keyword_layout)",
         "return xb::ALPHA_FADE;",
     ] {
         assert!(
@@ -388,6 +426,40 @@ fn xiexe_static_stems_use_static_vertexlight_keyword_layout() -> io::Result<()> 
         assert!(
             src.contains("xs::fragment_outline_for_layout("),
             "{file_name} must pass the static keyword layout into the outline fragment path"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn xiexe_a2c_has_single_sample_dither_fallback() -> io::Result<()> {
+    let alpha_src = source_file(manifest_dir().join("shaders/modules/xiexe/toon2/alpha.wgsl"))?;
+    for required in [
+        "rg::frame_sample_count() <= 1u",
+        "if (coverage <= d)",
+        "if (coverage <= xb::bayer_threshold(frag_xy))",
+        "textureSample(xb::_CutoutMask, xb::_CutoutMask_sampler, uv_primary).r",
+    ] {
+        assert!(
+            alpha_src.contains(required),
+            "Xiexe A2C single-sample fallback must contain `{required}`"
+        );
+    }
+    assert!(
+        !alpha_src.contains("textureSampleLevel(xb::_CutoutMask"),
+        "Xiexe cutout masks must not force base-mip sampling"
+    );
+
+    let globals_src = source_file(manifest_dir().join("shaders/modules/frame/globals.wgsl"))?;
+    for required in [
+        "fn frame_sample_count() -> u32",
+        "ft::FRAME_TAIL_SAMPLE_COUNT_MASK",
+        "return 1u;",
+    ] {
+        assert!(
+            globals_src.contains(required),
+            "frame globals must expose sample count decoding through `{required}`"
         );
     }
 

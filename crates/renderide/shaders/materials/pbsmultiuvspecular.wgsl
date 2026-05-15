@@ -21,8 +21,8 @@
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
+#import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::core::uv as uvu
 #import renderide::core::normal_decode as nd
 
@@ -162,13 +162,7 @@ fn sample_surface(
         let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
         c = c * textureSample(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
     }
-    var clip_sample = mat._Color * acs::texture_rgba_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
-    if (pbs_kw(PBSMULTIUVSPECULAR_KW_DUAL_ALBEDO)) {
-        let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
-        clip_sample = clip_sample * acs::texture_rgba_base_mip(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
-    }
-    let clip_alpha = clip_sample.a;
-    if (pbs_kw(PBSMULTIUVSPECULAR_KW_ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_ALPHACLIP) && c.a <= mat._AlphaClip) {
         discard;
     }
 
@@ -250,13 +244,14 @@ fn fs_forward_base(
     @location(7) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     let s = sample_surface(uv0, uv1, uv2, uv3, world_n, world_t, front_facing);
-    let surface = psurf::specular(
+    let surface = psurf::specular_with_geometric_normal(
         s.base_color,
         s.alpha,
         s.f0,
         s.roughness,
         s.occlusion,
         s.normal,
+        psamp::two_sided_geometric_normal(world_n, front_facing),
         s.emission,
     );
     return vec4<f32>(

@@ -14,7 +14,6 @@
 //#texture_default _OcclusionMap white
 //#texture_default _MetallicMap black
 
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::variant_bits as vb
 #import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
@@ -129,15 +128,7 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, vertex
     if (kw_VCOLOR_ALBEDO()) {
         albedo = albedo * vertex_color;
     }
-    let vertex_alpha = select(1.0, vertex_color.a, kw_VCOLOR_ALBEDO());
-    let clip_alpha = select(
-        albedo.a,
-        mat._Color.a
-            * vertex_alpha
-            * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
-        kw_ALBEDOTEX(),
-    );
-    if (kw_ALPHACLIP() && clip_alpha <= mat._AlphaClip) {
+    if (kw_ALPHACLIP() && albedo.a <= mat._AlphaClip) {
         discard;
     }
 
@@ -214,13 +205,14 @@ fn fs_forward_base(
     @location(5) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     let s = sample_surface(uv0, world_n, world_t, color);
-    let surface = psurf::metallic(
+    let surface = psurf::metallic_with_geometric_normal(
         s.base_color,
         s.alpha,
         s.metallic,
         s.roughness,
         s.occlusion,
         s.normal,
+        world_n,
         s.emission,
     );
     return plight::shade_metallic_transparent_clustered(frag_pos.xy, world_pos, view_layer, surface, plight::default_lighting_options());

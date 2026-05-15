@@ -28,7 +28,6 @@
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::variant_bits as vb
 #import renderide::core::uv as uvu
 
@@ -198,11 +197,7 @@ fn shade(
     if (kw_ALBEDOTEX()) {
         c = c * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
-    var clip_alpha = mat._Color.a;
-    if (kw_ALBEDOTEX()) {
-        clip_alpha = clip_alpha * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main);
-    }
-    if (kw_ALPHACLIP() && clip_alpha <= mat._AlphaClip) {
+    if (kw_ALPHACLIP() && c.a <= mat._AlphaClip) {
         discard;
     }
 
@@ -228,7 +223,7 @@ fn shade(
 
     let n = sample_normal_world(uv_main, world_n, world_t);
     let base_color = c.rgb;
-    let surface = psurf::metallic(base_color, c.a, metallic, roughness, occlusion, n, emission);
+    let surface = psurf::metallic_with_geometric_normal(base_color, c.a, metallic, roughness, occlusion, n, world_n, emission);
     let options = plight::ClusterLightingOptions(include_directional, include_local, true, true);
     return vec4<f32>(
         plight::shade_metallic_clustered(frag_xy, world_pos, view_layer, surface, options),

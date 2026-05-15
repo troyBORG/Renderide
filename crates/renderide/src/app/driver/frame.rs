@@ -175,6 +175,7 @@ impl AppDriver {
             if let Some(target) = self.target.as_ref()
                 && let Err(error) = apply_output_state_to_window(
                     target.window().as_ref(),
+                    &mut self.input,
                     &output_state,
                     &mut self.cursor_output_tracking,
                 )

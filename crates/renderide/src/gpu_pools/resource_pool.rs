@@ -453,7 +453,7 @@ mod tests {
         let mut pool: GpuResourcePool<TestResource, UntrackedAccess> =
             GpuResourcePool::new(UntrackedAccess::new(VramResourceKind::Mesh));
         assert!(!pool.insert(TestResource::new(1, 256)));
-        assert_eq!(pool.accounting().mesh_resident_bytes, 256);
+        assert_eq!(pool.accounting().mesh_resident_bytes(), 256);
         assert_eq!(pool.accounting().texture_resident_bytes(), 0);
         assert_eq!(pool.accounting().total_resident_bytes(), 256);
     }

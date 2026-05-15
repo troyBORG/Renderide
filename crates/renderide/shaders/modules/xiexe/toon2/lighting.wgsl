@@ -6,10 +6,9 @@
 //!   Schlick Fresnel with `brdf::metallic_f0(diffuse_color, metallic)` (the same F0 PBSMetallic
 //!   uses), DFG LUT energy compensation for the direct lobe, and multi-bounce specular AO for the
 //!   probe radiance.
-//! - Direct diffuse: Lambert (`brdf::fd_lambert`) with the toon shadow
-//!   ramp as a 3-channel multiplicative tint replacing `NdotL * att`, then normalized Fresnel
-//!   transmission as an energy envelope. A white ramp recovers PBSMetallic exactly; colored / banded
-//!   ramps drive the toon stylization.
+//! - Direct diffuse: Disney/Burley rough diffuse with the toon shadow ramp as a 3-channel
+//!   multiplicative tint replacing `NdotL * att`, then normalized Fresnel transmission as an energy
+//!   envelope. Colored / banded ramps drive the toon stylization.
 //! - Indirect diffuse / specular: PBSMetallic's `(1 - indirect_specular_energy)` split so the
 //!   indirect-light budget is shared between the SH probe and the spec lobe. Colored
 //!   `_OcclusionColor` modulates indirect diffuse only and is lifted through the PBS multi-bounce
@@ -20,9 +19,7 @@
 //!   the `col += max(directSpec_sum, rim)` composition step.
 //!
 //! `_SpecularIntensity` and `_SpecularAlbedoTint` are artist controls layered on
-//! top of the PBS direct-spec lobe; at `_SpecularIntensity = 1`,
-//! `_SpecularAlbedoTint = 0`, and a white ramp, the result is energy-identical to
-//! a matched PBSMetallic ball.
+//! top of the PBS direct-spec lobe.
 
 #define_import_path renderide::xiexe::toon2::lighting
 
@@ -64,7 +61,7 @@ fn environment_tint(s: xb::SurfaceData, view_dir: vec3<f32>, world_pos: vec3<f32
     if (!rprobe::has_indirect_specular(view_layer, true)) {
         return vec3<f32>(1.0);
     }
-    return rprobe::raw_indirect_specular(world_pos, s.normal, view_dir, s.roughness, true, view_layer);
+    return rprobe::raw_indirect_specular_with_horizon(world_pos, s.normal, s.raw_normal, view_dir, s.roughness, true, view_layer);
 }
 
 /// `UNITY_SPECCUBE_LOD_STEPS` on PC/console.
@@ -212,6 +209,22 @@ fn direct_diffuse_fresnel_transmission(
     return brdf::direct_diffuse_fresnel_transmission(f, specular_reflectance);
 }
 
+/// Rough diffuse BRDF scalar for XSToon's ramped direct diffuse term.
+fn direct_diffuse_brdf(
+    normal: vec3<f32>,
+    light_direction: vec3<f32>,
+    view_dir: vec3<f32>,
+    perceptual_roughness: f32,
+) -> f32 {
+    let h = xb::safe_normalize(light_direction + view_dir, normal);
+    return brdf::fd_burley(
+        xb::saturate(dot(normal, view_dir)),
+        xb::saturate(dot(normal, light_direction)),
+        xb::saturate(dot(light_direction, h)),
+        perceptual_roughness,
+    );
+}
+
 /// Rim contribution from the dominant light plus ambient probe lighting.
 fn rim_light(
     s: xb::SurfaceData,
@@ -255,7 +268,7 @@ fn shadow_rim(
 /// early-out, distortion-by-normal half-vector, `VdotH^_SSPower` intensity, and `_SSColor *
 /// (VdotH + indirectDiffuse) * attenuation * _SSScale * thickness * lightCol * albedo`
 /// final tint. When the `THICKNESS_MAP` keyword is off, `s.thickness` defaults to `1.0`
-/// in `sample_surface` so the math is identical to the gated material path.
+/// in `surface::sample_surface_for_layout` so the math is identical to the gated material path.
 fn subsurface(
     s: xb::SurfaceData,
     light: xb::LightSample,
@@ -286,39 +299,6 @@ fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
     let view_up = xb::safe_normalize(up - view_dir * dot(view_dir, up), vec3<f32>(0.0, 1.0, 0.0));
     let view_right = xb::safe_normalize(cross(view_dir, view_up), vec3<f32>(1.0, 0.0, 0.0));
     return vec2<f32>(dot(view_right, n), dot(view_up, n)) * 0.5 + vec2<f32>(0.5);
-}
-
-/// Samples the indirect-reflection contribution.
-///
-/// Two branches are selected by the material keyword layout:
-/// * `MATCAP` keyword on -> sample `_Matcap` at LOD `(1 - smoothness) * SPECCUBE_LOD_STEPS`
-///   and modulate by `(ambient + dominantLight * 0.5)`. No ramp blend.
-/// * Default (PBR) -> route through the renderer reflection-probe radiance with DFG energy
-///   compensation and multi-bounce specular AO. The caller applies the ramp-shadow blend
-///   `lerp(spec, spec*ramp, roughness)` outside this branch.
-fn indirect_reflection_branch(
-    s: xb::SurfaceData,
-    normal: vec3<f32>,
-    view_dir: vec3<f32>,
-    world_pos: vec3<f32>,
-    view_layer: u32,
-    perceptual_roughness: f32,
-    specular_reflectance: vec3<f32>,
-    ambient: vec3<f32>,
-    dominant_light_col_atten: vec3<f32>,
-) -> vec3<f32> {
-    return indirect_reflection_branch_for_layout(
-        s,
-        normal,
-        view_dir,
-        world_pos,
-        view_layer,
-        perceptual_roughness,
-        specular_reflectance,
-        ambient,
-        dominant_light_col_atten,
-        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
-    );
 }
 
 /// Samples the indirect-reflection contribution for a selected XSToon keyword layout.
@@ -353,6 +333,7 @@ fn indirect_reflection_branch_for_layout(
     let spec = rprobe::indirect_specular_with_energy(
         world_pos,
         normal,
+        s.raw_normal,
         view_dir,
         roughness,
         specular_energy * specular_visibility,
@@ -361,30 +342,6 @@ fn indirect_reflection_branch_for_layout(
         view_layer,
     );
     return spec;
-}
-
-/// Indirect-specular contribution: samples the PBR or matcap branch, and for the PBR branch
-/// applies the dominant-light ramp shadow blend `lerp(spec, spec*ramp, roughness)`. The matcap
-/// branch is exempt from the ramp blend.
-fn indirect_specular(
-    s: xb::SurfaceData,
-    view_dir: vec3<f32>,
-    world_pos: vec3<f32>,
-    view_layer: u32,
-    ambient: vec3<f32>,
-    dominant_light_col_atten: vec3<f32>,
-    dominant_ramp: vec3<f32>,
-) -> vec3<f32> {
-    return indirect_specular_for_layout(
-        s,
-        view_dir,
-        world_pos,
-        view_layer,
-        ambient,
-        dominant_light_col_atten,
-        dominant_ramp,
-        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
-    );
 }
 
 /// Indirect-specular contribution for a selected XSToon keyword layout.
@@ -421,51 +378,12 @@ fn indirect_specular_for_layout(
     return spec;
 }
 
-/// Base-pass emission contribution. The active 2.0 path returns
-/// `_EmissionMap.rgb * _EmissionColor.rgb` in the base pass; `_EmissionToDiffuse` and
-/// `_ScaleWithLight*` are intentionally inactive for this shader.
-fn emission_color(s: xb::SurfaceData, base_pass: bool) -> vec3<f32> {
-    return emission_color_for_layout(s, base_pass, xvb::XTOON_KEYWORD_LAYOUT_GENERIC);
-}
-
 /// Base-pass emission contribution for a selected XSToon keyword layout.
 fn emission_color_for_layout(s: xb::SurfaceData, base_pass: bool, keyword_layout: u32) -> vec3<f32> {
     if (!base_pass || !xvb::emission_map_enabled_for_layout(keyword_layout)) {
         return vec3<f32>(0.0);
     }
     return s.emission * xb::mat._EmissionColor.rgb;
-}
-
-/// Forward-pass clustered light walk.
-///
-/// Composition follows the 2.0 toon lighting contract for the clustered single-pass
-/// renderer (the per-pass light sum replaces Unity's ForwardBase + ForwardAdd split):
-///   `diffuse  = sum_lights(albedo * ramp_i * lightCol_i * att_i) + albedo * ambient`
-///   `diffuse *= occlusionColor`
-///   `col      = diffuse * shadowRim`
-///   `col     += indirectSpec * reflectivityMask.r`
-///   `col     += max(sum_lights(directSpec_i), rim)`
-///   `col     += sum_lights(subsurface_i)`
-///   `col     += emission` (base pass only)
-fn clustered_toon_lighting(
-    frag_xy: vec2<f32>,
-    s: xb::SurfaceData,
-    world_pos: vec3<f32>,
-    view_layer: u32,
-    include_directional: bool,
-    include_local: bool,
-    base_pass: bool,
-) -> vec3<f32> {
-    return clustered_toon_lighting_for_layout(
-        frag_xy,
-        s,
-        world_pos,
-        view_layer,
-        include_directional,
-        include_local,
-        base_pass,
-        xvb::XTOON_KEYWORD_LAYOUT_GENERIC,
-    );
 }
 
 /// Forward-pass clustered light walk for a selected XSToon keyword layout.
@@ -539,22 +457,20 @@ fn clustered_toon_lighting_for_layout(
         let ndl = dot(s.normal, light.direction);
         let ramp = ramp_for_ndl(ndl, light.attenuation, s.ramp_mask);
         let light_col_atten = light.color * light.attenuation;
-        // Lambert (`1/pi`) times the boosted `light.attenuation` times the toon ramp, wrapped by
-        // the PBS direct diffuse Fresnel-transmission envelope.
-        // `bl::direct_light_intensity` and `bl::punctual_attenuation` both bake
-        // `INTENSITY_BOOST = pi` into `light.attenuation`, which cancels
-        // `fd_lambert()`'s `1/pi` so the white-ramp energy magnitude matches PBSMetallic.
-        // The toon ramp is the 3-channel stylized replacement for `NdL` and bakes
+        // Rough diffuse times the boosted `light.attenuation` times the toon ramp, wrapped by the
+        // PBS direct diffuse Fresnel-transmission envelope. The toon ramp is the 3-channel
+        // stylized replacement for `NdL` and bakes
         // attenuation into its `U` axis to compress the curve for distant punctual lights.
-        // `s.albedo` is already metallic-discounted in `surface::sample_surface`.
+        // `s.albedo` is already metallic-discounted in `surface::sample_surface_for_layout`.
         let diffuse_transmission = direct_diffuse_fresnel_transmission(
             s.normal,
             light.direction,
             view_dir,
             primary_specular_terms.specular_reflectance,
         );
+        let diffuse_brdf = direct_diffuse_brdf(s.normal, light.direction, view_dir, s.roughness);
         direct_diffuse = direct_diffuse
-            + s.albedo.rgb * diffuse_transmission * brdf::fd_lambert() * light.color * light.attenuation * ramp;
+            + s.albedo.rgb * diffuse_transmission * diffuse_brdf * light.color * light.attenuation * ramp;
         direct_spec = direct_spec + direct_specular(s, light, view_dir, primary_specular_terms);
         sss = sss + subsurface(s, light, view_dir, ambient);
 
