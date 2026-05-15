@@ -13,7 +13,7 @@ pub enum VramResourceKind {
 #[derive(Debug, Default, Clone)]
 pub struct VramAccounting {
     total_resident_bytes: u64,
-    mesh_resident_bytes: u64,
+    pub(crate) mesh_resident_bytes: u64,
     texture_resident_bytes: u64,
 }
 
@@ -206,12 +206,12 @@ mod tests {
         let mut a = VramAccounting::default();
         a.on_resident_added(VramResourceKind::Mesh, 100);
         a.on_resident_added(VramResourceKind::Texture, 200);
-        assert_eq!(a.mesh_resident_bytes(), 100);
+        assert_eq!(a.mesh_resident_bytes, 100);
         assert_eq!(a.texture_resident_bytes(), 200);
         assert_eq!(a.total_resident_bytes(), 300);
 
         a.on_resident_removed(VramResourceKind::Mesh, 40);
-        assert_eq!(a.mesh_resident_bytes(), 60);
+        assert_eq!(a.mesh_resident_bytes, 60);
         assert_eq!(a.texture_resident_bytes(), 200);
         assert_eq!(a.total_resident_bytes(), 260);
     }
@@ -229,7 +229,7 @@ mod tests {
         let mut a = VramAccounting::default();
         a.on_resident_added(VramResourceKind::Mesh, 10);
         a.on_resident_removed(VramResourceKind::Mesh, 100);
-        assert_eq!(a.mesh_resident_bytes(), 0);
+        assert_eq!(a.mesh_resident_bytes, 0);
         assert_eq!(a.total_resident_bytes(), 0);
     }
 
@@ -322,7 +322,7 @@ mod tests {
         a.on_resident_added(VramResourceKind::Mesh, 50);
         a.on_resident_added(VramResourceKind::Texture, 50);
         a.on_resident_removed(VramResourceKind::Texture, 200);
-        assert_eq!(a.mesh_resident_bytes(), 50);
+        assert_eq!(a.mesh_resident_bytes, 50);
         assert_eq!(a.texture_resident_bytes(), 0);
         assert_eq!(a.total_resident_bytes(), 0);
     }
