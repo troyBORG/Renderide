@@ -15,26 +15,26 @@
 struct ModernFurMaterial {
     _Color: vec4<f32>,
     _SpecColor: vec4<f32>,
-    _BonusAmbient: vec4<f32>,
+    _BonusAmbient: vec4<f32>, //#mat_default vec4 (0.0, 0.0, 0.0, 1.0)
     _RimColor: vec4<f32>,
-    _ReflColor: vec4<f32>,
+    _ReflColor: vec4<f32>, //#mat_default vec4 (1.0, 1.0, 1.0, 1.0)
     _MainTex_ST: vec4<f32>,
-    _BumpMap_ST: vec4<f32>,
-    _NoiseTex_ST: vec4<f32>,
+    _BumpMap_ST: vec4<f32>, // Not provided by FrooxEngine
+    _NoiseTex_ST: vec4<f32>, // Not provided by FrooxEngine
     _ForceGlobal: vec4<f32>,
     _ForceLocal: vec4<f32>,
     _Shininess: f32,
     _Gloss: f32,
     _FurLength: f32,
     _Cutoff: f32,
-    _EdgeFade: f32,
+    _EdgeFade: f32, //#mat_default float 0.15
     _HairHardness: f32,
     _HairThinness: f32,
     _HairShading: f32,
     _HairColoring: f32,
-    _SkinAlpha: f32,
-    _Reflection: f32,
-    _ReflMinLevel: f32,
+    _SkinAlpha: f32, //#mat_default float 0.5
+    _Reflection: f32, //#mat_default float 0.0
+    _ReflMinLevel: f32, //#mat_default float 0.0
     _RimPower: f32,
     _MainTex_LodBias: f32,
     _BumpMap_LodBias: f32,
@@ -46,7 +46,7 @@ struct ModernFurMaterial {
 @group(1) @binding(0) var<uniform> mat: ModernFurMaterial;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
 @group(1) @binding(2) var _MainTex_sampler: sampler;
-@group(1) @binding(3) var _BumpMap: texture_2d<f32>;
+@group(1) @binding(3) var _BumpMap: texture_2d<f32>; // Provided by FrooxEngine under the name "_NormalMap"
 @group(1) @binding(4) var _BumpMap_sampler: sampler;
 @group(1) @binding(5) var _NoiseTex: texture_2d<f32>;
 @group(1) @binding(6) var _NoiseTex_sampler: sampler;
