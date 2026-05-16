@@ -180,11 +180,25 @@ impl GraphCache {
     pub fn compile_stats(&self) -> Option<CompileStats> {
         self.active_graph().map(|g| g.compile_stats)
     }
+
+    /// Number of retained graph variants for unit tests.
+    #[cfg(test)]
+    #[must_use]
+    pub fn variant_count_for_tests(&self) -> usize {
+        self.graphs.len()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+    use crate::render_graph::context::ComputePassCtx;
+    use crate::render_graph::error::{RenderPassError, SetupError};
+    use crate::render_graph::pass::{ComputePass, PassBuilder, PassNode};
+    use crate::render_graph::schedule::FrameSchedule;
 
     fn key_with_post(sig: PostProcessChainSignature) -> GraphCacheKey {
         GraphCacheKey {
@@ -211,5 +225,87 @@ mod tests {
         });
         assert_ne!(off, on);
         assert_eq!(off, key_with_post(PostProcessChainSignature::default()));
+    }
+
+    /// Test pass that records how many retired views reached it.
+    struct ReleaseCountingPass {
+        /// Shared retirement count.
+        releases: Arc<AtomicUsize>,
+    }
+
+    impl ComputePass for ReleaseCountingPass {
+        fn name(&self) -> &str {
+            "release_counting"
+        }
+
+        fn setup(&mut self, builder: &mut PassBuilder<'_>) -> Result<(), SetupError> {
+            builder.compute();
+            Ok(())
+        }
+
+        fn record(&self, _ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
+            Ok(())
+        }
+
+        fn release_view_resources(&mut self, retired_views: &[ViewId]) {
+            self.releases
+                .fetch_add(retired_views.len(), Ordering::Relaxed);
+        }
+    }
+
+    /// Builds a minimal compiled graph containing one release-counting pass.
+    fn graph_with_release_counter(releases: Arc<AtomicUsize>) -> CompiledRenderGraph {
+        CompiledRenderGraph {
+            passes: vec![PassNode::Compute(Box::new(ReleaseCountingPass {
+                releases,
+            }))],
+            needs_surface_acquire: false,
+            compile_stats: CompileStats {
+                pass_count: 1,
+                topo_levels: 1,
+                ..CompileStats::default()
+            },
+            pass_info: Vec::new(),
+            transient_textures: Vec::new(),
+            transient_buffers: Vec::new(),
+            subresources: Vec::new(),
+            imported_textures: Vec::new(),
+            imported_buffers: Vec::new(),
+            schedule: FrameSchedule::empty(),
+            main_graph_msaa_transient_handles: None,
+        }
+    }
+
+    /// Releases retired view resources from every retained graph variant.
+    #[test]
+    fn release_view_resources_reaches_all_retained_variants() {
+        let mono_key = key_with_post(PostProcessChainSignature::default());
+        let mut stereo_key = mono_key;
+        stereo_key.multiview_stereo = true;
+        let mono_releases = Arc::new(AtomicUsize::new(0));
+        let stereo_releases = Arc::new(AtomicUsize::new(0));
+        let mut cache = GraphCache::default();
+
+        assert_eq!(
+            cache
+                .ensure(mono_key, || {
+                    Ok(graph_with_release_counter(Arc::clone(&mono_releases)))
+                })
+                .expect("mono graph"),
+            GraphCacheEnsureResult::Built
+        );
+        assert_eq!(
+            cache
+                .ensure(stereo_key, || {
+                    Ok(graph_with_release_counter(Arc::clone(&stereo_releases)))
+                })
+                .expect("stereo graph"),
+            GraphCacheEnsureResult::Built
+        );
+
+        cache.release_view_resources(&[ViewId::Main]);
+
+        assert_eq!(mono_releases.load(Ordering::Relaxed), 1);
+        assert_eq!(stereo_releases.load(Ordering::Relaxed), 1);
     }
 }

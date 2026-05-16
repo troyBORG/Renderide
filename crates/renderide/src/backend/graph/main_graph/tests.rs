@@ -368,6 +368,7 @@ fn graph_cache_reuses_when_key_unchanged() {
     assert_eq!(cache.pass_count(), n);
 }
 
+/// Reuses the cached mono graph after switching to and from a stereo graph variant.
 #[test]
 fn graph_cache_reuses_previous_variant_after_multiview_switch() {
     let mono_key = smoke_key();
@@ -403,8 +404,10 @@ fn graph_cache_reuses_previous_variant_after_multiview_switch() {
     assert!(!build_called);
     assert_eq!(cache.last_key(), Some(mono_key));
     assert_eq!(cache.pass_count(), mono_pass_count);
+    assert_eq!(cache.variant_count_for_tests(), 2);
 }
 
+/// Keeps previously built variants available when building a new graph variant fails.
 #[test]
 fn graph_cache_build_failure_preserves_cached_variants() {
     let cached_key = smoke_key();
@@ -440,6 +443,34 @@ fn graph_cache_build_failure_preserves_cached_variants() {
 
     assert!(!build_called);
     assert_eq!(cache.pass_count(), cached_pass_count);
+}
+
+/// Evicts the least-recently-used inactive variant while preserving the active graph.
+#[test]
+fn graph_cache_evicts_lru_without_dropping_active_variant() {
+    let post = no_post();
+    let mut cache = GraphCache::default();
+    let keys: [GraphCacheKey; 5] = std::array::from_fn(|index| {
+        let mut key = smoke_key();
+        key.surface_extent = (1280 + index as u32, 720);
+        key
+    });
+
+    for key in keys {
+        assert_eq!(
+            cache
+                .ensure(key, || build_main_graph(key, &post))
+                .expect("variant build"),
+            GraphCacheEnsureResult::Built
+        );
+        assert_eq!(cache.last_key(), Some(key));
+        assert!(cache.contains_key(key));
+    }
+
+    assert_eq!(cache.variant_count_for_tests(), 4);
+    assert_eq!(cache.last_key(), Some(keys[4]));
+    assert!(cache.contains_key(keys[4]));
+    assert!(!cache.contains_key(keys[0]));
 }
 
 #[test]
