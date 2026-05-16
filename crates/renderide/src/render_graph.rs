@@ -30,8 +30,8 @@
 //!   so the per-view record path no longer pays lazy `&mut` allocation costs (also a structural
 //!   prerequisite for the parallel record path; see [`record_parallel`]).
 //! - **[`GraphCache`]** memoizes compiled graph variants by [`GraphCacheKey`] (surface extent,
-//!   MSAA, multiview, surface format, scene HDR format) so the backend rebuilds only when a new
-//!   input combination appears.
+//!   MSAA, multiview, surface format, scene HDR format) so the backend rebuilds only when an
+//!   uncached variant is requested.
 //!
 //! [`CompileStats`] field `topo_levels` counts Kahn-style **parallel waves** in the DAG at compile
 //! time; the executor still walks passes in a **single flat order** (waves are not a separate

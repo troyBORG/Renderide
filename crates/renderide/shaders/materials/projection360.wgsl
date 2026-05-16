@@ -13,6 +13,15 @@
 //#texture_default _OffsetMask white
 //#texture_default _MainCube black
 //#texture_default _SecondCube black
+//#mat_default _Exposure float 1.0
+//#mat_default _FOV vec4 6.283185 3.141593 0.0 0.0
+//#mat_default _Gamma float 1.0
+//#mat_default _MaxIntensity float 4.0
+//#mat_default _OffsetMagnitude vec4 0.1 0.1 0.0 0.0
+//#mat_default _PerspectiveFOV vec4 0.785398 0.785398 0.0 0.0
+//#mat_default _Tint vec4 1.0 1.0 1.0 1.0
+//#mat_default _Tint0 vec4 1.0 0.0 0.0 1.0
+//#mat_default _Tint1 vec4 0.0 1.0 0.0 1.0
 
 #import renderide::skybox::cubemap_storage as cubemap_storage
 #import renderide::frame::globals as rg
@@ -223,15 +232,21 @@ fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
 
 fn sample_cubemap(view_dir: vec3<f32>) -> vec4<f32> {
     let dir = normalize(-view_dir);
-    var lod = 0.0;
-    if (kw_CUBEMAP_LOD()) {
-        lod = mat._CubeLOD;
-    }
     let main_dir = cubemap_storage::sample_dir(dir, mat._MainCube_StorageVInverted);
-    var c = textureSampleLevel(_MainCube, _MainCube_sampler, main_dir, lod);
+    var c: vec4<f32>;
+    if (kw_CUBEMAP_LOD()) {
+        c = textureSampleLevel(_MainCube, _MainCube_sampler, main_dir, mat._CubeLOD);
+    } else {
+        c = textureSample(_MainCube, _MainCube_sampler, main_dir);
+    }
     if (kw_SECOND_TEXTURE()) {
         let second_dir = cubemap_storage::sample_dir(dir, mat._SecondCube_StorageVInverted);
-        let sc = textureSampleLevel(_SecondCube, _SecondCube_sampler, second_dir, lod);
+        var sc: vec4<f32>;
+        if (kw_CUBEMAP_LOD()) {
+            sc = textureSampleLevel(_SecondCube, _SecondCube_sampler, second_dir, mat._CubeLOD);
+        } else {
+            sc = textureSample(_SecondCube, _SecondCube_sampler, second_dir);
+        }
         c = mix(c, sc, mat._TextureLerp);
     }
     return c;
