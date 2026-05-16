@@ -2,6 +2,8 @@
 
 //#texture_default _MainTex white
 //#texture_default _NoiseTex white
+//#mat_default _EdgeFade float 0.15
+//#mat_default _SkinAlpha float 0.5
 
 #import renderide::fur::classic_basic as fur
 #import renderide::fur::common as furc

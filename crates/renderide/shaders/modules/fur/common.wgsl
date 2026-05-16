@@ -6,9 +6,6 @@
 #import renderide::mesh::vertex as mv
 #import renderide::core::uv as uvu
 
-const DEFAULT_EDGE_FADE: f32 = 0.15;
-const DEFAULT_SKIN_ALPHA: f32 = 0.5;
-
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
@@ -79,17 +76,17 @@ fn fur_vertex_main(
 }
 
 fn shell_length_mask(alpha: f32, skin_alpha: f32, fur_multiplier: f32) {
-    if (fur_multiplier > max(alpha, DEFAULT_SKIN_ALPHA)) {
+    if (fur_multiplier > max(alpha, skin_alpha)) {
         discard;
     }
 }
 
 fn classic_shell_alpha(noise: f32, edge_fade: f32, fur_multiplier: f32) -> f32 {
-    return saturate(noise - fur_multiplier * fur_multiplier * DEFAULT_EDGE_FADE);
+    return saturate(noise - fur_multiplier * fur_multiplier * edge_fade);
 }
 
 fn self_shadow_shell_alpha(noise: f32, mask_alpha: f32, edge_fade: f32, fur_multiplier: f32) -> f32 {
-    return saturate(noise * mask_alpha - fur_multiplier * fur_multiplier * DEFAULT_EDGE_FADE);
+    return saturate(noise * mask_alpha - fur_multiplier * fur_multiplier * edge_fade);
 }
 
 fn alpha_clip(alpha: f32, cutoff: f32) {

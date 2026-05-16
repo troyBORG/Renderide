@@ -3,6 +3,12 @@
 //#texture_default _MainTex white
 //#texture_default _NoiseTex white
 //#texture_default _Cube empty
+//#mat_default _BonusAmbient vec4 0.0 0.0 0.0 1.0
+//#mat_default _ReflColor vec4 1.0 1.0 1.0 1.0
+//#mat_default _EdgeFade float 0.15
+//#mat_default _SkinAlpha float 0.5
+//#mat_default _Reflection float 0.0
+//#mat_default _ReflMinLevel float 0.0
 
 #import renderide::fur::modern as fur
 #import renderide::fur::common as furc

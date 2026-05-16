@@ -12,6 +12,8 @@
 //#texture_default _CutoutMask white
 //#texture_default _Matcap black
 //#texture_default _ReflectivityMask white
+//#mat_default _RimCubemapTint float 0.0
+//#mat_default _SpecularAlbedoTint float 1.0
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb

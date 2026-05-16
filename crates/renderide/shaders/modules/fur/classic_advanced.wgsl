@@ -20,14 +20,14 @@ struct ClassicAdvancedMaterial {
     _Shininess: f32,
     _FurLength: f32,
     _Cutoff: f32,
-    _EdgeFade: f32, //#mat_default float 0.15
+    _EdgeFade: f32,
     _HairHardness: f32,
     _HairThinness: f32,
     _HairShading: f32,
     _HairColoring: f32,
-    _SkinAlpha: f32, //#mat_default float 0.5
+    _SkinAlpha: f32,
     _RimPower: f32,
-    _Reflection: f32, //#mat_default float 0.0
+    _Reflection: f32,
     _MainTex_LodBias: f32,
     _NoiseTex_LodBias: f32,
     _Cube_LodBias: f32,

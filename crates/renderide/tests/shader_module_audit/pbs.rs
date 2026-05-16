@@ -487,17 +487,97 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
 
 #[test]
 fn standard_pbs_roots_enforce_unity_default_for_unsent_parameters() -> io::Result<()> {
-    let metallic = material_source("pbsmetallic.wgsl")?;
-    for required in [
-        "// let smoothness_scale = mat._GlossMapScale;",
-        "let smoothness_scale = 1.0;",
-        "// let occlusion_strength = mat._OcclusionStrength;",
-        "let occlusion_strength = 1.0;",
-    ] {
+    for material in ["pbsmetallic.wgsl", "pbsspecular.wgsl"] {
+        let src = material_source(material)?;
+        for required in [
+            "//#mat_default _GlossMapScale float 1.0",
+            "//#mat_default _OcclusionStrength float 1.0",
+            "let smoothness_scale = mat._GlossMapScale;",
+            "let occlusion_strength = mat._OcclusionStrength;",
+        ] {
+            assert!(
+                src.contains(required),
+                "{material} must contain `{required}`"
+            );
+        }
         assert!(
-            metallic.contains(required),
-            "pbsmetallic.wgsl must contain `{required}`"
+            !src.contains("// let smoothness_scale = mat._GlossMapScale;")
+                && !src.contains("// let occlusion_strength = mat._OcclusionStrength;"),
+            "{material} must use material-default metadata instead of commented shader fallbacks"
         );
+    }
+    Ok(())
+}
+
+#[test]
+fn furfx_and_toon_roots_declare_unity_defaults_for_unsent_fields() -> io::Result<()> {
+    for path in wgsl_files_recursive("shaders/materials")? {
+        let label = file_label(&path);
+        if !label.contains("/furfx") {
+            continue;
+        }
+        let src = source_file(&path)?;
+        let required: &[&str] = if src.contains("renderide::fur::classic_selfshadow") {
+            &[
+                "//#mat_default _EdgeFade float 0.15",
+                "//#mat_default _SkinAlpha float 0.5",
+                "//#mat_default _Reflection float 0.0",
+                "//#mat_default _ShadowStrength float 1.0",
+            ]
+        } else if src.contains("renderide::fur::classic_advanced") {
+            &[
+                "//#mat_default _EdgeFade float 0.15",
+                "//#mat_default _SkinAlpha float 0.5",
+                "//#mat_default _Reflection float 0.0",
+            ]
+        } else if src.contains("renderide::fur::classic_basic") {
+            &[
+                "//#mat_default _EdgeFade float 0.15",
+                "//#mat_default _SkinAlpha float 0.5",
+            ]
+        } else if src.contains("renderide::fur::modern") {
+            &[
+                "//#mat_default _BonusAmbient vec4 0.0 0.0 0.0 1.0",
+                "//#mat_default _ReflColor vec4 1.0 1.0 1.0 1.0",
+                "//#mat_default _EdgeFade float 0.15",
+                "//#mat_default _SkinAlpha float 0.5",
+                "//#mat_default _Reflection float 0.0",
+                "//#mat_default _ReflMinLevel float 0.0",
+            ]
+        } else {
+            continue;
+        };
+        for directive in required {
+            assert!(
+                src.contains(directive),
+                "{label} must declare `{directive}`"
+            );
+        }
+    }
+
+    for (material, required) in [
+        (
+            "toonstandard.wgsl",
+            [
+                "//#mat_default _SpecularHighlights float 1.0",
+                "//#mat_default _GlossyReflections float 1.0",
+            ],
+        ),
+        (
+            "toonwater.wgsl",
+            [
+                "//#mat_default _SpecularHighlights float 1.0",
+                "//#mat_default _SmoothnessTextureChannel float 0.0",
+            ],
+        ),
+    ] {
+        let src = material_source(material)?;
+        for directive in required {
+            assert!(
+                src.contains(directive),
+                "{material} must declare `{directive}`"
+            );
+        }
     }
     Ok(())
 }

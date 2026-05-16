@@ -20,22 +20,20 @@ struct ClassicSelfShadowMaterial {
     _Shininess: f32,
     _FurLength: f32,
     _Cutoff: f32,
-    _EdgeFade: f32, //#mat_default float 0.15
+    _EdgeFade: f32,
     _HairHardness: f32,
     _HairThinness: f32,
     _HairShading: f32,
     _HairColoring: f32,
-    _SkinAlpha: f32, //#mat_default float 0.5
+    _SkinAlpha: f32,
     _RimPower: f32,
-    _Reflection: f32, //#mat_default float 0.0
-    _ShadowStrength: f32, //#mat_default float 1.0
+    _Reflection: f32,
+    _ShadowStrength: f32,
     _MainTex_LodBias: f32,
     _NoiseTex_LodBias: f32,
     _Cube_LodBias: f32,
     _Cube_StorageVInverted: f32,
 }
-
-const DEFAULT_SHADOW_STRENGTH: f32 = 1.0;
 
 @group(1) @binding(0) var<uniform> mat: ClassicSelfShadowMaterial;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
@@ -72,8 +70,7 @@ fn vertex_main(
 }
 
 fn shell_direct_visibility(fur_multiplier: f32, noise: f32) -> f32 {
-    // let shadow_strength = clamp(mat._ShadowStrength, 0.0, 1.0);
-    let shadow_strength = DEFAULT_SHADOW_STRENGTH;
+    let shadow_strength = clamp(mat._ShadowStrength, 0.0, 1.0);
     let strand_shadow = fur_multiplier * (1.0 - clamp(noise, 0.0, 1.0));
     return clamp(1.0 - shadow_strength * strand_shadow, 1.0 - shadow_strength, 1.0);
 }
@@ -124,8 +121,7 @@ fn fragment_base(input: furc::VertexOutput) -> vec4<f32> {
 
 fn fragment_shell(input: furc::VertexOutput) -> vec4<f32> {
     let tex = ts::sample_tex_2d(_MainTex, _MainTex_sampler, input.main_uv, mat._MainTex_LodBias);
-    // let mask_alpha = max(tex.a, mat._SkinAlpha);
-    let mask_alpha = max(tex.a, furc::DEFAULT_SKIN_ALPHA);
+    let mask_alpha = max(tex.a, mat._SkinAlpha);
     furc::shell_length_mask(tex.a, mat._SkinAlpha, input.fur_multiplier);
 
     let shadow = ts::sample_tex_2d(

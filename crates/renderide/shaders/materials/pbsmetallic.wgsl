@@ -18,6 +18,9 @@
 //#texture_default _DetailMask white
 //#texture_default _DetailAlbedoMap gray
 //#texture_default _DetailNormalMap bump
+//#mat_default _GlossMapScale float 1.0
+//#mat_default _SmoothnessTextureChannel float 0.0
+//#mat_default _OcclusionStrength float 1.0
 
 #import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
@@ -36,12 +39,12 @@ struct PbsMetallicMaterial {
     _DetailAlbedoMap_ST: vec4<f32>,
     _Cutoff: f32,
     _Glossiness: f32,
-    _GlossMapScale: f32, //#mat_default float 1.0
-    _SmoothnessTextureChannel: f32, //#mat_default float 0.0
+    _GlossMapScale: f32,
+    _SmoothnessTextureChannel: f32,
     _Metallic: f32,
     _BumpScale: f32,
     _Parallax: f32,
-    _OcclusionStrength: f32, //#mat_default float 1.0
+    _OcclusionStrength: f32,
     _DetailNormalMapScale: f32,
     _RenderideVariantBits: u32,
     _MainTex_LodBias: f32,
@@ -184,8 +187,7 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     let mg = ts::sample_tex_2d(_MetallicGlossMap, _MetallicGlossMap_sampler, uv_main, mat._MetallicGlossMap_LodBias);
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    // let smoothness_scale = mat._GlossMapScale; // Defaults to 1 in Unity reference shader
-    let smoothness_scale = 1.0;
+    let smoothness_scale = mat._GlossMapScale;
     if (metallic_gloss_map_enabled()) {
         metallic = mg.r;
         smoothness = mg.a * smoothness_scale;
@@ -197,8 +199,7 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     let roughness = clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.0, 1.0);
 
     let occlusion_sample = ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g;
-    // let occlusion_strength = mat._OcclusionStrength; // Defaults to 1 in Unity reference shader
-    let occlusion_strength = 1.0;
+    let occlusion_strength = mat._OcclusionStrength;
     let occlusion = mix(1.0, occlusion_sample, clamp(occlusion_strength, 0.0, 1.0));
 
     var detail_mask = 0.0;

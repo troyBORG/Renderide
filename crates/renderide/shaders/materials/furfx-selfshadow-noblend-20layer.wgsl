@@ -3,6 +3,10 @@
 //#texture_default _MainTex white
 //#texture_default _NoiseTex white
 //#texture_default _Cube empty
+//#mat_default _EdgeFade float 0.15
+//#mat_default _SkinAlpha float 0.5
+//#mat_default _Reflection float 0.0
+//#mat_default _ShadowStrength float 1.0
 
 #import renderide::fur::classic_selfshadow as fur
 #import renderide::fur::common as furc

@@ -19,6 +19,8 @@
 //#texture_default _VoronoiTex empty
 //#texture_default _NoiseTex empty
 //#texture_default _ReflectionTex black
+//#mat_default _SpecularHighlights float 1.0
+//#mat_default _SmoothnessTextureChannel float 0.0
 
 #import renderide::lighting::birp as bl
 #import renderide::frame::globals as rg

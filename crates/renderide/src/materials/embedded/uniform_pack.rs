@@ -6,6 +6,8 @@ use crate::materials::host_data::{
 };
 use crate::materials::{ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind};
 
+use crate::embedded_shaders::{EmbeddedMaterialDefaultKind, EmbeddedMaterialDefaultValue};
+
 use super::layout::StemEmbeddedPropertyIds;
 use super::texture_pools::EmbeddedTexturePools;
 use super::texture_resolve::{
@@ -20,6 +22,17 @@ pub(crate) use crate::color_space::srgb_f32x4_rgb_to_linear as srgb_vec4_rgb_to_
 pub(crate) use color_space::MaterialUniformValueSpaces;
 use helpers::shader_writer_unescaped_field_name;
 use tables::inferred_shader_variant_bits_u32;
+
+/// Material uniform fallback values keyed by reflected WGSL field name.
+pub(crate) type MaterialUniformDefaults = hashbrown::HashMap<String, EmbeddedMaterialDefaultValue>;
+
+/// Source metadata used while packing material uniform bytes.
+pub(crate) struct MaterialUniformPackMetadata<'a> {
+    /// Per-field color-space metadata for reflected material uniforms.
+    pub(crate) value_spaces: &'a MaterialUniformValueSpaces,
+    /// Per-field fallback values declared by shader source metadata.
+    pub(crate) material_defaults: &'a MaterialUniformDefaults,
+}
 
 /// Suffix convention that opts a uniform field in to host `mipmap_bias` population.
 const LOD_BIAS_SUFFIX: &str = "_LodBias";
@@ -99,11 +112,33 @@ fn write_srgb_f32x4_array_at(buf: &mut [u8], field: &ReflectedUniformField, valu
 }
 
 /// Returns the reflected `vec4<f32>` fallback value for a missing host property.
-fn missing_vec4_uniform_default(field_name: &str) -> [f32; 4] {
+fn missing_vec4_uniform_default(
+    field_name: &str,
+    material_defaults: &MaterialUniformDefaults,
+) -> [f32; 4] {
+    if let Some(default) = material_defaults.get(field_name)
+        && default.kind == EmbeddedMaterialDefaultKind::Vec4
+    {
+        return default.values;
+    }
     if shader_writer_unescaped_field_name(field_name).ends_with(TEXTURE_TRANSFORM_SUFFIX) {
         UNITY_TEXTURE_TRANSFORM_IDENTITY
     } else {
         [0.0; 4]
+    }
+}
+
+/// Returns the reflected `f32` fallback value for a missing host property.
+fn missing_f32_uniform_default(
+    field_name: &str,
+    material_defaults: &MaterialUniformDefaults,
+) -> f32 {
+    if let Some(default) = material_defaults.get(field_name)
+        && default.kind == EmbeddedMaterialDefaultKind::Float
+    {
+        default.values[0]
+    } else {
+        0.0
     }
 }
 
@@ -123,9 +158,9 @@ pub(crate) struct UniformPackTextureContext<'a> {
 /// Every value comes from one of several sources, in priority order: texture storage-orientation
 /// flags for fields following the [`STORAGE_V_INVERTED_SUFFIX`] convention, host-sourced sampler
 /// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), the host's
-/// property store (for host-declared properties), Unity's identity texture transform for missing
-/// `*_ST` vec4 fields, or the renderer-reserved `_RenderideVariantBits` variant bitfield. Other
-/// missing fields fall through to zero.
+/// property store (for host-declared properties), source-declared material defaults, Unity's
+/// identity texture transform for missing `*_ST` vec4 fields, or the renderer-reserved
+/// `_RenderideVariantBits` variant bitfield. Other missing fields fall through to zero.
 #[cfg(test)]
 pub(crate) fn build_embedded_uniform_bytes(
     reflected: &ReflectedRasterLayout,
@@ -146,10 +181,35 @@ pub(crate) fn build_embedded_uniform_bytes(
 }
 
 /// Builds CPU bytes for the reflected material uniform block using explicit per-field value-space metadata.
+#[cfg(test)]
 pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
     reflected: &ReflectedRasterLayout,
     ids: &StemEmbeddedPropertyIds,
     value_spaces: &MaterialUniformValueSpaces,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    tex_ctx: &UniformPackTextureContext<'_>,
+    shader_variant_bits: Option<u32>,
+) -> Option<Vec<u8>> {
+    build_embedded_uniform_bytes_with_material_defaults(
+        reflected,
+        ids,
+        &MaterialUniformPackMetadata {
+            value_spaces,
+            material_defaults: &MaterialUniformDefaults::default(),
+        },
+        store,
+        lookup,
+        tex_ctx,
+        shader_variant_bits,
+    )
+}
+
+/// Builds CPU bytes for the reflected material uniform block using explicit value-space and default metadata.
+pub(crate) fn build_embedded_uniform_bytes_with_material_defaults(
+    reflected: &ReflectedRasterLayout,
+    ids: &StemEmbeddedPropertyIds,
+    metadata: &MaterialUniformPackMetadata<'_>,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     tex_ctx: &UniformPackTextureContext<'_>,
@@ -167,9 +227,9 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                     if let Some(MaterialPropertyValue::Float4(c)) = store.get_merged(lookup, pid) {
                         *c
                     } else {
-                        missing_vec4_uniform_default(field_name)
+                        missing_vec4_uniform_default(field_name, metadata.material_defaults)
                     };
-                if value_spaces.is_srgb_vec4(field_name) {
+                if metadata.value_spaces.is_srgb_vec4(field_name) {
                     v = srgb_vec4_rgb_to_linear(v);
                 }
                 write_f32x4_at(&mut buf, field, &v);
@@ -187,7 +247,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 {
                     *f
                 } else {
-                    0.0
+                    missing_f32_uniform_default(field_name, metadata.material_defaults)
                 };
                 write_f32_at(&mut buf, field, v);
             }
@@ -210,7 +270,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 } else if let Some(MaterialPropertyValue::Float4Array(values)) =
                     store.get_merged(lookup, pid)
                 {
-                    if value_spaces.is_srgb_vec4_array(field_name) {
+                    if metadata.value_spaces.is_srgb_vec4_array(field_name) {
                         write_srgb_f32x4_array_at(&mut buf, field, values);
                     } else {
                         write_f32x4_array_at(&mut buf, field, values);

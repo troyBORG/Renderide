@@ -120,6 +120,35 @@ fn xiexe_primary_direct_specular_uses_ggx_pbr_core() -> io::Result<()> {
 }
 
 #[test]
+fn xiexe_roots_declare_unity_defaults_for_unsent_tint_fields() -> io::Result<()> {
+    for material in [
+        "xstoon2.0.wgsl",
+        "xstoon2.0-cutout.wgsl",
+        "xstoon2.0-cutouta2c.wgsl",
+        "xstoon2.0-cutouta2c-outlined.wgsl",
+        "xstoon2.0-cutouta2cmasked.wgsl",
+        "xstoon2.0-dithered.wgsl",
+        "xstoon2.0-dithered-outlined.wgsl",
+        "xstoon2.0-fade.wgsl",
+        "xstoon2.0-outlined.wgsl",
+        "xstoon2.0-transparent.wgsl",
+        "xstoon2.0_outlined.wgsl",
+    ] {
+        let src = material_source(material)?;
+        for directive in [
+            "//#mat_default _RimCubemapTint float 0.0",
+            "//#mat_default _SpecularAlbedoTint float 1.0",
+        ] {
+            assert!(
+                src.contains(directive),
+                "{material} must declare `{directive}`"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
     let lighting_src =
         source_file(manifest_dir().join("shaders/modules/xiexe/toon2/lighting.wgsl"))?;
