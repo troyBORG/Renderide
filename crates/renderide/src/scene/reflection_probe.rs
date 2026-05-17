@@ -142,7 +142,7 @@ pub(crate) fn apply_reflection_probe_renderables_update_extracted(
     swap_remove_dense_indices_with_update(
         &mut space.reflection_probes,
         &extracted.removals,
-        &update_moved_reflection_probe,
+        update_moved_reflection_probe,
     );
     push_dense_additions(
         &mut space.reflection_probes,

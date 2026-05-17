@@ -94,7 +94,7 @@ pub(crate) fn apply_blit_to_display_update_extracted(
     swap_remove_dense_indices_with_update(
         &mut space.blit_to_displays,
         &extracted.removals,
-        &update_moved_blit_to_display,
+        update_moved_blit_to_display,
     );
 
     push_dense_additions(

@@ -111,7 +111,7 @@ pub(crate) fn apply_camera_renderables_update_extracted(
     swap_remove_dense_indices_with_update(
         &mut space.cameras,
         &extracted.removals,
-        &update_moved_camera_renderable,
+        update_moved_camera_renderable,
     );
     push_dense_additions(
         &mut space.cameras,

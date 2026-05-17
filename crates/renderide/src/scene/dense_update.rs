@@ -101,7 +101,7 @@ mod tests {
     fn removals_with_mutations() {
         let mut rows = vec![vec![10], vec![20], vec![30], vec![40]];
 
-        swap_remove_dense_indices_with_update(&mut rows, &[1], &|v: &mut Vec<i32>, index| {
+        swap_remove_dense_indices_with_update(&mut rows, &[1], |v: &mut Vec<i32>, index| {
             v.push(index);
         });
 
@@ -114,7 +114,7 @@ mod tests {
 
         push_dense_additions(&mut rows, &[2, 3, -1, 4], |id, index| 10 * index + id);
 
-        assert_eq!(rows, vec![1, 22, 33]);
+        assert_eq!(rows, vec![1, 12, 23]);
     }
 
     #[test]

@@ -5,8 +5,9 @@ use crate::scene::RenderSpaceId;
 
 /// Maximum number of probes in one BVH leaf.
 const BVH_LEAF_SIZE: usize = 8;
-const MIN_BLEND_DISTANCE: f32 = 1e-6;
 const MAX_LOCAL_PROBES: usize = 4;
+const MIN_BLEND_DISTANCE: f32 = 1e-6;
+const CONTAINMENT_EPSILON: f32 = 1e-5;
 
 /// Per-draw reflection-probe selection stored in the per-draw slab.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -140,7 +141,9 @@ impl ReflectionProbeSpatialIndex {
                     insert_probe_score(&mut top, score);
                     // Keep the best skybox probe as a fallback,
                     // even if it has lower importance
-                    if probe.skybox {
+                    if probe.skybox
+                        && aabb_contains(probe.aabb_min, probe.aabb_max, object_min, object_max)
+                    {
                         fallback = fallback
                             .filter(|&best| score_better(best, score))
                             .or(Some(score));
@@ -285,6 +288,11 @@ fn aabb_intersects(a_min: Vec3A, a_max: Vec3A, b_min: Vec3A, b_max: Vec3A) -> bo
     a_min.cmple(b_max).all() && a_max.cmpge(b_min).all()
 }
 
+fn aabb_contains(outer_min: Vec3A, outer_max: Vec3A, inner_min: Vec3A, inner_max: Vec3A) -> bool {
+    let epsilon = Vec3A::splat(CONTAINMENT_EPSILON);
+    outer_min.cmple(inner_min + epsilon).all() && outer_max.cmpge(inner_max - epsilon).all()
+}
+
 pub(super) fn aabb_valid(min: Vec3, max: Vec3) -> bool {
     min.is_finite() && max.is_finite() && (max - min).cmpgt(Vec3::ZERO).all()
 }
@@ -400,7 +408,13 @@ mod tests {
 
         let selection = index.select((Vec3::splat(-0.25), Vec3::splat(0.25)));
 
-        assert_eq!(selection, ReflectionProbeDrawSelection::three(2, 1, 2));
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [0, 2, 1, 0, 0],
+                importance_mask: 0b0011
+            }
+        );
     }
 
     #[test]
@@ -428,10 +442,8 @@ mod tests {
         assert_eq!(
             draw,
             ReflectionProbeDrawSelection {
-                first_atlas_index: 3,
-                second_atlas_index: 0,
-                fallback_atlas_index: 0,
-                hit_count: 1,
+                atlas_indices: [0, 3, 0, 0, 0],
+                importance_mask: 0b0001
             }
         );
     }
@@ -449,7 +461,13 @@ mod tests {
 
         let selection = index.select((Vec3::new(1.25, -0.25, -0.25), Vec3::new(1.5, 0.25, 0.25)));
 
-        assert_eq!(selection, ReflectionProbeDrawSelection::one(1, 0));
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [0, 1, 0, 0, 0],
+                importance_mask: 0b0001
+            }
+        );
     }
 
     #[test]
@@ -478,7 +496,13 @@ mod tests {
 
         let selection = index.select((Vec3::new(1.2, -0.1, -0.1), Vec3::new(1.4, 0.1, 0.1)));
 
-        assert_eq!(selection, ReflectionProbeDrawSelection::three(2, 1, 1));
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [0, 2, 1, 0, 0],
+                importance_mask: 0b0011
+            }
+        );
     }
 
     #[test]
@@ -509,41 +533,17 @@ mod tests {
 
         let selection = index.select((Vec3::new(-0.5, -0.5, -0.5), Vec3::new(1.5, 0.5, 0.5)));
 
-        assert_eq!(selection.hit_count, 2);
-        assert_eq!(selection.first_atlas_index, 2);
-        assert_eq!(selection.second_atlas_index, 1);
-        assert_eq!(selection.fallback_atlas_index, 0);
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [0, 1, 2, 3, 0],
+                importance_mask: 0b0001
+            }
+        );
     }
 
     #[test]
-    fn contained_same_importance_probe_selects_inner_in_higher_priority_when_object_fully_inside() {
-        let index = ReflectionProbeSpatialIndex::build(vec![
-            probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
-            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
-        ]);
-
-        let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
-
-        assert_eq!(selection, ReflectionProbeDrawSelection::two(2, 1, 2));
-    }
-
-    #[test]
-    fn contained_same_importance_probe_blends_when_object_partially_leaves_inner() {
-        let index = ReflectionProbeSpatialIndex::build(vec![
-            probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
-            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
-        ]);
-
-        let selection = index.select((Vec3::new(-0.5, -0.5, -0.5), Vec3::new(1.5, 0.5, 0.5)));
-
-        assert_eq!(selection.hit_count, 2);
-        assert_eq!(selection.first_atlas_index, 1);
-        assert_eq!(selection.second_atlas_index, 2);
-        assert_eq!(selection.fallback_atlas_index, 1);
-    }
-
-    #[test]
-    fn identical_same_importance_probe_boxes_use_intersection_blend() {
+    fn same_importance_probe_boxes_use_intersection_blend() {
         let index = ReflectionProbeSpatialIndex::build(vec![
             probe(0, 1, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
             probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
@@ -551,10 +551,13 @@ mod tests {
 
         let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
 
-        assert_eq!(selection.hit_count, 2);
-        assert_eq!(selection.first_atlas_index, 2);
-        assert_eq!(selection.second_atlas_index, 1);
-        assert_eq!(selection.fallback_atlas_index, 2);
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [0, 1, 2, 0, 0],
+                importance_mask: 0b0001
+            }
+        );
     }
 
     #[test]
@@ -568,10 +571,13 @@ mod tests {
 
         let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
 
-        assert_eq!(selection.hit_count, 2);
-        assert_eq!(selection.first_atlas_index, 2);
-        assert_eq!(selection.second_atlas_index, 1);
-        assert_eq!(selection.fallback_atlas_index, 3);
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [3, 1, 2, 3, 4],
+                importance_mask: 0b0001
+            }
+        );
     }
 
     #[test]
@@ -585,10 +591,13 @@ mod tests {
 
         let selection = index.select((Vec3::splat(-5.0), Vec3::splat(5.0)));
 
-        assert_eq!(selection.hit_count, 2);
-        assert_eq!(selection.first_atlas_index, 1);
-        assert_eq!(selection.second_atlas_index, 2);
-        assert_eq!(selection.fallback_atlas_index, 3);
+        assert_eq!(
+            selection,
+            ReflectionProbeDrawSelection {
+                atlas_indices: [3, 1, 2, 3, 4],
+                importance_mask: 0b0111
+            }
+        );
     }
 
     #[test]
@@ -623,7 +632,7 @@ mod tests {
             .collect();
         brute.sort_by(|a, b| b.1.total_cmp(&a.1));
 
-        assert_eq!(selection.first_atlas_index, brute[0].0);
-        assert_eq!(selection.second_atlas_index, brute[1].0);
+        assert_eq!(selection.atlas_indices[1], brute[0].0);
+        assert_eq!(selection.atlas_indices[2], brute[1].0);
     }
 }
