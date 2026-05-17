@@ -240,6 +240,14 @@ The clippy set includes:
 
 Format with `cargo fmt --all` for Rust, `taplo fmt` for `Cargo.toml` and other manifests, and `dotnet format` for the C# projects.
 
+The repository also provides local hooks through `pre-commit`. Install both stages once per clone:
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+The `pre-commit` stage catches Rust formatting, TOML formatting, and Clippy failures before a commit is created. The `pre-push` stage runs [`scripts/ci/pre-push-check.sh`](scripts/ci/pre-push-check.sh), which mirrors the same-machine parts of hosted CI: Rust formatting, Taplo, strict Clippy, Rust build/test, and the .NET generator restore/build/test path. On Linux it runs Rust Clippy with `--all-features`; on Windows and macOS it checks the `tracy` feature instead, matching the hosted matrix split.
+
 ### 2.7 Code conventions
 
 A few conventions are worth spelling out because the lint configuration assumes them.
@@ -271,6 +279,17 @@ The main check workflow lives under `.github/workflows/`.
 - `ci.yml` builds and tests the Rust workspace and the .NET solution as independent jobs, each with Ubuntu, Windows, and macOS matrix entries so the Rust and .NET checks can run in parallel. Linux is the only Rust matrix entry that uses `--all-features`, because GStreamer dev packages are reliably installable from the system package manager only on Linux. Windows and macOS still build the `tracy` feature so it stays warning-free on those platforms. The Linux Rust job also installs Vulkan tooling so the `materials::registry` smoke test can find an adapter. The .NET job runs the generator's unit and roundtrip tests, and verifies formatting on Linux only (Windows checkouts can disagree with the in-repo encoding because of `core.autocrlf`, so format checks would fail spuriously there).
 
 The CI workflow triggers on push to `main` or `master`, on pull requests, and on manual dispatch.
+
+Local hooks catch failures before a push, but they are not the final gate because any git hook can be bypassed with `--no-verify`. Protect `master` with a GitHub branch protection rule or ruleset that requires pull requests and these status checks before merge:
+
+- `Rust / ubuntu-latest`
+- `Rust / windows-latest`
+- `Rust / macos-latest`
+- `.NET / ubuntu-latest`
+- `.NET / windows-latest`
+- `.NET / macos-latest`
+
+Block force pushes and branch deletion on `master` so the hosted CI result remains the authoritative merge gate.
 
 ---
 

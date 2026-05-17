@@ -226,6 +226,8 @@ publish/
 PublishScripts/
 
 # NuGet Packages
+.dotnet/
+.nuget/
 *.nupkg
 # NuGet Symbol Packages
 *.snupkg
