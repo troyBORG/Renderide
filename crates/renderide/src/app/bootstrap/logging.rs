@@ -89,6 +89,9 @@ fn sanitized_cli_mode() -> String {
     let ignore_config = args.iter().any(|arg| {
         arg.eq_ignore_ascii_case("--ignore-config") || arg.eq_ignore_ascii_case("-ignore-config")
     });
+    let attach_renderer = args
+        .iter()
+        .any(|arg| arg.to_ascii_lowercase().ends_with("-AttachRenderer"));
 
     let mut parts = Vec::new();
     if has_queue {
@@ -96,6 +99,9 @@ fn sanitized_cli_mode() -> String {
     }
     if has_queue_capacity {
         parts.push("queue-capacity");
+    }
+    if attach_renderer {
+        parts.push("attach-renderer");
     }
     if headless {
         parts.push("headless");
