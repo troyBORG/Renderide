@@ -151,9 +151,6 @@ impl ReflectionProbeSpatialIndex {
             if node.count > 0 {
                 for &probe_index in &self.order[node.start..node.start + node.count] {
                     let probe = &self.probes[probe_index];
-                    if probe.renderable_index < 0 {
-                        continue;
-                    }
                     let influence_intersection = intersection_volume_vec3a(
                         probe.influence_aabb_min,
                         probe.influence_aabb_max,
@@ -169,15 +166,6 @@ impl ReflectionProbeSpatialIndex {
                         object_min,
                         object_max,
                     );
-                    let worst_importance = top
-                        .iter()
-                        .filter_map(|p| p.as_ref())
-                        .map(|p| p.importance)
-                        .min()
-                        .unwrap_or(i32::MIN);
-                    if probe.importance < worst_importance {
-                        continue;
-                    }
                     let score = ProbeScore {
                         atlas_index: probe.atlas_index,
                         importance: probe.importance,
@@ -193,13 +181,9 @@ impl ReflectionProbeSpatialIndex {
                     };
                     insert_probe_score(&mut top, score);
                     if probe.skybox {
-                        if let Some(best) = fallback {
-                            if score_better(score, best) {
-                                fallback = Some(score);
-                            }
-                        } else {
-                            fallback = Some(score);
-                        }
+                        fallback = fallback
+                            .filter(|&best| score_better(best, score))
+                            .or(Some(score));
                     }
                 }
             } else {
