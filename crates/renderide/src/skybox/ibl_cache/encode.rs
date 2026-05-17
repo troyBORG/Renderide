@@ -176,7 +176,7 @@ pub(super) fn encode_runtime_cube_mip0(
     let params = Mip0CubeParams {
         dst_size: ctx.face_size,
         src_face_size: ctx.src.face_size,
-        storage_v_inverted: 0,
+        storage_v_inverted: u32::from(ctx.src.storage_v_inverted),
         _pad0: 0,
     };
     let params_buffer =

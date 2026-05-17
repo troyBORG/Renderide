@@ -431,6 +431,7 @@ mod tests {
                 renderable_index: 0,
                 generation: 1,
                 mip_levels: 1,
+                storage_v_inverted: true,
                 face_size: 128,
             },
             &spaces,

@@ -60,6 +60,7 @@ fn resolve_runtime_capture_source(
         generation: capture.generation,
         face_size: capture.face_size,
         mip_levels: capture.mip_levels,
+        storage_v_inverted: true,
         texture: capture.texture.clone(),
         view: capture.view.clone(),
         array_view: capture.array_view.clone(),

@@ -58,6 +58,8 @@ pub(crate) struct RuntimeCubemapIblSource {
     pub face_size: u32,
     /// Mip count allocated on the captured cubemap.
     pub mip_levels: u32,
+    /// Whether sampling needs V-axis storage compensation.
+    pub storage_v_inverted: bool,
     /// Captured texture retained with the source view.
     pub texture: Arc<wgpu::Texture>,
     /// Cube-dimension texture view used by cube-sampling systems such as SH projection.
