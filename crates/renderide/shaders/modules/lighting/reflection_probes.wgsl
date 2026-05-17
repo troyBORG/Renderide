@@ -119,6 +119,49 @@ fn sample_probe_radiance(
     ).rgb * intensity;
 }
 
+fn add_importance_to_total(
+    total: vec4<f32>,
+    importance: vec4<f32>,
+) -> vec4<f32> {
+    if (importance.w < MIN_PROBE_BLEND_WEIGHT) {
+        return total;
+    }
+    let remaining = min(importance.w, 1.0 - total.w);
+    return total + vec4<f32>(importance.xyz * (remaining / importance.w), remaining);
+}
+
+fn finalize_radiance(
+    total: vec4<f32>,
+    importance: vec4<f32>,
+    fallback_index: u32,
+    world_pos: vec3<f32>,
+    dir: vec3<f32>,
+    perceptual_roughness: f32,
+) -> vec3<f32> {
+    let total_result = add_importance_to_total(total, importance);
+    let remaining_weight = 1.0 - total_result.w;
+    if (remaining_weight < MIN_PROBE_BLEND_WEIGHT) {
+        return total_result.xyz;
+    }
+    return total_result.xyz + remaining_weight * sample_probe_radiance(fallback_index, world_pos, dir, perceptual_roughness);
+}
+
+fn add_radiance_contribution_to_importance(
+    importance: vec4<f32>,
+    index: u32,
+    world_pos: vec3<f32>,
+    dir: vec3<f32>,
+    perceptual_roughness: f32,
+) -> vec4<f32> {
+    let probe = rg::reflection_probes[index];
+    let probe_weight = probe_edge_weight(probe, world_pos);
+    if (probe_weight < MIN_PROBE_BLEND_WEIGHT) {
+        return importance;
+    }
+    let probe_result = sample_probe_radiance(index, world_pos, dir, perceptual_roughness);
+    return importance + vec4<f32>(probe_weight * probe_result, probe_weight);
+}
+
 fn indirect_radiance(
     world_pos: vec3<f32>,
     n: vec3<f32>,
@@ -137,45 +180,27 @@ fn indirect_radiance(
     }
     let dir = dominant_reflection_dir(n, v, perceptual_roughness);
     let indices = pd::local_reflection_probe_indices(draw);
-    var total_weight = 0.0;
-    var total_result = vec3<f32>(0.0);
-    var importance_weight = 0.0;
-    var importance_result = vec3<f32>(0.0);
+    let fallback_index = pd::fallback_reflection_probe_index(draw);
+    // Vector in xyz, weight in w
+    var total = vec4<f32>(0.0);
+    var importance = vec4<f32>(0.0);
+
     for (var i = 0u; i < 4u; i++) {
         let index = indices[i];
         if (index == 0u) {
-            break;
+            return finalize_radiance(total, importance, fallback_index, world_pos, dir, perceptual_roughness);
         }
-        let importance_changed = ((importance_mask >> i) & 1u) > 0u;
-        if (importance_changed && (importance_weight > 0.0)) {
-            let remaining_importance_weight = min(importance_weight, 1.0 - total_weight);
-            total_result = total_result + (importance_result * (remaining_importance_weight / importance_weight));
-            total_weight = total_weight + remaining_importance_weight;
-            importance_result = vec3<f32>(0.0);
-            importance_weight = 0.0;
-            if (1.0 - total_weight <= MIN_PROBE_BLEND_WEIGHT) {
-                break;
+        if ((importance_mask & (1u << i)) > 0u) {
+            total = add_importance_to_total(total, importance);
+            if (1.0 - total.w <= MIN_PROBE_BLEND_WEIGHT) {
+                return total.xyz;
             }
+            importance = vec4<f32>(0.0);
         }
-        let probe = rg::reflection_probes[index];
-        let probe_weight = probe_edge_weight(probe, world_pos);
-        if (probe_weight >= MIN_PROBE_BLEND_WEIGHT) {
-            let probe_result = sample_probe_radiance(index, world_pos, dir, perceptual_roughness);
-            importance_weight = importance_weight + probe_weight;
-            importance_result = importance_result + (probe_weight * probe_result);
-        }
+        importance = add_radiance_contribution_to_importance(importance, index, world_pos, dir, perceptual_roughness);
     }
-    if (importance_weight > 0.0) {
-        let remaining_importance_weight = min(importance_weight, 1.0 - total_weight);
-        total_result = total_result + (importance_result * (remaining_importance_weight / importance_weight));
-        total_weight = total_weight + remaining_importance_weight;
-    }
-    let remaining_weight = 1.0 - total_weight;
-    if (remaining_weight >= MIN_PROBE_BLEND_WEIGHT) {
-        let fallback_index = pd::fallback_reflection_probe_index(draw);
-        total_result = total_result + remaining_weight * sample_probe_radiance(fallback_index, world_pos, dir, perceptual_roughness);
-    }
-    return total_result;
+
+    return finalize_radiance(total, importance, fallback_index, world_pos, dir, perceptual_roughness);
 }
 
 fn probe_sh2_source(atlas_index: u32) -> f32 {
@@ -223,6 +248,35 @@ fn sample_probe_sh2_or_ambient(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f
     return ambient_probe_or_zero(normal_ws);
 }
 
+fn finalize_diffuse_sh2(
+    total: vec4<f32>,
+    importance: vec4<f32>,
+    fallback_index: u32,
+    normal_ws: vec3<f32>,
+) -> vec3<f32> {
+    let total_result = add_importance_to_total(total, importance);
+    let remaining_weight = 1.0 - total_result.w;
+    if (remaining_weight < MIN_PROBE_BLEND_WEIGHT) {
+        return total_result.xyz;
+    }
+    return total_result.xyz + remaining_weight * sample_probe_sh2_or_ambient(fallback_index, normal_ws);
+}
+
+fn add_diffuse_sh2_contribution_to_importance(
+    importance: vec4<f32>,
+    index: u32,
+    world_pos: vec3<f32>,
+    normal_ws: vec3<f32>,
+) -> vec4<f32> {
+    let probe = rg::reflection_probes[index];
+    let probe_weight = probe_edge_weight(probe, world_pos);
+    if (probe_weight < MIN_PROBE_BLEND_WEIGHT) {
+        return importance;
+    }
+    let probe_result = sample_probe_sh2_or_ambient(index, normal_ws);
+    return importance + vec4<f32>(probe_weight * probe_result, probe_weight);
+}
+
 fn indirect_diffuse(world_pos: vec3<f32>, normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec3<f32> {
     if (!enabled) {
         return vec3<f32>(0.0);
@@ -233,45 +287,27 @@ fn indirect_diffuse(world_pos: vec3<f32>, normal_ws: vec3<f32>, view_layer: u32,
         return ambient_probe_or_zero(normal_ws);
     }
     let indices = pd::local_reflection_probe_indices(draw);
-    var total_weight = 0.0;
-    var total_result = vec3<f32>(0.0);
-    var importance_weight = 0.0;
-    var importance_result = vec3<f32>(0.0);
+    let fallback_index = pd::fallback_reflection_probe_index(draw);
+    // Vector in xyz, weight in w
+    var total = vec4<f32>(0.0);
+    var importance = vec4<f32>(0.0);
+
     for (var i = 0u; i < 4u; i++) {
         let index = indices[i];
         if (index == 0u) {
-            break;
+            return finalize_diffuse_sh2(total, importance, fallback_index, normal_ws);
         }
-        let importance_changed = ((importance_mask >> i) & 1u) > 0u;
-        if (importance_changed && (importance_weight > 0.0)) {
-            let remaining_importance_weight = min(importance_weight, 1.0 - total_weight);
-            total_result = total_result + (importance_result * (remaining_importance_weight / importance_weight));
-            total_weight = total_weight + remaining_importance_weight;
-            importance_result = vec3<f32>(0.0);
-            importance_weight = 0.0;
-            if (1.0 - total_weight <= MIN_PROBE_BLEND_WEIGHT) {
-                break;
+        if ((importance_mask & (1u << i)) > 0u) {
+            total = add_importance_to_total(total, importance);
+            if (1.0 - total.w <= MIN_PROBE_BLEND_WEIGHT) {
+                return total.xyz;
             }
+            importance = vec4<f32>(0.0);
         }
-        let probe = rg::reflection_probes[index];
-        let probe_weight = probe_edge_weight(probe, world_pos);
-        if (probe_weight >= MIN_PROBE_BLEND_WEIGHT) {
-            let probe_result = sample_probe_sh2_or_ambient(index, normal_ws);
-            importance_weight = importance_weight + probe_weight;
-            importance_result = importance_result + (probe_weight * probe_result);
-        }
+        importance = add_diffuse_sh2_contribution_to_importance(importance, index, world_pos, normal_ws);
     }
-    if (importance_weight > 0.0) {
-        let remaining_importance_weight = min(importance_weight, 1.0 - total_weight);
-        total_result = total_result + (importance_result * (remaining_importance_weight / importance_weight));
-        total_weight = total_weight + remaining_importance_weight;
-    }
-    let remaining_weight = 1.0 - total_weight;
-    if (remaining_weight >= MIN_PROBE_BLEND_WEIGHT) {
-        let fallback_index = pd::fallback_reflection_probe_index(draw);
-        total_result = total_result + remaining_weight * sample_probe_sh2_or_ambient(fallback_index, normal_ws);
-    }
-    return total_result;
+
+    return finalize_diffuse_sh2(total, importance, fallback_index, normal_ws);
 }
 
 fn raw_indirect_specular_with_horizon(
