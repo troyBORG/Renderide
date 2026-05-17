@@ -7,6 +7,7 @@ use crate::scene::RenderSpaceId;
 const BVH_LEAF_SIZE: usize = 8;
 const MIN_BLEND_DISTANCE: f32 = 1e-6;
 const MAX_LOCAL_PROBES: usize = 4;
+const CONTAINMENT_EPSILON: f32 = 1e-5;
 
 /// Per-draw reflection-probe selection stored in the per-draw slab.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -148,9 +149,11 @@ impl ReflectionProbeSpatialIndex {
                         skybox: probe.skybox,
                     };
                     if probe.skybox {
-                        fallback = fallback
-                            .filter(|&best| score_better(best, score))
-                            .or(Some(score));
+                        if aabb_contains(probe.aabb_min, probe.aabb_max, object_min, object_max) {
+                            fallback = fallback
+                                .filter(|&best| score_better(best, score))
+                                .or(Some(score));
+                        }
                         continue;
                     }
                     insert_probe_score(&mut top, score);
@@ -292,6 +295,11 @@ fn bounds_for_order(probes: &[SpatialProbe], order: &[usize]) -> (Vec3A, Vec3A) 
 
 fn aabb_intersects(a_min: Vec3A, a_max: Vec3A, b_min: Vec3A, b_max: Vec3A) -> bool {
     a_min.cmple(b_max).all() && a_max.cmpge(b_min).all()
+}
+
+fn aabb_contains(outer_min: Vec3A, outer_max: Vec3A, inner_min: Vec3A, inner_max: Vec3A) -> bool {
+    let epsilon = Vec3A::splat(CONTAINMENT_EPSILON);
+    outer_min.cmple(inner_min + epsilon).all() && outer_max.cmpge(inner_max - epsilon).all()
 }
 
 pub(super) fn aabb_valid(min: Vec3, max: Vec3) -> bool {
@@ -591,6 +599,23 @@ mod tests {
         let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
 
         assert_eq!(selection, expected_selection(3, [1, 2, 0, 0], 0));
+    }
+
+    #[test]
+    fn skybox_fallback_requires_original_bounds_containment() {
+        let index = ReflectionProbeSpatialIndex::build(vec![full_probe(
+            0,
+            3,
+            0,
+            Vec3::splat(-1.0),
+            Vec3::splat(1.0),
+            1.0,
+            true,
+        )]);
+
+        let selection = index.select((Vec3::new(1.25, -0.25, -0.25), Vec3::new(1.5, 0.25, 0.25)));
+
+        assert_eq!(selection, ReflectionProbeDrawSelection::default());
     }
 
     #[test]
