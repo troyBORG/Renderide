@@ -24,6 +24,8 @@ mod parallel;
 mod source;
 #[path = "shader/validation.rs"]
 mod validation;
+#[path = "shader/wrap_once.rs"]
+mod wrap_once;
 
 use std::fs;
 use std::path::Path;
