@@ -178,7 +178,7 @@ pub(super) fn register_composable_modules(
         }) {
             return Err(BuildError::Message(format!(
                 "add composable module {file_path}: {}",
-                e.emit_to_string(&composer)
+                e.emit_to_string(composer)
             )));
         }
     }
