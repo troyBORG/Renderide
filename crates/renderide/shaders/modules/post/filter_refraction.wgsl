@@ -76,11 +76,16 @@ fn guarded_refracted_screen_uv(
         normal_map,
         normal_sampler,
     ) * fade * fm::screen_vignette(screen_uv);
-    let grab_uv = screen_uv - offset;
-    let sampled_depth = sds::scene_linear_depth_at_uv(grab_uv, view_layer);
+    let grab_uv = screen_uv + offset;
+
+    // Linearizing the fragment depth twice, and the scene depth not at all.
+    // This is what Unity does, and somehow it works!?
+    let sampled_xy = sds::scene_depth_xy_from_uv(grab_uv);
+    let sampled_depth = sds::raw_depth_at_xy(sampled_xy, view_layer);
     let fragment_depth = sds::fragment_linear_depth(world_pos, view_layer);
-    if (sampled_depth > fragment_depth + depth_bias) {
+    if (sampled_depth > sds::linear_depth_from_raw(fragment_depth, view_layer) + depth_bias) {
         return screen_uv;
     }
+
     return grab_uv;
 }
