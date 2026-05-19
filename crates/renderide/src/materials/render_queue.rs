@@ -65,7 +65,26 @@ fn sanitized_render_queue_override(raw: f32) -> Option<i32> {
         return None;
     }
     let queue = raw.round() as i32;
-    (queue >= 0).then_some(queue)
+    (queue >= 0).then(|| unity_render_queue_conversion(queue))
+}
+
+/// Applies the render queue mechanism that Unity uses for very large values.
+/// Queues behave exactly as expected until reaching 2^15.
+/// After that point, they seem to behave like slightly non opaque geometry (2501),
+/// until reaching 2^16+2501, at which point they start behaving
+/// as if they wrapped around to 2501.
+/// Then the cycle continues: as expected of (x-2^16)
+/// until they reach 2^16+2^15, at which point they return to 2000,
+/// and so on... Repeating every 2^16. Tested manually up to 163840 (2^17 + 2^15).
+fn unity_render_queue_conversion(queue: i32) -> i32 {
+    if queue < 0x8000 {
+        return queue;
+    }
+    let truncated = queue & 0xFFFF;
+    if (UNITY_TRANSPARENT_RENDER_QUEUE_MIN..0x8000).contains(&truncated) {
+        return truncated;
+    }
+    UNITY_TRANSPARENT_RENDER_QUEUE_MIN
 }
 
 #[cfg(test)]
@@ -115,6 +134,42 @@ mod tests {
                 UNITY_RENDER_QUEUE_TRANSPARENT,
             ),
             UNITY_RENDER_QUEUE_TRANSPARENT
+        );
+    }
+
+    #[test]
+    fn render_queue_pins_value_between_2_15_and_2_16() {
+        let registry = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&registry);
+        let mut material = HashMap::new();
+        material.insert(ids.render_queue[0], MaterialPropertyValue::Float(42_000.0));
+
+        assert_eq!(
+            material_render_queue_from_maps(
+                Some(&material),
+                None,
+                &ids,
+                UNITY_RENDER_QUEUE_GEOMETRY,
+            ),
+            UNITY_TRANSPARENT_RENDER_QUEUE_MIN
+        );
+    }
+
+    #[test]
+    fn render_queue_wraps_around_after_2_16() {
+        let registry = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&registry);
+        let mut material = HashMap::new();
+        material.insert(ids.render_queue[0], MaterialPropertyValue::Float(69_536.0));
+
+        assert_eq!(
+            material_render_queue_from_maps(
+                Some(&material),
+                None,
+                &ids,
+                UNITY_RENDER_QUEUE_GEOMETRY,
+            ),
+            UNITY_RENDER_QUEUE_OVERLAY
         );
     }
 
