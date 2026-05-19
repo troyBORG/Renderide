@@ -4,7 +4,27 @@ name: CI
 "on":
   push:
     branches: [owner, main, master]
+    paths:
+      - ".github/workflows/ci.yml"
+      - ".taplo.toml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "Generators.sln"
+      - "clippy.toml"
+      - "crates/**"
+      - "generators/**"
+      - "third_party/**"
   pull_request:
+    paths:
+      - ".github/workflows/ci.yml"
+      - ".taplo.toml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "Generators.sln"
+      - "clippy.toml"
+      - "crates/**"
+      - "generators/**"
+      - "third_party/**"
   workflow_dispatch:
 
 concurrency:
