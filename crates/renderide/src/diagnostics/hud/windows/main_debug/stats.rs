@@ -10,6 +10,7 @@
 use imgui::{TableFlags, TreeNodeFlags};
 
 use crate::diagnostics::{FrameDiagnosticsSnapshot, RendererInfoSnapshot};
+use crate::world_mesh::{RenderWorldMaintenanceStats, WorldMeshDrawStats};
 
 use super::super::super::fmt as hud_fmt;
 use super::super::super::state::HudUiState;
@@ -313,104 +314,128 @@ impl StatsSection for DrawStatsSection {
         };
         let m = &f.mesh_draw.stats;
         kv_table(ui, "draws_kv", |ui| {
-            kv_split3(
-                ui,
-                "Batches",
-                [m.batch_total, m.batch_main, m.batch_overlay],
-                ["total", "main", "overlay"],
-            );
-            kv_split3(
-                ui,
-                "Draws",
-                [m.draws_total, m.draws_main, m.draws_overlay],
-                ["total", "main", "overlay"],
-            );
-            kv(
-                ui,
-                "Draw arrangement",
-                &format!(
-                    "{} bins  /  {} binned  /  {} strict",
-                    m.nontransparent_bins, m.nontransparent_binned_draws, m.strict_sorted_draws
-                ),
-            );
-            kv(
-                ui,
-                "GPU instance batches",
-                &format!(
-                    "{} indexed  ({} intersect / {} grab)",
-                    m.instance_batch_total, m.intersect_pass_batches, m.transparent_pass_batches
-                ),
-            );
-            kv(
-                ui,
-                "Transparent classes",
-                &format!(
-                    "ordered={}  zwrite={}  grab={}  comm={}  two-sided={}  fallback={}",
-                    m.transparent_class_stats.ordered_alpha_draws,
-                    m.transparent_class_stats.depth_writing_draws,
-                    m.transparent_class_stats.grab_pass_filter_draws,
-                    m.transparent_class_stats.commutative_blend_draws,
-                    m.transparent_class_stats.known_two_sided_draws,
-                    m.transparent_class_stats.compatibility_fallback_draws
-                ),
-            );
-            kv(
-                ui,
-                "Depth prepass",
-                &format!(
-                    "{} batches  /  {} instances",
-                    m.depth_prepass_batches, m.depth_prepass_instances
-                ),
-            );
-            let compression = if m.instance_batch_total > 0 {
-                m.gpu_instances_emitted as f32 / m.instance_batch_total as f32
-            } else {
-                0.0
-            };
-            kv(
-                ui,
-                "GPU instances emitted",
-                &format!(
-                    "{}  (avg {:.2} / batch)",
-                    m.gpu_instances_emitted, compression
-                ),
-            );
-            kv(
-                ui,
-                "Pipeline pass submits",
-                &format!("{}", m.submitted_pipeline_pass_total),
-            );
-            kv(
-                ui,
-                "Frustum cull",
-                &format!(
-                    "{} considered  /  {} culled  /  Hi-Z {} culled  /  {} submitted",
-                    m.draws_pre_cull, m.draws_culled, m.draws_hi_z_culled, m.draws_total
-                ),
-            );
-            kv(
-                ui,
-                "Prep",
-                &format!("rigid {}  skinned {}", m.rigid_draws, m.skinned_draws),
-            );
-            let rw = f.mesh_draw.render_world_maintenance;
-            kv(
-                ui,
-                "Render world",
-                &format!(
-                    "retained={}  dirty={}  refreshed={}  templates={}  mesh={}  full-space={}  full-world={}  skips={}",
-                    rw.retained_template_count,
-                    rw.dirty_renderer_count,
-                    rw.refreshed_renderer_count,
-                    rw.refreshed_template_count,
-                    rw.mesh_asset_invalidation_count,
-                    rw.full_space_rebuild_count,
-                    rw.full_world_rebuild_count,
-                    rw.steady_state_skip_count
-                ),
-            );
+            draw_batch_rows(ui, m);
+            draw_submission_rows(ui, m);
+            draw_culling_rows(ui, m);
+            render_world_maintenance_row(ui, f.mesh_draw.render_world_maintenance);
         });
     }
+}
+
+/// Renders the high-level draw and batch count rows.
+fn draw_batch_rows(ui: &imgui::Ui, stats: &WorldMeshDrawStats) {
+    kv_split3(
+        ui,
+        "Batches",
+        [stats.batch_total, stats.batch_main, stats.batch_overlay],
+        ["total", "main", "overlay"],
+    );
+    kv_split3(
+        ui,
+        "Draws",
+        [stats.draws_total, stats.draws_main, stats.draws_overlay],
+        ["total", "main", "overlay"],
+    );
+    kv(
+        ui,
+        "Draw arrangement",
+        &format!(
+            "{} bins  /  {} binned  /  {} strict",
+            stats.nontransparent_bins, stats.nontransparent_binned_draws, stats.strict_sorted_draws
+        ),
+    );
+}
+
+/// Renders submission rows derived from draw batching diagnostics.
+fn draw_submission_rows(ui: &imgui::Ui, stats: &WorldMeshDrawStats) {
+    kv(
+        ui,
+        "GPU instance batches",
+        &format!(
+            "{} indexed  ({} intersect / {} grab)",
+            stats.instance_batch_total,
+            stats.intersect_pass_batches,
+            stats.transparent_pass_batches
+        ),
+    );
+    kv(
+        ui,
+        "Transparent classes",
+        &format!(
+            "ordered={}  zwrite={}  grab={}  comm={}  two-sided={}  fallback={}",
+            stats.transparent_class_stats.ordered_alpha_draws,
+            stats.transparent_class_stats.depth_writing_draws,
+            stats.transparent_class_stats.grab_pass_filter_draws,
+            stats.transparent_class_stats.commutative_blend_draws,
+            stats.transparent_class_stats.known_two_sided_draws,
+            stats.transparent_class_stats.compatibility_fallback_draws
+        ),
+    );
+    kv(
+        ui,
+        "Depth prepass",
+        &format!(
+            "{} batches  /  {} instances",
+            stats.depth_prepass_batches, stats.depth_prepass_instances
+        ),
+    );
+    let compression = if stats.instance_batch_total > 0 {
+        stats.gpu_instances_emitted as f32 / stats.instance_batch_total as f32
+    } else {
+        0.0
+    };
+    kv(
+        ui,
+        "GPU instances emitted",
+        &format!(
+            "{}  (avg {:.2} / batch)",
+            stats.gpu_instances_emitted, compression
+        ),
+    );
+    kv(
+        ui,
+        "Pipeline pass submits",
+        &format!("{}", stats.submitted_pipeline_pass_total),
+    );
+}
+
+/// Renders CPU preparation and visibility rows for draw diagnostics.
+fn draw_culling_rows(ui: &imgui::Ui, stats: &WorldMeshDrawStats) {
+    kv(
+        ui,
+        "Frustum cull",
+        &format!(
+            "{} considered  /  {} culled  /  Hi-Z {} culled  /  {} submitted",
+            stats.draws_pre_cull, stats.draws_culled, stats.draws_hi_z_culled, stats.draws_total
+        ),
+    );
+    kv(
+        ui,
+        "Prep",
+        &format!(
+            "rigid {}  skinned {}",
+            stats.rigid_draws, stats.skinned_draws
+        ),
+    );
+}
+
+/// Renders retained render-world cache maintenance counters.
+fn render_world_maintenance_row(ui: &imgui::Ui, stats: RenderWorldMaintenanceStats) {
+    kv(
+        ui,
+        "Render world",
+        &format!(
+            "retained={}  dirty={}  refreshed={}  templates={}  mesh={}  full-space={}  full-world={}  skips={}",
+            stats.retained_template_count,
+            stats.dirty_renderer_count,
+            stats.refreshed_renderer_count,
+            stats.refreshed_template_count,
+            stats.mesh_asset_invalidation_count,
+            stats.full_space_rebuild_count,
+            stats.full_world_rebuild_count,
+            stats.steady_state_skip_count
+        ),
+    );
 }
 
 impl StatsSection for HealthSection {
