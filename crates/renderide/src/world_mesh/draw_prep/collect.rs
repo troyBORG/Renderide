@@ -41,6 +41,8 @@ use lod::{LodVisibility, build_lod_visibility};
 use prepared::collect_prepared_chunk;
 use scene_walk::{build_chunk_specs, collect_chunk, estimate_active_renderable_count};
 
+const SPATIAL_QUERY_RUN_CHUNK_TARGET: usize = 64;
+
 #[cfg(test)]
 use super::prepared_renderables::FramePreparedDraw;
 #[cfg(test)]
@@ -294,6 +296,46 @@ fn collect_world_mesh_chunks(
             "prepared renderables were built for a different render context than the per-view draw collection -- material overrides would disagree"
         );
         profiling::scope!("mesh::collect_prepared");
+        let draws = prepared.draws();
+        if ctx.culling.is_some() || ctx.render_space_filter.is_some() {
+            profiling::scope!("mesh::collect_prepared::spatial_candidates");
+            let candidates = prepared.spatial_run_candidates(space_ids, ctx.scene, ctx.culling);
+            let mut per_chunk = if candidates.runs.is_empty() {
+                Vec::new()
+            } else if parallelism == WorldMeshDrawCollectParallelism::Full
+                && candidates.runs.len() >= 2
+            {
+                profiling::scope!("mesh::collect_prepared::spatial_parallel_chunks");
+                candidates
+                    .runs
+                    .par_chunks(SPATIAL_QUERY_RUN_CHUNK_TARGET)
+                    .map(|runs| {
+                        profiling::scope!("mesh::collect_prepared::spatial_chunk_worker");
+                    collect_prepared_chunk(draws, runs, ctx, cache, filter_masks, lod_visibility)
+                    })
+                    .collect()
+            } else {
+                profiling::scope!("mesh::collect_prepared::spatial_serial_chunks");
+                vec![collect_prepared_chunk(
+                    draws,
+                    &candidates.runs,
+                    ctx,
+                    cache,
+                    filter_masks,
+                    lod_visibility,
+                )]
+            };
+            if candidates.cull_stats != (0, 0, 0) {
+                if let Some((_, stats)) = per_chunk.first_mut() {
+                    stats.0 += candidates.cull_stats.0;
+                    stats.1 += candidates.cull_stats.1;
+                    stats.2 += candidates.cull_stats.2;
+                } else {
+                    per_chunk.push((Vec::new(), candidates.cull_stats));
+                }
+            }
+            return per_chunk;
+        }
         // Cached run-aligned chunking ensures every renderer's slots stay inside one chunk so the
         // per-renderer CPU cull and material-batch lookup happens at most once per renderer per
         // view without allocating a chunk list per view.
