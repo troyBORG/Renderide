@@ -32,13 +32,16 @@ fn linear_depth_from_raw(raw_depth: f32, view_layer: u32) -> f32 {
     return (rg::frame.near_clip * rg::frame.far_clip) / denom;
 }
 
-fn scene_linear_depth_at_xy(xy: vec2<i32>, view_layer: u32) -> f32 {
+fn raw_depth_at_xy(xy: vec2<i32>, view_layer: u32) -> f32 {
 #ifdef MULTIVIEW
-    let raw_depth = textureLoad(rg::scene_depth_array, xy, i32(rg::view_index_from_layer(view_layer)), 0);
+    return textureLoad(rg::scene_depth_array, xy, i32(rg::view_index_from_layer(view_layer)), 0);
 #else
-    let raw_depth = textureLoad(rg::scene_depth, xy, 0);
+    return textureLoad(rg::scene_depth, xy, 0);
 #endif
-    return linear_depth_from_raw(raw_depth, view_layer);
+}
+
+fn scene_linear_depth_at_xy(xy: vec2<i32>, view_layer: u32) -> f32 {
+    return linear_depth_from_raw(raw_depth_at_xy(xy, view_layer), view_layer);
 }
 
 fn scene_linear_depth(frag_pos: vec4<f32>, view_layer: u32) -> f32 {
