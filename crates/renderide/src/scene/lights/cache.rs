@@ -17,6 +17,7 @@ mod regular_lights;
 mod tests;
 
 use hashbrown::HashMap;
+use rayon::prelude::*;
 
 use glam::{Mat4, Vec3};
 
@@ -32,6 +33,8 @@ const LOCAL_LIGHT_PROPAGATION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
 /// Sentinel marking an entry whose transform was removed outright -- dropped during the retain
 /// pass at the end of [`LightCache::fixup_for_transform_removals`].
 const DEAD_TRANSFORM_ID: usize = usize::MAX;
+/// Cached light count at which world-space light resolution uses Rayon.
+const LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS: usize = 128;
 
 /// Dense buffer-renderer entry. Position in the per-space [`Vec`] equals the host's
 /// `RenderableIndex`; the pointed-to [`LightData`] rows live in [`LightCache::buffers`] keyed by
@@ -190,7 +193,7 @@ impl LightCache {
     pub fn resolve_lights(
         &self,
         space_id: i32,
-        get_world_matrix: impl Fn(usize) -> Option<Mat4>,
+        get_world_matrix: impl Fn(usize) -> Option<Mat4> + Sync,
     ) -> Vec<ResolvedLight> {
         let mut out = Vec::new();
         self.resolve_lights_into(space_id, get_world_matrix, &mut out);
@@ -201,7 +204,7 @@ impl LightCache {
     pub fn resolve_lights_into(
         &self,
         space_id: i32,
-        get_world_matrix: impl Fn(usize) -> Option<Mat4>,
+        get_world_matrix: impl Fn(usize) -> Option<Mat4> + Sync,
         out: &mut Vec<ResolvedLight>,
     ) {
         profiling::scope!("lights::resolve_lights_into");
@@ -210,47 +213,18 @@ impl LightCache {
         };
 
         out.reserve(lights.len());
-        for cached in lights {
-            let world = get_world_matrix(cached.transform_id).unwrap_or(Mat4::IDENTITY);
-
-            let point = cached.data.point;
-            let p = Vec3::new(point.x, point.y, point.z);
-            let world_pos = world.transform_point3(p);
-
-            let ori = cached.data.orientation;
-            let q = ori;
-            let world_dir = (world.to_scale_rotation_translation().1 * q) * LOCAL_LIGHT_PROPAGATION;
-            let world_dir = if world_dir.length_squared() > 1e-10 {
-                world_dir.normalize()
-            } else {
-                LOCAL_LIGHT_PROPAGATION
-            };
-
-            let color = cached.data.color;
-            let color = Vec3::new(color.x, color.y, color.z);
-
-            let range = if cached.state.global_unique_id >= 0 {
-                let (scale, _, _) = world.to_scale_rotation_translation();
-                let uniform_scale = (scale.x + scale.y + scale.z) / 3.0;
-                cached.data.range * uniform_scale
-            } else {
-                cached.data.range
-            };
-
-            out.push(ResolvedLight {
-                world_position: world_pos,
-                world_direction: world_dir,
-                color,
-                intensity: cached.data.intensity,
-                range,
-                spot_angle: cached.data.angle,
-                light_type: cached.state.light_type,
-                shadow_type: cached.state.shadow_type,
-                shadow_strength: cached.state.shadow_strength,
-                shadow_near_plane: cached.state.shadow_near_plane,
-                shadow_bias: cached.state.shadow_bias,
-                shadow_normal_bias: cached.state.shadow_normal_bias,
-            });
+        if lights.len() >= LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS {
+            let resolved = lights
+                .par_iter()
+                .map(|cached| resolve_cached_light(cached, &get_world_matrix))
+                .collect::<Vec<_>>();
+            out.extend(resolved);
+        } else {
+            out.extend(
+                lights
+                    .iter()
+                    .map(|cached| resolve_cached_light(cached, &get_world_matrix)),
+            );
         }
     }
 
@@ -261,9 +235,56 @@ impl LightCache {
     pub fn resolve_lights_with_fallback(
         &self,
         space_id: i32,
-        get_world_matrix: impl Fn(usize) -> Option<Mat4>,
+        get_world_matrix: impl Fn(usize) -> Option<Mat4> + Sync,
     ) -> Vec<ResolvedLight> {
         self.resolve_lights(space_id, get_world_matrix)
+    }
+}
+
+/// Resolves one cached light into render-space world coordinates.
+fn resolve_cached_light(
+    cached: &CachedLight,
+    get_world_matrix: &(impl Fn(usize) -> Option<Mat4> + Sync),
+) -> ResolvedLight {
+    let world = get_world_matrix(cached.transform_id).unwrap_or(Mat4::IDENTITY);
+
+    let point = cached.data.point;
+    let p = Vec3::new(point.x, point.y, point.z);
+    let world_pos = world.transform_point3(p);
+
+    let ori = cached.data.orientation;
+    let q = ori;
+    let world_dir = (world.to_scale_rotation_translation().1 * q) * LOCAL_LIGHT_PROPAGATION;
+    let world_dir = if world_dir.length_squared() > 1e-10 {
+        world_dir.normalize()
+    } else {
+        LOCAL_LIGHT_PROPAGATION
+    };
+
+    let color = cached.data.color;
+    let color = Vec3::new(color.x, color.y, color.z);
+
+    let range = if cached.state.global_unique_id >= 0 {
+        let (scale, _, _) = world.to_scale_rotation_translation();
+        let uniform_scale = (scale.x + scale.y + scale.z) / 3.0;
+        cached.data.range * uniform_scale
+    } else {
+        cached.data.range
+    };
+
+    ResolvedLight {
+        world_position: world_pos,
+        world_direction: world_dir,
+        color,
+        intensity: cached.data.intensity,
+        range,
+        spot_angle: cached.data.angle,
+        light_type: cached.state.light_type,
+        shadow_type: cached.state.shadow_type,
+        shadow_strength: cached.state.shadow_strength,
+        shadow_near_plane: cached.state.shadow_near_plane,
+        shadow_bias: cached.state.shadow_bias,
+        shadow_normal_bias: cached.state.shadow_normal_bias,
     }
 }
 

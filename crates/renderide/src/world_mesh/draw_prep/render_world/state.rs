@@ -1,12 +1,18 @@
 //! Retained render-world state records and reverse indexes.
 
 use hashbrown::HashMap;
+use rayon::prelude::*;
 
 use crate::scene::{
     MeshRendererInstanceId, RenderWorldRendererKind, SkinnedMeshRenderer, StaticMeshRenderer,
 };
 
 use super::super::prepared_renderables::{FramePreparedDraw, FramePreparedRenderables};
+
+/// Renderer count at which reverse-index rebuilds use worker-local indexes.
+const REVERSE_INDEX_PARALLEL_MIN_RENDERERS: usize = 256;
+/// Renderer count assigned to one reverse-index worker chunk.
+const REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS: usize = 128;
 
 /// Retained draw-template storage for one render space.
 #[derive(Default)]
@@ -89,15 +95,27 @@ impl RenderWorldSpace {
     /// Rebuilds reverse indexes after one or more renderer records changed identity.
     pub(super) fn rebuild_reverse_indexes(&mut self) {
         profiling::scope!("mesh::render_world::rebuild_reverse_indexes");
+        let renderer_count = self
+            .static_renderers
+            .len()
+            .saturating_add(self.skinned_renderers.len());
+        if renderer_count >= REVERSE_INDEX_PARALLEL_MIN_RENDERERS {
+            self.rebuild_reverse_indexes_parallel();
+            return;
+        }
+        self.rebuild_reverse_indexes_serial();
+    }
+
+    fn rebuild_reverse_indexes_serial(&mut self) {
         let mesh_asset_index = &mut self.mesh_asset_index;
         let node_index = &mut self.node_index;
         {
-            profiling::scope!("mesh::render_world::rebuild_reverse_indexes::clear");
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes_serial::clear");
             mesh_asset_index.clear();
             node_index.clear();
         }
         {
-            profiling::scope!("mesh::render_world::rebuild_reverse_indexes::static");
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes_serial::static");
             for (index, renderer) in self.static_renderers.iter().enumerate() {
                 push_reverse_indexes(
                     mesh_asset_index,
@@ -111,7 +129,7 @@ impl RenderWorldSpace {
             }
         }
         {
-            profiling::scope!("mesh::render_world::rebuild_reverse_indexes::skinned");
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes_serial::skinned");
             for (index, renderer) in self.skinned_renderers.iter().enumerate() {
                 push_reverse_indexes(
                     mesh_asset_index,
@@ -124,6 +142,26 @@ impl RenderWorldSpace {
                 );
             }
         }
+    }
+
+    fn rebuild_reverse_indexes_parallel(&mut self) {
+        profiling::scope!("mesh::render_world::rebuild_reverse_indexes_parallel");
+        let static_chunks =
+            build_reverse_index_chunks(&self.static_renderers, RenderWorldRendererKind::Static);
+        let skinned_chunks =
+            build_reverse_index_chunks(&self.skinned_renderers, RenderWorldRendererKind::Skinned);
+        self.mesh_asset_index.clear();
+        self.node_index.clear();
+        merge_reverse_index_chunks(
+            &mut self.mesh_asset_index,
+            &mut self.node_index,
+            static_chunks,
+        );
+        merge_reverse_index_chunks(
+            &mut self.mesh_asset_index,
+            &mut self.node_index,
+            skinned_chunks,
+        );
     }
 
     /// Removes one renderer's current identity from reverse indexes before refreshing it.
@@ -162,6 +200,16 @@ impl RenderWorldSpace {
         }
     }
 
+    /// Appends this space's retained draw templates into an owned scratch vector.
+    pub(super) fn append_draws_to(&self, draws: &mut Vec<FramePreparedDraw>) {
+        for renderer in &self.static_renderers {
+            draws.extend(renderer.draws.iter().cloned());
+        }
+        for renderer in &self.skinned_renderers {
+            draws.extend(renderer.draws.iter().cloned());
+        }
+    }
+
     /// Returns reverse-index keys for one retained renderer table reference.
     fn reverse_index_keys(&self, renderer_ref: RenderWorldRendererRef) -> Option<ReverseIndexKeys> {
         match renderer_ref.kind {
@@ -169,6 +217,63 @@ impl RenderWorldSpace {
             RenderWorldRendererKind::Skinned => self.skinned_renderers.get(renderer_ref.index),
         }
         .map(RenderWorldRendererTemplate::index_keys)
+    }
+}
+
+/// Worker-local mesh-asset and node reverse indexes.
+type ReverseIndexChunk = (
+    HashMap<i32, Vec<RenderWorldRendererRef>>,
+    HashMap<i32, Vec<RenderWorldRendererRef>>,
+);
+
+/// Builds reverse-index chunks for one renderer table.
+fn build_reverse_index_chunks(
+    renderers: &[RenderWorldRendererTemplate],
+    kind: RenderWorldRendererKind,
+) -> Vec<ReverseIndexChunk> {
+    renderers
+        .par_chunks(REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS)
+        .enumerate()
+        .map(|(chunk_index, chunk)| {
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes_parallel::chunk");
+            let start_index = chunk_index * REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS;
+            let mut mesh_asset_index = HashMap::new();
+            let mut node_index = HashMap::new();
+            for (offset, renderer) in chunk.iter().enumerate() {
+                push_reverse_indexes(
+                    &mut mesh_asset_index,
+                    &mut node_index,
+                    RenderWorldRendererRef {
+                        kind,
+                        index: start_index + offset,
+                    },
+                    renderer.index_keys(),
+                );
+            }
+            (mesh_asset_index, node_index)
+        })
+        .collect()
+}
+
+/// Merges all worker-local reverse indexes into the destination maps.
+fn merge_reverse_index_chunks(
+    mesh_asset_index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
+    node_index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
+    chunks: Vec<ReverseIndexChunk>,
+) {
+    for (mesh_chunk, node_chunk) in chunks {
+        merge_reverse_index(mesh_asset_index, mesh_chunk);
+        merge_reverse_index(node_index, node_chunk);
+    }
+}
+
+/// Merges one worker-local reverse index into a destination map.
+fn merge_reverse_index(
+    target: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
+    source: HashMap<i32, Vec<RenderWorldRendererRef>>,
+) {
+    for (key, mut renderers) in source {
+        target.entry(key).or_default().append(&mut renderers);
     }
 }
 

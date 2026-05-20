@@ -517,12 +517,22 @@ fn spawn_pipeline_build(request: PipelineBuildRequest) -> Result<(), String> {
     Ok(())
 }
 
+/// Maximum number of background workers dedicated to material pipeline compilation.
+const MATERIAL_PIPELINE_MAX_WORKERS: usize = 4;
+
+/// Returns the bounded material-pipeline worker count for this process.
+fn material_pipeline_compile_worker_count() -> usize {
+    std::thread::available_parallelism().map_or(1, |threads| {
+        (threads.get() / 2).clamp(1, MATERIAL_PIPELINE_MAX_WORKERS)
+    })
+}
+
 fn material_pipeline_compile_pool() -> Result<&'static rayon::ThreadPool, String> {
     static POOL: OnceLock<Result<rayon::ThreadPool, String>> = OnceLock::new();
     POOL.get_or_init(|| {
         rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .thread_name(|_| "material-pipeline-worker".to_string())
+            .num_threads(material_pipeline_compile_worker_count())
+            .thread_name(|idx| format!("material-pipeline-worker-{idx}"))
             .build()
             .map_err(|e| format!("material pipeline worker pool creation failed: {e}"))
     })
@@ -534,7 +544,9 @@ fn material_pipeline_compile_pool() -> Result<&'static rayon::ThreadPool, String
 mod tests {
     use std::sync::Arc;
 
-    use super::{MaterialPipelineCache, MaterialPipelineVariantSpec};
+    use super::{
+        MaterialPipelineCache, MaterialPipelineVariantSpec, material_pipeline_compile_worker_count,
+    };
     use crate::materials::{
         MaterialBlendMode, MaterialPipelineDesc, MaterialRenderState, RasterFrontFace,
         RasterPipelineKind, RasterPrimitiveTopology, ShaderPermutation,
@@ -569,5 +581,13 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(first.shader_source_generation, 1);
         assert_eq!(second.shader_source_generation, 2);
+    }
+
+    #[test]
+    fn material_pipeline_worker_count_is_bounded() {
+        let workers = material_pipeline_compile_worker_count();
+
+        assert!(workers >= 1);
+        assert!(workers <= super::MATERIAL_PIPELINE_MAX_WORKERS);
     }
 }

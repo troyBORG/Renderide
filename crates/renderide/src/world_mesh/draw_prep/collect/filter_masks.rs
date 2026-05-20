@@ -1,10 +1,14 @@
 //! Per-space transform filter mask construction for world-mesh draw collection.
 
 use hashbrown::HashMap;
+use rayon::prelude::*;
 
 use crate::scene::RenderSpaceId;
 
 use super::DrawCollectionContext;
+
+/// Render-space count at which per-space filter mask construction uses Rayon.
+const FILTER_MASK_PARALLEL_MIN_SPACES: usize = 4;
 
 /// Builds per-space `Vec<bool>` masks from [`DrawCollectionContext::transform_filter`].
 ///
@@ -13,18 +17,30 @@ pub(super) fn build_per_space_filter_masks(
     space_ids: &[RenderSpaceId],
     ctx: &DrawCollectionContext<'_>,
 ) -> HashMap<RenderSpaceId, Vec<bool>> {
-    if ctx.transform_filter.is_some() {
+    let Some(transform_filter) = ctx.transform_filter else {
+        return HashMap::new();
+    };
+
+    let pairs = if space_ids.len() >= FILTER_MASK_PARALLEL_MIN_SPACES {
+        space_ids
+            .par_iter()
+            .copied()
+            .filter_map(|sid| {
+                let mask = transform_filter.build_pass_mask(ctx.scene, sid)?;
+                Some((sid, mask))
+            })
+            .collect::<Vec<_>>()
+    } else {
         space_ids
             .iter()
             .copied()
             .filter_map(|sid| {
-                let mask = ctx.transform_filter?.build_pass_mask(ctx.scene, sid)?;
+                let mask = transform_filter.build_pass_mask(ctx.scene, sid)?;
                 Some((sid, mask))
             })
-            .collect()
-    } else {
-        HashMap::new()
-    }
+            .collect::<Vec<_>>()
+    };
+    pairs.into_iter().collect()
 }
 
 #[cfg(test)]
@@ -121,6 +137,33 @@ mod tests {
             assert_eq!(masks.get(&first), Some(&vec![false, true, true]));
             assert_eq!(masks.get(&second), Some(&vec![false, true]));
             assert!(!masks.contains_key(&missing));
+        });
+    }
+
+    #[test]
+    fn parallel_filter_mask_builds_every_existing_space() {
+        let mut scene = SceneCoordinator::new();
+        let space_ids = [
+            RenderSpaceId(1),
+            RenderSpaceId(2),
+            RenderSpaceId(3),
+            RenderSpaceId(4),
+        ];
+        for &space_id in &space_ids {
+            seed_space(&mut scene, space_id, vec![-1, 0, 1, 2]);
+        }
+        let filter = CameraTransformDrawFilter {
+            only: Some(HashSet::from_iter([1])),
+            exclude: HashSet::new(),
+        };
+
+        with_draw_context(&scene, Some(&filter), |ctx| {
+            let masks = build_per_space_filter_masks(&space_ids, ctx);
+
+            assert_eq!(masks.len(), space_ids.len());
+            for space_id in space_ids {
+                assert_eq!(masks.get(&space_id), Some(&vec![false, true, true, true]));
+            }
         });
     }
 }

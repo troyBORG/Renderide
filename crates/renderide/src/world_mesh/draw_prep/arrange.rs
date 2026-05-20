@@ -3,6 +3,7 @@
 use std::cmp::Ordering;
 
 use hashbrown::HashMap;
+use rayon::prelude::*;
 
 use crate::world_mesh::MaterialDrawBatchKey;
 use crate::world_mesh::WorldMeshPhase;
@@ -10,6 +11,9 @@ use crate::world_mesh::phase_classification::classify_world_mesh_batch;
 
 use super::item::{WorldMeshDrawArrangementStats, WorldMeshDrawItem};
 use super::sort::sort_order_sensitive_draws;
+
+/// Draw count at which phase partitioning uses Rayon workers.
+const ARRANGE_PARALLEL_MIN_DRAWS: usize = 2_048;
 
 /// Key for one nontransparent bin.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -60,20 +64,14 @@ pub(super) fn arrange_draws_by_phase_bins(
     }
 
     let input = std::mem::take(items);
-    let mut bins: HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>> =
-        HashMap::with_capacity(input.len().min(1_024));
-    let mut strict_ordered = Vec::new();
-
-    for item in input {
-        let phase = classify_world_mesh_batch(&item.batch_key).phase;
-        if phase_requires_strict_order(phase) {
-            strict_ordered.push(item);
+    let (bins, mut strict_ordered) =
+        if allow_parallel_sort && input.len() >= ARRANGE_PARALLEL_MIN_DRAWS {
+            profiling::scope!("mesh::arrange_draws_by_phase_bins::parallel_partition");
+            partition_draws_parallel(input)
         } else {
-            bins.entry(NonTransparentBinKey::from_draw(&item, phase))
-                .or_default()
-                .push(item);
-        }
-    }
+            profiling::scope!("mesh::arrange_draws_by_phase_bins::serial_partition");
+            partition_draws_serial(input)
+        };
 
     let mut binned: Vec<_> = bins.into_iter().collect();
     let stats = WorldMeshDrawArrangementStats {
@@ -85,6 +83,9 @@ pub(super) fn arrange_draws_by_phase_bins(
     {
         profiling::scope!("mesh::arrange_draws_by_phase_bins::sort_bins");
         binned.sort_unstable_by(|(a, _), (b, _)| cmp_nontransparent_bin_keys(a, b));
+        for (_, bin_items) in &mut binned {
+            bin_items.sort_unstable_by_key(|item| item.collect_order);
+        }
     }
     {
         profiling::scope!("mesh::arrange_draws_by_phase_bins::sort_strict_ordered");
@@ -100,6 +101,79 @@ pub(super) fn arrange_draws_by_phase_bins(
     }
 
     stats
+}
+
+/// Partitions draws into phase bins on the caller thread.
+fn partition_draws_serial(
+    input: Vec<WorldMeshDrawItem>,
+) -> (
+    HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>>,
+    Vec<WorldMeshDrawItem>,
+) {
+    let mut bins: HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>> =
+        HashMap::with_capacity(input.len().min(1_024));
+    let mut strict_ordered = Vec::new();
+    for item in input {
+        partition_draw_item(item, &mut bins, &mut strict_ordered);
+    }
+    (bins, strict_ordered)
+}
+
+/// Partitions draws into phase bins with worker-local bins merged afterward.
+fn partition_draws_parallel(
+    input: Vec<WorldMeshDrawItem>,
+) -> (
+    HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>>,
+    Vec<WorldMeshDrawItem>,
+) {
+    input
+        .into_par_iter()
+        .fold(
+            || {
+                (
+                    HashMap::<NonTransparentBinKey, Vec<WorldMeshDrawItem>>::new(),
+                    Vec::<WorldMeshDrawItem>::new(),
+                )
+            },
+            |(mut bins, mut strict_ordered), item| {
+                partition_draw_item(item, &mut bins, &mut strict_ordered);
+                (bins, strict_ordered)
+            },
+        )
+        .reduce(
+            || (HashMap::new(), Vec::new()),
+            |(mut bins, mut strict_ordered), (source_bins, mut source_strict)| {
+                merge_bins(&mut bins, source_bins);
+                strict_ordered.append(&mut source_strict);
+                (bins, strict_ordered)
+            },
+        )
+}
+
+/// Routes one draw into either a nontransparent bin or the strict-order tail.
+fn partition_draw_item(
+    item: WorldMeshDrawItem,
+    bins: &mut HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>>,
+    strict_ordered: &mut Vec<WorldMeshDrawItem>,
+) {
+    let phase = classify_world_mesh_batch(&item.batch_key).phase;
+    if phase_requires_strict_order(phase) {
+        strict_ordered.push(item);
+    } else {
+        bins.entry(NonTransparentBinKey::from_draw(&item, phase))
+            .or_default()
+            .push(item);
+    }
+}
+
+/// Merges worker-local nontransparent bins into the caller-owned destination.
+fn merge_bins(
+    target: &mut HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>>,
+    source: HashMap<NonTransparentBinKey, Vec<WorldMeshDrawItem>>,
+) {
+    for (key, mut items) in source {
+        target.entry(key).or_default().append(&mut items);
+    }
 }
 
 /// Returns whether draws in `phase` must retain strict transparent/grab ordering.
@@ -148,7 +222,7 @@ mod tests {
 
     use crate::world_mesh::WorldMeshDrawItem;
 
-    use super::arrange_draws_by_phase_bins;
+    use super::{ARRANGE_PARALLEL_MIN_DRAWS, arrange_draws_by_phase_bins};
 
     /// Builds an opaque dummy draw item.
     fn opaque(mesh: i32, material: i32, collect_order: usize) -> WorldMeshDrawItem {
@@ -185,6 +259,22 @@ mod tests {
     /// Sets the sort distance used by transparent strict ordering.
     fn set_camera_distance(item: &mut WorldMeshDrawItem, distance_sq: f32) {
         item.camera_distance_sq = distance_sq;
+    }
+
+    /// Captures the fields that define arranged draw order for these tests.
+    fn arranged_signature(items: &[WorldMeshDrawItem]) -> Vec<(usize, i32, i32, bool, bool)> {
+        items
+            .iter()
+            .map(|item| {
+                (
+                    item.collect_order,
+                    item.mesh_asset_id,
+                    item.batch_key.material_asset_id,
+                    render_queue_is_transparent(item.batch_key.render_queue),
+                    item.batch_key.embedded_requires_intersection_pass,
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -297,5 +387,32 @@ mod tests {
 
         assert!(draws[0].batch_key.embedded_uses_scene_color_snapshot);
         assert!(!draws[1].batch_key.embedded_uses_scene_color_snapshot);
+    }
+
+    #[test]
+    fn parallel_partition_matches_serial_arrangement() {
+        let mut serial = (0..ARRANGE_PARALLEL_MIN_DRAWS + 64)
+            .map(|idx| {
+                let mut item = opaque((idx % 23) as i32, (idx % 31) as i32, idx);
+                if idx % 11 == 0 {
+                    set_render_queue(&mut item, UNITY_RENDER_QUEUE_TRANSPARENT);
+                    set_camera_distance(&mut item, (idx % 97) as f32 + 1.0);
+                } else if idx % 7 == 0 {
+                    set_render_queue(&mut item, UNITY_RENDER_QUEUE_ALPHA_TEST);
+                }
+                if idx % 17 == 0 {
+                    item.batch_key.embedded_requires_intersection_pass = true;
+                    refresh_keys(&mut item);
+                }
+                item
+            })
+            .collect::<Vec<_>>();
+        let mut parallel = serial.clone();
+
+        let serial_stats = arrange_draws_by_phase_bins(&mut serial, false);
+        let parallel_stats = arrange_draws_by_phase_bins(&mut parallel, true);
+
+        assert_eq!(parallel_stats, serial_stats);
+        assert_eq!(arranged_signature(&parallel), arranged_signature(&serial));
     }
 }

@@ -173,7 +173,18 @@ pub fn queue_draws_with_parallelism(
     };
     let cap_hint = {
         profiling::scope!("mesh::queue_draws::estimate_capacity");
-        estimate_active_renderable_count(space_ids, ctx)
+        if let Some(prepared) = ctx.prepared {
+            match ctx.render_space_filter {
+                Some(space_id) => prepared
+                    .draws()
+                    .iter()
+                    .filter(|draw| draw.space_id == space_id)
+                    .count(),
+                None => prepared.len(),
+            }
+        } else {
+            estimate_active_renderable_count(space_ids, ctx)
+        }
     };
 
     let owned_cache;

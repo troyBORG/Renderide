@@ -18,6 +18,10 @@ use crate::world_mesh::cluster::{
 pub(super) const AUTO_CPU_FROXEL_LIGHT_THRESHOLD: u32 = 128;
 const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = 128;
 const CPU_FROXEL_LIGHT_CHUNK_SIZE: usize = 64;
+/// Froxel count at which count merge, offset, and prefix work uses Rayon.
+const CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS: usize = 1_024;
+/// Cluster-count stride for local prefix-sum chunks.
+const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 1_024;
 
 /// Point light tag in [`GpuLight::light_type`].
 const LIGHT_TYPE_POINT: u32 = 0;
@@ -85,6 +89,14 @@ pub(super) struct CpuFroxelStats {
 struct CpuFroxelCountChunk {
     counts: Vec<u32>,
     stats: CpuFroxelStats,
+}
+
+/// Local prefix-sum result for one cluster-count chunk.
+struct CpuFroxelPrefixChunk {
+    /// Range rows with offsets relative to the start of this chunk.
+    ranges: Vec<[u32; 2]>,
+    /// Sum of every count in this chunk.
+    total_count: u64,
 }
 
 struct CpuFroxelParallelInputs<'a> {
@@ -269,22 +281,28 @@ fn merge_parallel_chunk_counts(
     chunks: &[CpuFroxelCountChunk],
     total_clusters: usize,
 ) -> (Vec<u32>, CpuFroxelStats) {
-    let mut counts = vec![0u32; total_clusters];
-    let mut stats = CpuFroxelStats::default();
-    for chunk in chunks {
-        for (total, &count) in counts.iter_mut().zip(chunk.counts.iter()) {
-            *total = total.saturating_add(count);
+    let counts = if total_clusters >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS {
+        (0..total_clusters)
+            .into_par_iter()
+            .map(|cluster_id| {
+                chunks.iter().fold(0u32, |total, chunk| {
+                    total.saturating_add(chunk.counts[cluster_id])
+                })
+            })
+            .collect()
+    } else {
+        let mut counts = vec![0u32; total_clusters];
+        for chunk in chunks {
+            for (total, &count) in counts.iter_mut().zip(chunk.counts.iter()) {
+                *total = total.saturating_add(count);
+            }
         }
-        stats.assigned_memberships = stats
-            .assigned_memberships
-            .saturating_add(chunk.stats.assigned_memberships);
-        stats.overflowed_memberships = stats
-            .overflowed_memberships
-            .saturating_add(chunk.stats.overflowed_memberships);
-        stats.culled_lights = stats
-            .culled_lights
-            .saturating_add(chunk.stats.culled_lights);
-    }
+        counts
+    };
+    let stats = chunks
+        .par_iter()
+        .map(|chunk| chunk.stats)
+        .reduce(CpuFroxelStats::default, merge_froxel_stats);
     (counts, stats)
 }
 
@@ -294,6 +312,32 @@ fn build_parallel_chunk_offsets(
     total_clusters: usize,
 ) -> Vec<Vec<u32>> {
     let chunk_count = chunks.len();
+    if total_clusters >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS && chunk_count >= 2 {
+        let per_cluster_offsets = (0..total_clusters)
+            .into_par_iter()
+            .map(|cluster_id| {
+                let mut next = ranges[cluster_id][0];
+                chunks
+                    .iter()
+                    .map(|chunk| {
+                        let offset = next;
+                        next = next.saturating_add(chunk.counts[cluster_id]);
+                        offset
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let mut chunk_offsets = (0..chunk_count)
+            .map(|_| vec![0u32; total_clusters])
+            .collect::<Vec<_>>();
+        for (cluster_id, offsets) in per_cluster_offsets.into_iter().enumerate() {
+            for (chunk_idx, offset) in offsets.into_iter().enumerate() {
+                chunk_offsets[chunk_idx][cluster_id] = offset;
+            }
+        }
+        return chunk_offsets;
+    }
+
     let mut chunk_offsets = (0..chunk_count)
         .map(|_| vec![0u32; total_clusters])
         .collect::<Vec<_>>();
@@ -305,6 +349,19 @@ fn build_parallel_chunk_offsets(
         }
     }
     chunk_offsets
+}
+
+/// Combines two CPU froxel diagnostic records with saturating counters.
+fn merge_froxel_stats(left: CpuFroxelStats, right: CpuFroxelStats) -> CpuFroxelStats {
+    CpuFroxelStats {
+        assigned_memberships: left
+            .assigned_memberships
+            .saturating_add(right.assigned_memberships),
+        overflowed_memberships: left
+            .overflowed_memberships
+            .saturating_add(right.overflowed_memberships),
+        culled_lights: left.culled_lights.saturating_add(right.culled_lights),
+    }
 }
 
 fn write_parallel_light_chunks(
@@ -582,6 +639,14 @@ fn assign_bounded_light(
 
 /// Converts per-froxel counts into compact `[offset, count]` rows.
 fn prefix_counts_to_ranges(counts: &[u32]) -> Option<(Vec<[u32; 2]>, usize)> {
+    if counts.len() >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS {
+        return prefix_counts_to_ranges_parallel(counts);
+    }
+    prefix_counts_to_ranges_serial(counts)
+}
+
+/// Serial prefix-sum implementation for small froxel-count arrays.
+fn prefix_counts_to_ranges_serial(counts: &[u32]) -> Option<(Vec<[u32; 2]>, usize)> {
     let mut ranges = Vec::with_capacity(counts.len());
     let mut offset = 0u64;
     for &count in counts {
@@ -593,6 +658,44 @@ fn prefix_counts_to_ranges(counts: &[u32]) -> Option<(Vec<[u32; 2]>, usize)> {
         }
     }
     let total_indices = usize::try_from(offset).ok()?;
+    Some((ranges, total_indices))
+}
+
+/// Parallel prefix-sum implementation for large froxel-count arrays.
+fn prefix_counts_to_ranges_parallel(counts: &[u32]) -> Option<(Vec<[u32; 2]>, usize)> {
+    let mut chunks = counts
+        .par_chunks(CPU_FROXEL_PREFIX_CHUNK_SIZE)
+        .map(|counts| {
+            let mut ranges = Vec::with_capacity(counts.len());
+            let mut offset = 0u64;
+            for &count in counts {
+                let range_offset = u32::try_from(offset).ok()?;
+                ranges.push([range_offset, count]);
+                offset = offset.checked_add(u64::from(count))?;
+            }
+            Some(CpuFroxelPrefixChunk {
+                ranges,
+                total_count: offset,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    let mut base_offset = 0u64;
+    for chunk in &mut chunks {
+        for range in &mut chunk.ranges {
+            range[0] = u32::try_from(base_offset.checked_add(u64::from(range[0]))?).ok()?;
+        }
+        base_offset = base_offset.checked_add(chunk.total_count)?;
+        if base_offset > u64::from(u32::MAX) {
+            return None;
+        }
+    }
+
+    let total_indices = usize::try_from(base_offset).ok()?;
+    let mut ranges = Vec::with_capacity(counts.len());
+    for chunk in chunks {
+        ranges.extend(chunk.ranges);
+    }
     Some((ranges, total_indices))
 }
 
@@ -666,6 +769,17 @@ mod tests {
             viewport_width: 64,
             viewport_height: 64,
             projection_flags: 0,
+        }
+    }
+
+    /// Builds a larger 8x8x16 layout that crosses the parallel prefix threshold.
+    fn large_test_params() -> ClusterFrameParams {
+        ClusterFrameParams {
+            cluster_count_x: 8,
+            cluster_count_y: 8,
+            viewport_width: 256,
+            viewport_height: 256,
+            ..test_params()
         }
     }
 
@@ -775,6 +889,43 @@ mod tests {
     #[test]
     fn parallel_froxel_build_matches_serial_build() {
         let params = [test_params(), test_params()];
+        let clusters_per_eye =
+            params[0].cluster_count_x * params[0].cluster_count_y * CLUSTER_COUNT_Z;
+        let layouts = validated_eye_layouts(&params, clusters_per_eye).expect("layouts");
+        let lights = (0..CPU_FROXEL_PARALLEL_MIN_LIGHTS + 13)
+            .map(|idx| {
+                if idx % 5 == 0 {
+                    point_light(Vec3::new((idx % 3) as f32 - 1.0, 0.0, -5.0), 0.5)
+                } else {
+                    directional_light()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let serial = build_serial(&lights, &params, &layouts, clusters_per_eye).expect("serial");
+        let parallel =
+            build_parallel(&lights, &params, &layouts, clusters_per_eye).expect("parallel");
+
+        assert_eq!(parallel.ranges, serial.ranges);
+        assert_eq!(parallel.indices, serial.indices);
+        assert_eq!(parallel.stats, serial.stats);
+    }
+
+    #[test]
+    fn parallel_prefix_counts_match_serial_prefix() {
+        let counts = (0..CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS + 257)
+            .map(|idx| (idx % 7) as u32)
+            .collect::<Vec<_>>();
+
+        let serial = prefix_counts_to_ranges_serial(&counts).expect("serial");
+        let parallel = prefix_counts_to_ranges_parallel(&counts).expect("parallel");
+
+        assert_eq!(parallel, serial);
+    }
+
+    #[test]
+    fn parallel_froxel_build_matches_serial_for_large_cluster_grid() {
+        let params = [large_test_params(), large_test_params()];
         let clusters_per_eye =
             params[0].cluster_count_x * params[0].cluster_count_y * CLUSTER_COUNT_Z;
         let layouts = validated_eye_layouts(&params, clusters_per_eye).expect("layouts");

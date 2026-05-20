@@ -265,6 +265,31 @@ fn light_cache_resolve_world_space() {
 }
 
 #[test]
+fn parallel_light_resolve_preserves_dense_order() {
+    let mut cache = LightCache::new();
+    let space_id = 0;
+    let light_count = super::LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS + 16;
+    let additions = (0..light_count).map(|idx| idx as i32).collect::<Vec<_>>();
+    let states = (0..light_count)
+        .map(|idx| make_regular_state(idx as i32, 1.0, 10.0))
+        .collect::<Vec<_>>();
+
+    cache.apply_regular_lights_update(space_id, &[], &additions, &states);
+    let resolved = cache.resolve_lights(space_id, |transform_idx| {
+        Some(Mat4::from_translation(Vec3::new(
+            transform_idx as f32,
+            0.0,
+            0.0,
+        )))
+    });
+
+    assert_eq!(resolved.len(), light_count);
+    for (idx, light) in resolved.iter().enumerate() {
+        assert_close(light.world_position.x, idx as f32);
+    }
+}
+
+#[test]
 fn resolve_lights_with_fallback_does_not_synthesize_raw_buffers() {
     let mut cache = LightCache::new();
     let space_id = 0;

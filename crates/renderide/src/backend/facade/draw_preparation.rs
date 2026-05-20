@@ -1,6 +1,7 @@
 //! CPU draw-preparation ownership behind the backend facade.
 
 use hashbrown::HashMap;
+use rayon::prelude::*;
 
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyStore};
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind};
@@ -138,10 +139,12 @@ impl BackendDrawPreparation {
     }
 }
 
+/// Converts a render context into a compact cache-map key.
 fn render_context_key(render_context: RenderingContext) -> u8 {
     render_context as u8
 }
 
+/// Refreshes every unique render-context cache required by this frame's views.
 fn prepare_render_worlds_for_views(
     render_worlds: &mut HashMap<u8, RenderWorld>,
     scene: &SceneCoordinator,
@@ -149,24 +152,45 @@ fn prepare_render_worlds_for_views(
     view_draw_preparations: &[(RenderingContext, ShaderPermutation)],
 ) {
     profiling::scope!("render::prepare_render_worlds_for_views");
-    for (index, &(render_context, _)) in view_draw_preparations.iter().enumerate() {
-        let key = render_context_key(render_context);
-        if view_draw_preparations[..index]
-            .iter()
-            .any(|&(previous_context, _)| render_context_key(previous_context) == key)
-        {
-            continue;
-        }
-        {
+    let mut work = unique_render_context_work(view_draw_preparations, render_worlds);
+    if work.len() >= 2 {
+        profiling::scope!("render::prepare_render_worlds_for_views::parallel_contexts");
+        work.par_iter_mut()
+            .for_each(|(_, render_context, render_world)| {
+                profiling::scope!("render::prepare_render_worlds_for_views::context_worker");
+                render_world.prepare_for_frame(scene, mesh_pool, *render_context);
+            });
+    } else {
+        for (_, render_context, render_world) in &mut work {
             profiling::scope!("render::prepare_render_worlds_for_views::context");
-            render_worlds
-                .entry(key)
-                .or_insert_with(|| RenderWorld::new(render_context))
-                .prepare_for_frame(scene, mesh_pool, render_context);
+            render_world.prepare_for_frame(scene, mesh_pool, *render_context);
         }
+    }
+    for (key, _, render_world) in work {
+        render_worlds.insert(key, render_world);
     }
 }
 
+/// Removes unique render-world caches from the map for worker-owned preparation.
+fn unique_render_context_work(
+    view_draw_preparations: &[(RenderingContext, ShaderPermutation)],
+    render_worlds: &mut HashMap<u8, RenderWorld>,
+) -> Vec<(u8, RenderingContext, RenderWorld)> {
+    let mut work = Vec::new();
+    for (index, &(render_context, _)) in view_draw_preparations.iter().enumerate() {
+        let key = render_context_key(render_context);
+        if !is_first_context_request(view_draw_preparations, index, key) {
+            continue;
+        }
+        let render_world = render_worlds
+            .remove(&key)
+            .unwrap_or_else(|| RenderWorld::new(render_context));
+        work.push((key, render_context, render_world));
+    }
+    work
+}
+
+/// Refreshes material batch caches for every unique context and shader permutation.
 fn refresh_material_caches(
     material_batch_caches: &mut HashMap<(u8, ShaderPermutation), FrameMaterialBatchCache>,
     render_worlds: &HashMap<u8, RenderWorld>,
@@ -180,64 +204,66 @@ fn refresh_material_caches(
         profiling::scope!("render::build_frame_material_cache::dictionary");
         MaterialDictionary::new(property_store)
     };
-    for (index, &(render_context, view_perm)) in view_draw_preparations.iter().enumerate() {
-        let context_key = render_context_key(render_context);
-        let Some(render_world) = render_worlds.get(&context_key) else {
-            continue;
-        };
-        if is_first_context_request(view_draw_preparations, index, context_key) {
-            {
-                profiling::scope!("render::build_frame_material_cache::default_permutation");
-                refresh_material_cache(
-                    material_batch_caches,
-                    render_world,
+    let mut work = unique_material_cache_work(view_draw_preparations, material_batch_caches);
+    if work.len() >= 2 {
+        profiling::scope!("render::build_frame_material_cache::parallel_caches");
+        work.par_iter_mut()
+            .for_each(|(context_key, shader_perm, cache)| {
+                profiling::scope!("render::build_frame_material_cache::cache_worker");
+                if let Some(render_world) = render_worlds.get(context_key) {
+                    cache.refresh_for_prepared(
+                        render_world.prepared(),
+                        &dict,
+                        router,
+                        pipeline_property_ids,
+                        *shader_perm,
+                    );
+                }
+            });
+    } else {
+        for (context_key, shader_perm, cache) in &mut work {
+            profiling::scope!("render::build_frame_material_cache::cache");
+            if let Some(render_world) = render_worlds.get(context_key) {
+                cache.refresh_for_prepared(
+                    render_world.prepared(),
                     &dict,
                     router,
                     pipeline_property_ids,
-                    context_key,
-                    ShaderPermutation(0),
-                );
-            }
-        }
-        if view_perm != ShaderPermutation(0)
-            && is_first_permutation_request(view_draw_preparations, index, context_key, view_perm)
-        {
-            {
-                profiling::scope!("render::build_frame_material_cache::view_permutation");
-                refresh_material_cache(
-                    material_batch_caches,
-                    render_world,
-                    &dict,
-                    router,
-                    pipeline_property_ids,
-                    context_key,
-                    view_perm,
+                    *shader_perm,
                 );
             }
         }
     }
+    for (context_key, shader_perm, cache) in work {
+        material_batch_caches.insert((context_key, shader_perm), cache);
+    }
 }
 
-fn refresh_material_cache(
+/// Removes unique material caches from the map for worker-owned refresh.
+fn unique_material_cache_work(
+    view_draw_preparations: &[(RenderingContext, ShaderPermutation)],
     material_batch_caches: &mut HashMap<(u8, ShaderPermutation), FrameMaterialBatchCache>,
-    render_world: &RenderWorld,
-    dict: &MaterialDictionary<'_>,
-    router: &MaterialRouter,
-    pipeline_property_ids: &MaterialPipelinePropertyIds,
-    context_key: u8,
-    shader_perm: ShaderPermutation,
-) {
-    profiling::scope!("render::refresh_material_cache");
-    material_batch_caches
-        .entry((context_key, shader_perm))
-        .or_default()
-        .refresh_for_prepared(
-            render_world.prepared(),
-            dict,
-            router,
-            pipeline_property_ids,
-            shader_perm,
-        );
+) -> Vec<(u8, ShaderPermutation, FrameMaterialBatchCache)> {
+    let mut work = Vec::new();
+    for (index, &(render_context, view_perm)) in view_draw_preparations.iter().enumerate() {
+        let context_key = render_context_key(render_context);
+        if is_first_context_request(view_draw_preparations, index, context_key) {
+            let shader_perm = ShaderPermutation(0);
+            let cache = material_batch_caches
+                .remove(&(context_key, shader_perm))
+                .unwrap_or_default();
+            work.push((context_key, shader_perm, cache));
+        }
+        if view_perm != ShaderPermutation(0)
+            && is_first_permutation_request(view_draw_preparations, index, context_key, view_perm)
+        {
+            let cache = material_batch_caches
+                .remove(&(context_key, view_perm))
+                .unwrap_or_default();
+            work.push((context_key, view_perm, cache));
+        }
+    }
+    work
 }
 
 fn is_first_context_request(
