@@ -171,6 +171,10 @@ Contributions are welcome. The workspace builds with the standard Cargo commands
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) to learn how to get started.
 
+## Whitepaper
+
+For a longer overview of the renderer architecture and motivation, see the [Renderide whitepaper](renderide_whitepaper/renderide_whitepaper.pdf).
+
 ## AI Policy
 
 Renderide does not accept AI-generated or AI-assisted contributions. Source code, shaders, documentation, tests, issues, pull requests, and review comments submitted to this repository must be authored by the human contributor without generative AI tools. Contributors found submitting AI-generated material or using AI to participate in the project may be blocked from future contribution.
