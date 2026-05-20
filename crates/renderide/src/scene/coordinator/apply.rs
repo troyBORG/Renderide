@@ -54,6 +54,12 @@ use super::super::transforms::{
     extract_transforms_update,
 };
 
+/// Minimum independent render-space slots before Phase B may use rayon workers.
+const MIN_SPACES_FOR_PARALLEL_APPLY: usize = 2;
+
+/// Minimum extracted row count before Phase B may pay rayon dispatch overhead.
+const MIN_APPLY_PARALLEL_WORK_UNITS: usize = 192;
+
 /// Returns `true` when [`ExtractedRenderSpaceUpdate`] carries no body work for this tick (every
 /// per-update payload is `None`).
 ///
@@ -72,6 +78,140 @@ pub(in crate::scene::coordinator) fn is_extracted_empty(e: &ExtractedRenderSpace
         && e.transform_overrides.is_none()
         && e.material_overrides.is_none()
         && e.blit_to_displays.is_none()
+}
+
+/// Returns the row count that approximates how much Phase B work a space update carries.
+///
+/// The estimate intentionally uses extracted payload lengths rather than render-space size so sparse
+/// ticks with many tiny spaces stay on the serial path, while dense multi-space ticks still fan out.
+#[inline]
+fn extracted_apply_work_units(e: &ExtractedRenderSpaceUpdate) -> usize {
+    let mut units = 0usize;
+    if let Some(update) = &e.cameras {
+        units += camera_update_work_units(update);
+    }
+    if let Some(update) = &e.reflection_probes {
+        units += reflection_probe_update_work_units(update);
+    }
+    if let Some(update) = &e.transforms {
+        units += transform_update_work_units(update);
+    }
+    if let Some(update) = &e.meshes {
+        units += mesh_update_work_units(update);
+    }
+    if let Some(update) = &e.skinned_meshes {
+        units += skinned_mesh_update_work_units(update);
+    }
+    if let Some(update) = &e.layers {
+        units += layer_update_work_units(update);
+    }
+    if let Some(update) = &e.transform_overrides {
+        units += transform_override_update_work_units(update);
+    }
+    if let Some(update) = &e.material_overrides {
+        units += material_override_update_work_units(update);
+    }
+    if let Some(update) = &e.blit_to_displays {
+        units += blit_to_display_update_work_units(update);
+    }
+    units
+}
+
+/// Returns whether the apply workload has enough independent row work to use rayon.
+#[inline]
+fn should_parallelize_apply(slot_count: usize, work_units: usize) -> bool {
+    slot_count >= MIN_SPACES_FOR_PARALLEL_APPLY && work_units >= MIN_APPLY_PARALLEL_WORK_UNITS
+}
+
+/// Returns the total Phase B row estimate for all lifted work slots.
+#[inline]
+fn apply_work_units(work: &[ApplyWorkSlot]) -> usize {
+    work.iter()
+        .map(|slot| extracted_apply_work_units(&slot.extracted))
+        .sum()
+}
+
+/// Counts extracted camera rows and side slabs.
+#[inline]
+fn camera_update_work_units(update: &ExtractedCameraRenderablesUpdate) -> usize {
+    update.removals.len()
+        + update.additions.len()
+        + update.states.len()
+        + update.transform_ids.as_ref().map_or(0, Vec::len)
+}
+
+/// Counts extracted reflection-probe rows.
+#[inline]
+fn reflection_probe_update_work_units(update: &ExtractedReflectionProbeRenderablesUpdate) -> usize {
+    update.removals.len()
+        + update.additions.len()
+        + update.states.len()
+        + update.changed_probes_to_render.len()
+}
+
+/// Counts extracted transform rows.
+#[inline]
+fn transform_update_work_units(update: &ExtractedTransformsUpdate) -> usize {
+    update.removals.len() + update.parent_updates.len() + update.pose_updates.len()
+}
+
+/// Counts extracted static mesh renderer rows and material slabs.
+#[inline]
+fn mesh_update_work_units(update: &ExtractedMeshRenderablesUpdate) -> usize {
+    update.removals.len()
+        + update.additions.len()
+        + update.mesh_states.len()
+        + update
+            .mesh_materials_and_property_blocks
+            .as_ref()
+            .map_or(0, Vec::len)
+}
+
+/// Counts extracted skinned mesh renderer rows and dependent slabs.
+#[inline]
+fn skinned_mesh_update_work_units(update: &ExtractedSkinnedMeshRenderablesUpdate) -> usize {
+    update.removals.len()
+        + update.additions.len()
+        + update.mesh_states.len()
+        + update
+            .mesh_materials_and_property_blocks
+            .as_ref()
+            .map_or(0, Vec::len)
+        + update.bone_assignments.len()
+        + update.bone_transform_indexes.len()
+        + update.blendshape_update_batches.len()
+        + update.blendshape_updates.len()
+        + update.bounds_updates.len()
+}
+
+/// Counts extracted layer assignment rows.
+#[inline]
+fn layer_update_work_units(update: &ExtractedLayerUpdate) -> usize {
+    update.removals.len() + update.additions.len() + update.layer_assignments.len()
+}
+
+/// Counts extracted render-transform override rows.
+#[inline]
+fn transform_override_update_work_units(update: &ExtractedRenderTransformOverridesUpdate) -> usize {
+    update.removals.len()
+        + update.additions.len()
+        + update.states.len()
+        + update.skinned_mesh_renderers_indexes.len()
+}
+
+/// Counts extracted render-material override rows.
+#[inline]
+fn material_override_update_work_units(update: &ExtractedRenderMaterialOverridesUpdate) -> usize {
+    update.removals.len()
+        + update.additions.len()
+        + update.states.len()
+        + update.material_override_states.len()
+}
+
+/// Counts extracted `BlitToDisplay` rows.
+#[inline]
+fn blit_to_display_update_work_units(update: &ExtractedBlitToDisplayUpdate) -> usize {
+    update.removals.len() + update.additions.len() + update.states.len()
 }
 
 /// Owned per-space payload bundle: every shared-memory buffer referenced by one
@@ -371,23 +511,29 @@ impl SceneCoordinator {
                     continue;
                 };
                 let cache = self.world_caches.remove(&id).unwrap_or_default();
+                let removal_events = self
+                    .transform_removals_by_space
+                    .remove(&id)
+                    .unwrap_or_default();
                 work.push(ApplyWorkSlot {
                     id,
                     space,
                     cache,
                     extracted,
-                    removal_events: Vec::new(),
+                    removal_events,
                     world_dirty: false,
                 });
             }
         }
 
-        // Stay on the serial path for a single space; two or more independent spaces can use the
-        // worker pool under the aggressive early parallelism policy.
-        const MIN_SPACES_FOR_PARALLEL_APPLY: usize = 2;
-        if work.len() < MIN_SPACES_FOR_PARALLEL_APPLY {
-            profiling::scope!("scene::apply::serial_inner");
+        let work_units = {
+            profiling::scope!("scene::apply::estimate_parallel_work");
+            apply_work_units(&work)
+        };
+        if !should_parallelize_apply(work.len(), work_units) {
+            profiling::scope!("scene::apply::mutate::serial_small_batch");
             for mut slot in work.drain(..) {
+                profiling::scope!("scene::apply::mutate::serial_slot");
                 slot.world_dirty = apply_extracted_render_space_update(
                     &slot.extracted,
                     PerSpaceApplyInputs {
@@ -411,6 +557,7 @@ impl SceneCoordinator {
         {
             profiling::scope!("scene::apply::mutate");
             work.par_iter_mut().for_each(|slot| {
+                profiling::scope!("scene::apply::mutate::worker_slot");
                 slot.world_dirty = apply_extracted_render_space_update(
                     &slot.extracted,
                     PerSpaceApplyInputs {
@@ -436,16 +583,67 @@ impl SceneCoordinator {
         Ok(())
     }
 
-    /// Moves a per-space transform-removal buffer into [`SceneCoordinator::transform_removals_by_space`]
-    /// so Phase C can read it. Reuses the pre-allocated entry when present so the steady-state
-    /// path swaps `Vec` contents instead of reallocating.
+    /// Moves a per-space transform-removal buffer back into
+    /// [`SceneCoordinator::transform_removals_by_space`] so Phase C can read it.
     fn stash_transform_removals(
         &mut self,
         id: RenderSpaceId,
-        mut removals: Vec<TransformRemovalEvent>,
+        removals: Vec<TransformRemovalEvent>,
     ) {
-        let slot = self.transform_removals_by_space.entry(id).or_default();
-        slot.clear();
-        slot.append(&mut removals);
+        self.transform_removals_by_space.insert(id, removals);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds an empty extracted render-space payload for work-estimate tests.
+    fn empty_extracted(space_id: i32) -> ExtractedRenderSpaceUpdate {
+        ExtractedRenderSpaceUpdate {
+            space_id: RenderSpaceId(space_id),
+            cameras: None,
+            reflection_probes: None,
+            transforms: None,
+            meshes: None,
+            skinned_meshes: None,
+            layers: None,
+            transform_overrides: None,
+            material_overrides: None,
+            blit_to_displays: None,
+        }
+    }
+
+    /// Verifies that side slabs contribute to the apply work estimate.
+    #[test]
+    fn apply_work_units_count_extracted_rows() {
+        let mut extracted = empty_extracted(7);
+        extracted.cameras = Some(ExtractedCameraRenderablesUpdate {
+            removals: vec![0, -1],
+            additions: vec![11, -1],
+            transform_ids: Some(vec![2, 3, 4]),
+            ..Default::default()
+        });
+        extracted.layers = Some(ExtractedLayerUpdate {
+            removals: vec![1, -1],
+            additions: vec![5, 6, -1],
+            ..Default::default()
+        });
+
+        assert_eq!(extracted_apply_work_units(&extracted), 12);
+    }
+
+    /// Verifies that small multi-space updates stay serial until enough row work is present.
+    #[test]
+    fn apply_parallelism_requires_multiple_slots_and_enough_work() {
+        assert!(!should_parallelize_apply(1, MIN_APPLY_PARALLEL_WORK_UNITS));
+        assert!(!should_parallelize_apply(
+            MIN_SPACES_FOR_PARALLEL_APPLY,
+            MIN_APPLY_PARALLEL_WORK_UNITS - 1
+        ));
+        assert!(should_parallelize_apply(
+            MIN_SPACES_FOR_PARALLEL_APPLY,
+            MIN_APPLY_PARALLEL_WORK_UNITS
+        ));
     }
 }

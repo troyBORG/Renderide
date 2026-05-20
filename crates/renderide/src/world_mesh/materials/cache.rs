@@ -41,6 +41,63 @@ struct CacheEntry {
     last_used_frame: u64,
 }
 
+impl CacheEntry {
+    /// Replaces the resolved batch and validation keys while preserving the hash-map allocation.
+    fn refresh(
+        &mut self,
+        batch: ResolvedMaterialBatch,
+        material_gen: u64,
+        property_block_gen: u64,
+        router_gen: u64,
+        shader_perm: ShaderPermutation,
+        last_used_frame: u64,
+    ) {
+        self.batch = batch;
+        self.material_gen = material_gen;
+        self.property_block_gen = property_block_gen;
+        self.router_gen = router_gen;
+        self.shader_perm = shader_perm;
+        self.last_used_frame = last_used_frame;
+    }
+}
+
+/// Per-refresh material batch cache touch counters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct MaterialBatchCacheTouchStats {
+    /// Entries that matched all generations and only needed their frame stamp advanced.
+    hits: usize,
+    /// Entries that existed but were re-resolved because a validation key changed.
+    stale: usize,
+    /// Entries inserted because the key was not present.
+    misses: usize,
+    /// Entries evicted because they were not touched by the current refresh.
+    evicted: usize,
+    /// Whole-refresh skips taken by a matching dependency snapshot and prepared live-set signature.
+    fast_path_skips: usize,
+}
+
+impl MaterialBatchCacheTouchStats {
+    /// Records one per-key touch outcome.
+    fn note(&mut self, outcome: TouchOutcome) {
+        match outcome {
+            TouchOutcome::Hit => self.hits += 1,
+            TouchOutcome::Stale => self.stale += 1,
+            TouchOutcome::Miss => self.misses += 1,
+        }
+    }
+}
+
+/// Result of touching one material/property-block cache key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TouchOutcome {
+    /// Existing cache entry was valid.
+    Hit,
+    /// Existing cache entry was present but stale and had to be refreshed.
+    Stale,
+    /// No cache entry existed for the key.
+    Miss,
+}
+
 /// Persistent `(material_asset_id, property_block_id)` -> [`ResolvedMaterialBatch`] lookup table.
 ///
 /// Owned by the renderer host and passed through per-view collection as an immutable reference.
@@ -86,6 +143,8 @@ pub struct FrameMaterialBatchCache {
     /// `None` means the most recent refresh did not come from a prepared snapshot, so prepared
     /// refreshes must walk keys before they can trust membership.
     last_refresh_prepared_material_signature: Option<u64>,
+    /// Counters from the most recent refresh.
+    last_touch_stats: MaterialBatchCacheTouchStats,
 }
 
 impl Default for FrameMaterialBatchCache {
@@ -107,6 +166,7 @@ impl FrameMaterialBatchCache {
             last_refresh_dict_global_gen: None,
             last_refresh_shader_perm: None,
             last_refresh_prepared_material_signature: None,
+            last_touch_stats: MaterialBatchCacheTouchStats::default(),
         }
     }
 
@@ -219,6 +279,10 @@ impl FrameMaterialBatchCache {
             self.try_fast_path_skip(router_gen, dict_global_gen, shader_perm, current_frame)
         };
         if fast_path_skip {
+            self.last_touch_stats = MaterialBatchCacheTouchStats {
+                fast_path_skips: 1,
+                ..Default::default()
+            };
             return;
         }
         let ctx = MaterialResolveCtx {
@@ -241,6 +305,7 @@ impl FrameMaterialBatchCache {
         // populated containers (with their grown capacities) before returning.
         let mut seen = std::mem::take(&mut self.seen_scratch);
         seen.clear();
+        let mut touch_stats = MaterialBatchCacheTouchStats::default();
 
         match (first, second) {
             (None, _) => {}
@@ -248,7 +313,13 @@ impl FrameMaterialBatchCache {
                 // Single-space fast path: probe directly without intermediate Vec allocations.
                 for key in collect_material_keys_for_space(scene, only) {
                     if seen.insert(key) {
-                        self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+                        touch_stats.note(self.touch_or_refresh(
+                            key.0,
+                            key.1,
+                            ctx,
+                            router_gen,
+                            current_frame,
+                        ));
                     }
                 }
             }
@@ -281,7 +352,13 @@ impl FrameMaterialBatchCache {
                 for keys in &keys_per_space {
                     for &key in keys {
                         if seen.insert(key) {
-                            self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+                            touch_stats.note(self.touch_or_refresh(
+                                key.0,
+                                key.1,
+                                ctx,
+                                router_gen,
+                                current_frame,
+                            ));
                         }
                     }
                 }
@@ -297,8 +374,11 @@ impl FrameMaterialBatchCache {
 
         // Evict entries not referenced this frame so the cache tracks the live working set.
         // Cheap -- the cache typically holds a few dozen entries, and this touches them all once.
+        let entry_count_before_evict = self.entries.len();
         self.entries
             .retain(|_, entry| entry.last_used_frame == current_frame);
+        touch_stats.evicted = entry_count_before_evict.saturating_sub(self.entries.len());
+        self.last_touch_stats = touch_stats;
         self.record_refresh_snapshot(router_gen, dict_global_gen, shader_perm, None);
     }
 
@@ -324,12 +404,21 @@ impl FrameMaterialBatchCache {
         let router_gen = router.generation();
         let dict_global_gen = dict.global_generation();
         let prepared_material_signature = prepared.material_property_key_signature();
-        if self.try_prepared_fast_path_skip(
-            router_gen,
-            dict_global_gen,
-            shader_perm,
-            prepared_material_signature,
-        ) {
+        let fast_path_skip = {
+            profiling::scope!("mesh::material_batch_cache::prepared_fast_path_check");
+            self.try_prepared_fast_path_skip(
+                router_gen,
+                dict_global_gen,
+                shader_perm,
+                prepared_material_signature,
+            )
+        };
+        if fast_path_skip {
+            profiling::scope!("mesh::material_batch_cache::prepared_fast_path_skip");
+            self.last_touch_stats = MaterialBatchCacheTouchStats {
+                fast_path_skips: 1,
+                ..Default::default()
+            };
             return;
         }
         let ctx = MaterialResolveCtx {
@@ -338,25 +427,29 @@ impl FrameMaterialBatchCache {
             pipeline_property_ids,
             shader_perm,
         };
+        let mut touch_stats = MaterialBatchCacheTouchStats::default();
 
         {
             profiling::scope!("mesh::material_batch_cache::prepared_serial_dedup_touch");
             for &(material_asset_id, property_block_id) in prepared.unique_material_property_pairs()
             {
-                self.touch_or_refresh(
+                let outcome = self.touch_or_refresh(
                     material_asset_id,
                     property_block_id,
                     ctx,
                     router_gen,
                     current_frame,
                 );
+                touch_stats.note(outcome);
             }
         }
 
         {
             profiling::scope!("mesh::material_batch_cache::prepared_evict_unused");
+            let entry_count_before_evict = self.entries.len();
             self.entries
                 .retain(|_, entry| entry.last_used_frame == current_frame);
+            touch_stats.evicted = entry_count_before_evict.saturating_sub(self.entries.len());
         }
         {
             profiling::scope!("mesh::material_batch_cache::prepared_record_snapshot");
@@ -367,6 +460,7 @@ impl FrameMaterialBatchCache {
                 Some(prepared_material_signature),
             );
         }
+        self.last_touch_stats = touch_stats;
     }
 
     /// Ensures the cache has a valid entry for `(material_asset_id, property_block_id)` and
@@ -378,7 +472,8 @@ impl FrameMaterialBatchCache {
         ctx: MaterialResolveCtx<'_>,
         router_gen: u64,
         current_frame: u64,
-    ) {
+    ) -> TouchOutcome {
+        profiling::scope!("mesh::material_batch_cache::touch_or_refresh");
         let material_gen = ctx.dict.material_generation(material_asset_id);
         let property_block_gen =
             property_block_id.map_or(0, |b| ctx.dict.property_block_generation(b));
@@ -391,9 +486,32 @@ impl FrameMaterialBatchCache {
                     && entry.router_gen == router_gen
                     && entry.shader_perm == ctx.shader_perm =>
             {
+                profiling::scope!("mesh::material_batch_cache::touch_hit");
                 entry.last_used_frame = current_frame;
+                TouchOutcome::Hit
             }
-            _ => {
+            Some(entry) => {
+                profiling::scope!("mesh::material_batch_cache::touch_stale");
+                let batch = resolve_material_batch(
+                    material_asset_id,
+                    property_block_id,
+                    ctx.dict,
+                    ctx.router,
+                    ctx.pipeline_property_ids,
+                    ctx.shader_perm,
+                );
+                entry.refresh(
+                    batch,
+                    material_gen,
+                    property_block_gen,
+                    router_gen,
+                    ctx.shader_perm,
+                    current_frame,
+                );
+                TouchOutcome::Stale
+            }
+            None => {
+                profiling::scope!("mesh::material_batch_cache::touch_miss");
                 let batch = resolve_material_batch(
                     material_asset_id,
                     property_block_id,
@@ -413,6 +531,7 @@ impl FrameMaterialBatchCache {
                         last_used_frame: current_frame,
                     },
                 );
+                TouchOutcome::Miss
             }
         }
     }
@@ -429,7 +548,7 @@ mod tests {
         RasterPipelineKind,
     };
 
-    use super::FrameMaterialBatchCache;
+    use super::{FrameMaterialBatchCache, TouchOutcome};
     use crate::world_mesh::materials::MaterialResolveCtx;
 
     fn make_test_deps() -> (MaterialPropertyStore, MaterialRouter, PropertyIdRegistry) {
@@ -448,10 +567,10 @@ mod tests {
         pb: Option<i32>,
         ctx: MaterialResolveCtx<'_>,
         frame: u64,
-    ) {
+    ) -> TouchOutcome {
         cache.frame_counter = frame;
         let rgen = ctx.router.generation();
-        cache.touch_or_refresh(mat, pb, ctx, rgen, frame);
+        cache.touch_or_refresh(mat, pb, ctx, rgen, frame)
     }
 
     /// Helper that bundles the four handles into a [`MaterialResolveCtx`] for a test call site.
@@ -541,6 +660,49 @@ mod tests {
         assert_eq!(before.router_gen, after.router_gen);
         // last_used_frame advanced but generations did not -- confirms no re-resolve.
         assert_eq!(after.last_used_frame, 2);
+    }
+
+    #[test]
+    fn touch_or_refresh_reports_miss_hit_and_stale() {
+        let (mut store, router, reg) = make_test_deps();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut cache = FrameMaterialBatchCache::new();
+        {
+            let dict = MaterialDictionary::new(&store);
+            assert_eq!(
+                touch(
+                    &mut cache,
+                    1,
+                    None,
+                    make_ctx(&dict, &router, &ids, ShaderPermutation(0)),
+                    1,
+                ),
+                TouchOutcome::Miss
+            );
+            assert_eq!(
+                touch(
+                    &mut cache,
+                    1,
+                    None,
+                    make_ctx(&dict, &router, &ids, ShaderPermutation(0)),
+                    2,
+                ),
+                TouchOutcome::Hit
+            );
+        }
+
+        store.set_material(1, 7, MaterialPropertyValue::Float(0.5));
+        let dict = MaterialDictionary::new(&store);
+        assert_eq!(
+            touch(
+                &mut cache,
+                1,
+                None,
+                make_ctx(&dict, &router, &ids, ShaderPermutation(0)),
+                3,
+            ),
+            TouchOutcome::Stale
+        );
     }
 
     #[test]

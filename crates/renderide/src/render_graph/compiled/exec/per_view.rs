@@ -6,9 +6,9 @@ use super::{
 };
 
 impl CompiledRenderGraph {
-    /// Drives the per-view recording phase serially for a single view or across a `rayon::scope`
-    /// fan-out for multi-view batches, returning one [`PerViewRecordOutput`] per input work item
-    /// in submission order.
+    /// Drives the per-view recording phase serially for a single view or across Rayon workers for
+    /// multi-view batches, returning one [`PerViewRecordOutput`] per input work item in submission
+    /// order.
     pub(super) fn record_per_view_outputs(
         &self,
         per_view_work_items: Vec<PerViewWorkItem>,
@@ -43,60 +43,26 @@ impl CompiledRenderGraph {
             per_view_shared,
             profiler,
         } = inputs;
-        use std::sync::OnceLock;
-        // Per-slot mailbox: each rayon worker writes its own `view_idx` exactly once via
-        // `OnceLock::set`, which is wait-free in the uncontended case (single atomic CAS).
-        // Replaces the prior `parking_lot::Mutex<Vec<Option<_>>>` that allocated a Vec
-        // and acquired a global lock for every successful write.
-        let slots: Vec<OnceLock<PerViewRecordOutput>> = {
-            profiling::scope!("graph::per_view_fan_out::setup_mailboxes");
-            std::iter::repeat_with(OnceLock::new)
-                .take(n_views)
-                .collect()
-        };
-        let first_error: OnceLock<GraphExecuteError> = OnceLock::new();
-        {
+        let indexed_outputs: Vec<(usize, PerViewRecordOutput)> = {
             profiling::scope!("graph::per_view_fan_out::spawn_workers");
-            rayon::scope(|scope| {
-                for work_item in per_view_work_items {
-                    let slots = &slots;
-                    let first_error = &first_error;
-                    let shared = per_view_shared;
-                    scope.spawn(move |_| {
-                        if first_error.get().is_some() {
-                            return;
-                        }
-                        match self.record_per_view_work_item_output(
-                            work_item,
-                            transient_by_key,
-                            upload_batch,
-                            shared,
-                            profiler,
-                        ) {
-                            Ok((view_idx, output)) => {
-                                // Each rayon worker owns a unique `view_idx`, so this `set`
-                                // always succeeds on the happy path; the `Err` arm is dead code
-                                // in practice but discarded silently to keep the closure infallible.
-                                let _ = slots[view_idx].set(output);
-                            }
-                            Err(err) => {
-                                // Only the first erroring worker wins; later sets discard.
-                                let _ = first_error.set(err);
-                            }
-                        }
-                    });
-                }
-            });
-        }
+            use rayon::prelude::*;
+            per_view_work_items
+                .into_par_iter()
+                .map(|work_item| {
+                    profiling::scope!("graph::per_view_fan_out::worker");
+                    self.record_per_view_work_item_output(
+                        work_item,
+                        transient_by_key,
+                        upload_batch,
+                        per_view_shared,
+                        profiler,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
         {
             profiling::scope!("graph::per_view_fan_out::collect_outputs");
-            if let Some(err) = first_error.into_inner() {
-                return Err(err);
-            }
-            slots
-                .into_iter()
-                .map(|slot| slot.into_inner().ok_or(GraphExecuteError::NoViewsInBatch))
-                .collect::<Result<Vec<_>, _>>()
+            collect_ordered_per_view_outputs(indexed_outputs, n_views)
         }
     }
 
@@ -175,4 +141,32 @@ impl CompiledRenderGraph {
         }
         Ok(outputs)
     }
+}
+
+/// Returns outputs sorted by view index, validating that every expected view was recorded once.
+fn collect_ordered_per_view_outputs(
+    mut indexed_outputs: Vec<(usize, PerViewRecordOutput)>,
+    n_views: usize,
+) -> Result<Vec<PerViewRecordOutput>, GraphExecuteError> {
+    if indexed_outputs.len() != n_views {
+        return Err(GraphExecuteError::NoViewsInBatch);
+    }
+    {
+        profiling::scope!("graph::per_view_fan_out::collect_outputs::sort");
+        indexed_outputs.sort_unstable_by_key(|(view_idx, _)| *view_idx);
+    }
+    {
+        profiling::scope!("graph::per_view_fan_out::collect_outputs::validate");
+        if indexed_outputs
+            .iter()
+            .enumerate()
+            .any(|(expected, (view_idx, _))| *view_idx != expected)
+        {
+            return Err(GraphExecuteError::NoViewsInBatch);
+        }
+    }
+    Ok(indexed_outputs
+        .into_iter()
+        .map(|(_, output)| output)
+        .collect())
 }

@@ -1,6 +1,6 @@
 //! Unit tests for retained render-world dirty tracking and snapshot maintenance.
 
-use super::state::RenderWorldRendererTemplate;
+use super::state::{RenderWorldRendererRef, RenderWorldRendererTemplate};
 use super::*;
 use crate::scene::SceneCacheFlushReport;
 use crate::shared::RenderTransform;
@@ -208,4 +208,39 @@ fn mesh_asset_dirties_use_reverse_index() {
     world.expand_dirty_mesh_assets();
 
     assert!(world.dirty_renderers.contains(&dirty_static(space_id, 0)));
+}
+
+#[test]
+fn reverse_index_delta_replaces_stale_renderer_identity() {
+    let mut cached = RenderWorldSpace::default();
+    cached.static_renderers.push(RenderWorldRendererTemplate {
+        mesh_asset_id: 55,
+        node_id: 10,
+        ..Default::default()
+    });
+    cached.static_renderers.push(RenderWorldRendererTemplate {
+        mesh_asset_id: 55,
+        node_id: 11,
+        ..Default::default()
+    });
+    cached.rebuild_reverse_indexes();
+
+    let first = RenderWorldRendererRef {
+        kind: RenderWorldRendererKind::Static,
+        index: 0,
+    };
+    let second = RenderWorldRendererRef {
+        kind: RenderWorldRendererKind::Static,
+        index: 1,
+    };
+    cached.remove_reverse_indexes_for_ref(first);
+    cached.static_renderers[0].mesh_asset_id = 99;
+    cached.static_renderers[0].node_id = 20;
+    cached.push_reverse_indexes_for_ref(first);
+
+    assert_eq!(cached.mesh_asset_index.get(&55), Some(&vec![second]));
+    assert_eq!(cached.node_index.get(&11), Some(&vec![second]));
+    assert_eq!(cached.mesh_asset_index.get(&99), Some(&vec![first]));
+    assert_eq!(cached.node_index.get(&20), Some(&vec![first]));
+    assert!(!cached.node_index.contains_key(&10));
 }

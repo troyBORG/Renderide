@@ -32,6 +32,8 @@ use scratch::InstancePlanScratch;
 const INSTANCE_PLAN_PARALLEL_MIN_DRAWS: usize = 1_024;
 /// Minimum independent batch windows needed to amortize Rayon scheduling and merge overhead.
 const INSTANCE_PLAN_PARALLEL_MIN_WINDOWS: usize = 4;
+/// Batch windows processed by one parallel worker task.
+const INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK: usize = 8;
 
 /// One emitted indexed draw covering a contiguous slab range of identical instances.
 ///
@@ -275,6 +277,12 @@ pub fn build_plan_for_shader(
 fn should_parallelize_instance_plan(draw_count: usize, window_count: usize) -> bool {
     draw_count >= INSTANCE_PLAN_PARALLEL_MIN_DRAWS
         && window_count >= INSTANCE_PLAN_PARALLEL_MIN_WINDOWS
+        && parallel_window_chunk_count(window_count) >= 2
+}
+
+/// Returns how many coarse worker chunks a batch-window list will produce.
+fn parallel_window_chunk_count(window_count: usize) -> usize {
+    window_count.div_ceil(INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK)
 }
 
 fn build_plan_serial(
@@ -325,31 +333,43 @@ fn build_plan_parallel(
     shader_perm: ShaderPermutation,
 ) -> InstancePlan {
     profiling::scope!("mesh::build_plan_parallel_windows");
-    let partials: Vec<_> = windows
-        .par_iter()
-        .map(|window| {
-            profiling::scope!("mesh::build_plan_window_worker");
-            let mut builder = InstancePlanBuilder::with_capacity(window.range.len(), shader_perm);
-            builder.process_window(draws, window.clone());
-            builder.finish()
-        })
-        .collect();
-    merge_partial_instance_plans(draws.len(), partials)
+    let partials: Vec<_> = {
+        profiling::scope!("mesh::build_plan_parallel_windows::worker_chunks");
+        windows
+            .par_chunks(INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK)
+            .map(|chunk| {
+                profiling::scope!("mesh::build_plan_window_chunk_worker");
+                let draw_count = chunk.iter().map(|window| window.range.len()).sum::<usize>();
+                let mut builder = InstancePlanBuilder::with_capacity(draw_count, shader_perm);
+                for window in chunk {
+                    builder.process_window(draws, window.clone());
+                }
+                builder.finish()
+            })
+            .collect()
+    };
+    {
+        profiling::scope!("mesh::build_plan_parallel_windows::merge");
+        merge_partial_instance_plans(draws.len(), partials)
+    }
 }
 
-fn merge_partial_instance_plans(draw_count: usize, partials: Vec<InstancePlan>) -> InstancePlan {
+fn merge_partial_instance_plans(
+    draw_count: usize,
+    mut partials: Vec<InstancePlan>,
+) -> InstancePlan {
     let mut plan = InstancePlan::with_capacity(draw_count);
 
-    for partial in partials {
+    for partial in &mut partials {
         let slab_offset = plan.slab_layout.len() as u32;
         for phase in WorldMeshPhase::ALL {
             append_groups_with_slab_offset(
                 plan.phase_mut(phase),
-                partial.phase(phase).to_vec(),
+                std::mem::take(partial.phase_mut(phase)),
                 slab_offset,
             );
         }
-        plan.slab_layout.extend(partial.slab_layout);
+        plan.slab_layout.append(&mut partial.slab_layout);
     }
 
     debug_assert_plan_group_order(&plan);

@@ -4,16 +4,29 @@ use hashbrown::HashSet;
 use rayon::prelude::*;
 
 use crate::gpu_pools::MeshPool;
-use crate::scene::{RenderSpaceId, RenderWorldRendererKind, SceneCoordinator};
+use crate::scene::{RenderSpaceId, RenderSpaceView, RenderWorldRendererKind, SceneCoordinator};
 use crate::shared::RenderingContext;
 
 use super::super::prepared_renderables::{
     expand_skinned_renderer_into, expand_static_renderer_into,
 };
-use super::state::{RenderWorldRendererTemplate, RenderWorldSpace};
+use super::state::{RenderWorldRendererRef, RenderWorldRendererTemplate, RenderWorldSpace};
 
 /// Renderer count above which retained-template refresh uses Rayon.
 const RENDER_WORLD_PARALLEL_MIN_RENDERERS: usize = 256;
+
+/// Records per worker chunk when refreshing dense retained renderer tables.
+const RENDER_WORLD_REFRESH_CHUNK_SIZE: usize = 64;
+
+/// Minimum dirty density before a dirty refresh scans whole renderer vectors in parallel.
+const RENDER_WORLD_DIRTY_SCAN_MIN_DENSITY_DIVISOR: usize = 4;
+
+/// Returns whether a dirty renderer set is dense enough to parallel-scan retained tables.
+#[inline]
+fn should_parallel_scan_dirty_records(dirty_count: usize, total_count: usize) -> bool {
+    dirty_count >= RENDER_WORLD_PARALLEL_MIN_RENDERERS
+        && dirty_count.saturating_mul(RENDER_WORLD_DIRTY_SCAN_MIN_DENSITY_DIVISOR) >= total_count
+}
 
 /// Dirty renderer records grouped by render space.
 #[derive(Default)]
@@ -46,6 +59,40 @@ impl DirtyRendererSet {
             }
         }
     }
+
+    /// Removes this dirty set's stale identities from a render space's reverse indexes.
+    pub(super) fn remove_reverse_indexes_from(&self, cached: &mut RenderWorldSpace) {
+        profiling::scope!("mesh::render_world::reverse_index_delta::remove");
+        for &index in &self.static_indices {
+            cached.remove_reverse_indexes_for_ref(RenderWorldRendererRef {
+                kind: RenderWorldRendererKind::Static,
+                index,
+            });
+        }
+        for &index in &self.skinned_indices {
+            cached.remove_reverse_indexes_for_ref(RenderWorldRendererRef {
+                kind: RenderWorldRendererKind::Skinned,
+                index,
+            });
+        }
+    }
+
+    /// Inserts this dirty set's refreshed identities into a render space's reverse indexes.
+    pub(super) fn push_reverse_indexes_into(&self, cached: &mut RenderWorldSpace) {
+        profiling::scope!("mesh::render_world::reverse_index_delta::push");
+        for &index in &self.static_indices {
+            cached.push_reverse_indexes_for_ref(RenderWorldRendererRef {
+                kind: RenderWorldRendererKind::Static,
+                index,
+            });
+        }
+        for &index in &self.skinned_indices {
+            cached.push_reverse_indexes_for_ref(RenderWorldRendererRef {
+                kind: RenderWorldRendererKind::Skinned,
+                index,
+            });
+        }
+    }
 }
 
 /// Counts returned by retained renderer-template refreshes.
@@ -62,16 +109,13 @@ pub(super) struct RefreshOutcome {
 /// Refreshes one static renderer record.
 fn refresh_static_renderer_record(
     record: &mut RenderWorldRendererTemplate,
+    space: RenderSpaceView<'_>,
     scene: &SceneCoordinator,
     mesh_pool: &MeshPool,
     render_context: RenderingContext,
     space_id: RenderSpaceId,
     index: usize,
 ) {
-    let Some(space) = scene.space(space_id) else {
-        record.clear_missing();
-        return;
-    };
     let Some(renderer) = space.static_mesh_renderers().get(index) else {
         record.clear_missing();
         return;
@@ -97,16 +141,13 @@ fn refresh_static_renderer_record(
 /// Refreshes one skinned renderer record.
 fn refresh_skinned_renderer_record(
     record: &mut RenderWorldRendererTemplate,
+    space: RenderSpaceView<'_>,
     scene: &SceneCoordinator,
     mesh_pool: &MeshPool,
     render_context: RenderingContext,
     space_id: RenderSpaceId,
     index: usize,
 ) {
-    let Some(space) = scene.space(space_id) else {
-        record.clear_missing();
-        return;
-    };
     let Some(renderer) = space.skinned_mesh_renderers().get(index) else {
         record.clear_missing();
         return;
@@ -153,7 +194,7 @@ pub(super) fn refresh_render_world_space(
         .skinned_renderers
         .resize_with(space.skinned_mesh_renderers().len(), Default::default);
     if cached.active {
-        refresh_all_records(cached, scene, mesh_pool, render_context, id);
+        refresh_all_records(cached, space, scene, mesh_pool, render_context, id);
     } else {
         for record in cached
             .static_renderers
@@ -177,6 +218,7 @@ pub(super) fn refresh_render_world_space(
 /// Refreshes all static and skinned records for an active space.
 fn refresh_all_records(
     cached: &mut RenderWorldSpace,
+    space: RenderSpaceView<'_>,
     scene: &SceneCoordinator,
     mesh_pool: &MeshPool,
     render_context: RenderingContext,
@@ -190,34 +232,65 @@ fn refresh_all_records(
         profiling::scope!("mesh::render_world::refresh_space_parallel");
         cached
             .static_renderers
-            .par_iter_mut()
+            .par_chunks_mut(RENDER_WORLD_REFRESH_CHUNK_SIZE)
             .enumerate()
-            .for_each(|(index, record)| {
-                profiling::scope!("mesh::render_world::refresh_static_record_worker");
-                refresh_static_renderer_record(record, scene, mesh_pool, render_context, id, index);
+            .for_each(|(chunk_index, chunk)| {
+                profiling::scope!("mesh::render_world::refresh_space_parallel::static_chunk");
+                let start_index = chunk_index * RENDER_WORLD_REFRESH_CHUNK_SIZE;
+                for (offset, record) in chunk.iter_mut().enumerate() {
+                    refresh_static_renderer_record(
+                        record,
+                        space,
+                        scene,
+                        mesh_pool,
+                        render_context,
+                        id,
+                        start_index + offset,
+                    );
+                }
             });
         cached
             .skinned_renderers
-            .par_iter_mut()
+            .par_chunks_mut(RENDER_WORLD_REFRESH_CHUNK_SIZE)
             .enumerate()
-            .for_each(|(index, record)| {
-                profiling::scope!("mesh::render_world::refresh_skinned_record_worker");
-                refresh_skinned_renderer_record(
-                    record,
-                    scene,
-                    mesh_pool,
-                    render_context,
-                    id,
-                    index,
-                );
+            .for_each(|(chunk_index, chunk)| {
+                profiling::scope!("mesh::render_world::refresh_space_parallel::skinned_chunk");
+                let start_index = chunk_index * RENDER_WORLD_REFRESH_CHUNK_SIZE;
+                for (offset, record) in chunk.iter_mut().enumerate() {
+                    refresh_skinned_renderer_record(
+                        record,
+                        space,
+                        scene,
+                        mesh_pool,
+                        render_context,
+                        id,
+                        start_index + offset,
+                    );
+                }
             });
     } else {
         profiling::scope!("mesh::render_world::refresh_space_serial");
         for (index, record) in cached.static_renderers.iter_mut().enumerate() {
-            refresh_static_renderer_record(record, scene, mesh_pool, render_context, id, index);
+            refresh_static_renderer_record(
+                record,
+                space,
+                scene,
+                mesh_pool,
+                render_context,
+                id,
+                index,
+            );
         }
         for (index, record) in cached.skinned_renderers.iter_mut().enumerate() {
-            refresh_skinned_renderer_record(record, scene, mesh_pool, render_context, id, index);
+            refresh_skinned_renderer_record(
+                record,
+                space,
+                scene,
+                mesh_pool,
+                render_context,
+                id,
+                index,
+            );
         }
     }
 }
@@ -226,6 +299,7 @@ fn refresh_all_records(
 pub(super) fn refresh_renderer_set(
     cached: &mut RenderWorldSpace,
     dirty_set: &DirtyRendererSet,
+    space: RenderSpaceView<'_>,
     scene: &SceneCoordinator,
     mesh_pool: &MeshPool,
     render_context: RenderingContext,
@@ -236,16 +310,61 @@ pub(super) fn refresh_renderer_set(
         ..Default::default()
     };
     let dirty_count = dirty_set.len();
-    if dirty_count >= RENDER_WORLD_PARALLEL_MIN_RENDERERS {
-        profiling::scope!("mesh::render_world::refresh_renderer_set_parallel");
-        cached
-            .static_renderers
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(index, record)| {
+    dirty_set.remove_reverse_indexes_from(cached);
+    let total_count = cached
+        .static_renderers
+        .len()
+        .saturating_add(cached.skinned_renderers.len());
+    if should_parallel_scan_dirty_records(dirty_count, total_count) {
+        refresh_renderer_set_parallel(
+            cached,
+            dirty_set,
+            space,
+            scene,
+            mesh_pool,
+            render_context,
+            space_id,
+        );
+    } else {
+        refresh_renderer_set_serial(
+            cached,
+            dirty_set,
+            space,
+            scene,
+            mesh_pool,
+            render_context,
+            space_id,
+        );
+    }
+    dirty_set.push_reverse_indexes_into(cached);
+    outcome.template_count = refreshed_dirty_template_count(cached, dirty_set);
+    outcome
+}
+
+/// Refreshes dirty records by scanning dense renderer tables in parallel chunks.
+fn refresh_renderer_set_parallel(
+    cached: &mut RenderWorldSpace,
+    dirty_set: &DirtyRendererSet,
+    space: RenderSpaceView<'_>,
+    scene: &SceneCoordinator,
+    mesh_pool: &MeshPool,
+    render_context: RenderingContext,
+    space_id: RenderSpaceId,
+) {
+    profiling::scope!("mesh::render_world::refresh_renderer_set_parallel");
+    cached
+        .static_renderers
+        .par_chunks_mut(RENDER_WORLD_REFRESH_CHUNK_SIZE)
+        .enumerate()
+        .for_each(|(chunk_index, chunk)| {
+            profiling::scope!("mesh::render_world::refresh_renderer_set_parallel::static_chunk");
+            let start_index = chunk_index * RENDER_WORLD_REFRESH_CHUNK_SIZE;
+            for (offset, record) in chunk.iter_mut().enumerate() {
+                let index = start_index + offset;
                 if dirty_set.static_indices.contains(&index) {
                     refresh_static_renderer_record(
                         record,
+                        space,
                         scene,
                         mesh_pool,
                         render_context,
@@ -253,15 +372,21 @@ pub(super) fn refresh_renderer_set(
                         index,
                     );
                 }
-            });
-        cached
-            .skinned_renderers
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(index, record)| {
+            }
+        });
+    cached
+        .skinned_renderers
+        .par_chunks_mut(RENDER_WORLD_REFRESH_CHUNK_SIZE)
+        .enumerate()
+        .for_each(|(chunk_index, chunk)| {
+            profiling::scope!("mesh::render_world::refresh_renderer_set_parallel::skinned_chunk");
+            let start_index = chunk_index * RENDER_WORLD_REFRESH_CHUNK_SIZE;
+            for (offset, record) in chunk.iter_mut().enumerate() {
+                let index = start_index + offset;
                 if dirty_set.skinned_indices.contains(&index) {
                     refresh_skinned_renderer_record(
                         record,
+                        space,
                         scene,
                         mesh_pool,
                         render_context,
@@ -269,35 +394,55 @@ pub(super) fn refresh_renderer_set(
                         index,
                     );
                 }
-            });
-    } else {
-        profiling::scope!("mesh::render_world::refresh_renderer_set_serial");
-        for &index in &dirty_set.static_indices {
-            if let Some(record) = cached.static_renderers.get_mut(index) {
-                refresh_static_renderer_record(
-                    record,
-                    scene,
-                    mesh_pool,
-                    render_context,
-                    space_id,
-                    index,
-                );
             }
-        }
-        for &index in &dirty_set.skinned_indices {
-            if let Some(record) = cached.skinned_renderers.get_mut(index) {
-                refresh_skinned_renderer_record(
-                    record,
-                    scene,
-                    mesh_pool,
-                    render_context,
-                    space_id,
-                    index,
-                );
-            }
+        });
+}
+
+/// Refreshes only the explicit dirty indices without scanning dense renderer tables.
+fn refresh_renderer_set_serial(
+    cached: &mut RenderWorldSpace,
+    dirty_set: &DirtyRendererSet,
+    space: RenderSpaceView<'_>,
+    scene: &SceneCoordinator,
+    mesh_pool: &MeshPool,
+    render_context: RenderingContext,
+    space_id: RenderSpaceId,
+) {
+    profiling::scope!("mesh::render_world::refresh_renderer_set_serial");
+    for &index in &dirty_set.static_indices {
+        if let Some(record) = cached.static_renderers.get_mut(index) {
+            refresh_static_renderer_record(
+                record,
+                space,
+                scene,
+                mesh_pool,
+                render_context,
+                space_id,
+                index,
+            );
         }
     }
-    outcome.template_count = dirty_set
+    for &index in &dirty_set.skinned_indices {
+        if let Some(record) = cached.skinned_renderers.get_mut(index) {
+            refresh_skinned_renderer_record(
+                record,
+                space,
+                scene,
+                mesh_pool,
+                render_context,
+                space_id,
+                index,
+            );
+        }
+    }
+}
+
+/// Counts draw templates retained by the records touched in one dirty set.
+fn refreshed_dirty_template_count(
+    cached: &RenderWorldSpace,
+    dirty_set: &DirtyRendererSet,
+) -> usize {
+    dirty_set
         .static_indices
         .iter()
         .filter_map(|&index| cached.static_renderers.get(index))
@@ -308,6 +453,27 @@ pub(super) fn refresh_renderer_set(
             .iter()
             .filter_map(|&index| cached.skinned_renderers.get(index))
             .map(|record| record.draws.len())
-            .sum::<usize>();
-    outcome
+            .sum::<usize>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verifies that sparse dirty sets avoid full-vector parallel scans.
+    #[test]
+    fn dirty_scan_parallelism_requires_threshold_and_density() {
+        assert!(!should_parallel_scan_dirty_records(
+            RENDER_WORLD_PARALLEL_MIN_RENDERERS - 1,
+            RENDER_WORLD_PARALLEL_MIN_RENDERERS,
+        ));
+        assert!(!should_parallel_scan_dirty_records(
+            RENDER_WORLD_PARALLEL_MIN_RENDERERS,
+            RENDER_WORLD_PARALLEL_MIN_RENDERERS * (RENDER_WORLD_DIRTY_SCAN_MIN_DENSITY_DIVISOR + 1),
+        ));
+        assert!(should_parallel_scan_dirty_records(
+            RENDER_WORLD_PARALLEL_MIN_RENDERERS,
+            RENDER_WORLD_PARALLEL_MIN_RENDERERS * RENDER_WORLD_DIRTY_SCAN_MIN_DENSITY_DIVISOR,
+        ));
+    }
 }

@@ -296,16 +296,19 @@ fn queue_view_draws(
         profiling::scope!("queue::shared_dictionary");
         crate::materials::host_data::MaterialDictionary::new(setup.property_store)
     };
+    let max_prepared_draw_count = prepared
+        .iter()
+        .filter_map(|prep| setup.prepared_renderables_for(prep.render_context()))
+        .map(crate::world_mesh::FramePreparedRenderables::len)
+        .max()
+        .unwrap_or(0);
     let inner_parallelism = select_inner_parallelism_for_prepared_work(
         prepared.len(),
-        prepared
-            .iter()
-            .filter_map(|prep| setup.prepared_renderables_for(prep.render_context()))
-            .map(crate::world_mesh::FramePreparedRenderables::len)
-            .max()
-            .unwrap_or(0),
+        max_prepared_draw_count,
         setup.inner_parallelism,
     );
+    let parallelize_views =
+        should_parallelize_view_collection(prepared.len(), max_prepared_draw_count);
     // One view per frame is the desktop common case; rayon scope dispatch + single-task spawn is
     // pure overhead vs a direct serial call. Per-view collection internally still parallelises
     // across renderer-run chunks when the refined inner-parallelism tier allows it.
@@ -353,20 +356,67 @@ fn queue_view_draws(
         QueuedViewDraws { queued, cull_proj }
     };
 
-    let queued_view_draws: Vec<QueuedViewDraws> = if prepared.len() == 1 {
-        profiling::scope!("render::queue_view_draws::single_view");
-        let mut snaps = cull_snapshots.into_iter();
-        let snap = snaps.next().unwrap_or(None);
-        vec![collect_one((&prepared[0], snap))]
-    } else {
-        profiling::scope!("render::queue_view_draws::parallel_views");
-        prepared
-            .par_iter()
-            .zip(cull_snapshots.into_par_iter())
-            .map(collect_one)
-            .collect()
-    };
-    queued_view_draws
+    collect_view_draws_with_strategy(prepared, cull_snapshots, parallelize_views, &collect_one)
+}
+
+/// Dispatches queued draw collection using the selected view-level parallelism strategy.
+fn collect_view_draws_with_strategy<'plans, 'view, F>(
+    prepared: &'plans [FrameViewPlan<'view>],
+    cull_snapshots: Vec<Option<ViewCullSnapshot>>,
+    parallelize_views: bool,
+    collect_one: &F,
+) -> Vec<QueuedViewDraws>
+where
+    F: Fn((&'plans FrameViewPlan<'view>, Option<ViewCullSnapshot>)) -> QueuedViewDraws + Sync,
+{
+    match prepared.len() {
+        0 => Vec::new(),
+        1 => {
+            profiling::scope!("render::queue_view_draws::single_view");
+            let mut snaps = cull_snapshots.into_iter();
+            let snap = snaps.next().unwrap_or(None);
+            vec![collect_one((&prepared[0], snap))]
+        }
+        2 if parallelize_views => {
+            profiling::scope!("render::queue_view_draws::parallel_views");
+            profiling::scope!("render::queue_view_draws::parallel_views::two_view_join");
+            let mut snaps = cull_snapshots.into_iter();
+            let first_snap = snaps.next().unwrap_or(None);
+            let second_snap = snaps.next().unwrap_or(None);
+            let (first, second) = rayon::join(
+                || {
+                    profiling::scope!(
+                        "render::queue_view_draws::parallel_views::two_view_join::left"
+                    );
+                    collect_one((&prepared[0], first_snap))
+                },
+                || {
+                    profiling::scope!(
+                        "render::queue_view_draws::parallel_views::two_view_join::right"
+                    );
+                    collect_one((&prepared[1], second_snap))
+                },
+            );
+            vec![first, second]
+        }
+        _ if parallelize_views => {
+            profiling::scope!("render::queue_view_draws::parallel_views");
+            profiling::scope!("render::queue_view_draws::parallel_views::par_iter");
+            prepared
+                .par_iter()
+                .zip(cull_snapshots.into_par_iter())
+                .map(collect_one)
+                .collect()
+        }
+        _ => {
+            profiling::scope!("render::queue_view_draws::serial_small_views");
+            prepared
+                .iter()
+                .zip(cull_snapshots)
+                .map(collect_one)
+                .collect()
+        }
+    }
 }
 
 fn trace_view_draw_plans(prepared: &[FrameViewPlan<'_>], draw_plans: &[WorldMeshDrawPlan]) {
@@ -418,6 +468,9 @@ pub(in crate::runtime) fn select_inner_parallelism(
 /// parallelism enabled. Below this, nested rayon scheduling usually costs more than it saves.
 const MIN_DRAWS_FOR_TWO_VIEW_INNER_PARALLELISM: usize = 512;
 
+/// Estimated total prepared draws above which view-level parallel collection pays for itself.
+const MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION: usize = 256;
+
 /// Refines the frame-level inner parallelism once the backend has built the prepared draw list.
 ///
 /// The early selector only knows view count. At this point we also know whether each view will
@@ -432,6 +485,13 @@ fn select_inner_parallelism_for_prepared_work(
     } else {
         default_parallelism
     }
+}
+
+/// Returns whether multiple views should collect draws through outer view-level rayon work.
+fn should_parallelize_view_collection(view_count: usize, max_prepared_draw_count: usize) -> bool {
+    view_count > 1
+        && view_count.saturating_mul(max_prepared_draw_count)
+            >= MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION
 }
 
 /// Builds frustum + Hi-Z cull inputs for one prepared view.
@@ -561,6 +621,22 @@ mod tests {
             ),
             WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch
         );
+    }
+
+    #[test]
+    fn view_collection_parallelism_requires_multiple_views_and_enough_work() {
+        assert!(!should_parallelize_view_collection(
+            1,
+            MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION
+        ));
+        assert!(!should_parallelize_view_collection(
+            2,
+            (MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION / 2).saturating_sub(1)
+        ));
+        assert!(should_parallelize_view_collection(
+            2,
+            MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION / 2
+        ));
     }
 
     #[test]

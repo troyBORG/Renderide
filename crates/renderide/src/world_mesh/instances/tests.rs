@@ -529,6 +529,18 @@ fn depth_prepass_rejects_unsafe_embedded_stems() {
 }
 
 #[test]
+fn parallel_instance_plan_requires_at_least_two_window_chunks() {
+    assert!(!should_parallelize_instance_plan(
+        INSTANCE_PLAN_PARALLEL_MIN_DRAWS,
+        INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK
+    ));
+    assert!(should_parallelize_instance_plan(
+        INSTANCE_PLAN_PARALLEL_MIN_DRAWS,
+        INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK + 1
+    ));
+}
+
+#[test]
 fn parallel_instance_plan_matches_serial_windows() {
     let mut draws = Vec::new();
     for material in 1..=16 {

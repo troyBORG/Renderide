@@ -45,6 +45,15 @@ pub(super) struct RenderWorldRendererTemplate {
     pub(super) draws: Vec<FramePreparedDraw>,
 }
 
+/// Index keys cached from one retained renderer template.
+#[derive(Clone, Copy)]
+struct ReverseIndexKeys {
+    /// Mesh asset id addressed by mesh-pool invalidations.
+    mesh_asset_id: i32,
+    /// Scene node id addressed by transform-root invalidations.
+    node_id: i32,
+}
+
 impl RenderWorldRendererTemplate {
     /// Resets scene identity for a missing renderer row while retaining draw allocation.
     pub(super) fn clear_missing(&mut self) {
@@ -82,30 +91,65 @@ impl RenderWorldSpace {
         profiling::scope!("mesh::render_world::rebuild_reverse_indexes");
         let mesh_asset_index = &mut self.mesh_asset_index;
         let node_index = &mut self.node_index;
-        mesh_asset_index.clear();
-        node_index.clear();
-        for (index, renderer) in self.static_renderers.iter().enumerate() {
-            push_reverse_indexes(
-                mesh_asset_index,
-                node_index,
-                RenderWorldRendererRef {
-                    kind: RenderWorldRendererKind::Static,
-                    index,
-                },
-                renderer,
-            );
+        {
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes::clear");
+            mesh_asset_index.clear();
+            node_index.clear();
         }
-        for (index, renderer) in self.skinned_renderers.iter().enumerate() {
-            push_reverse_indexes(
-                mesh_asset_index,
-                node_index,
-                RenderWorldRendererRef {
-                    kind: RenderWorldRendererKind::Skinned,
-                    index,
-                },
-                renderer,
-            );
+        {
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes::static");
+            for (index, renderer) in self.static_renderers.iter().enumerate() {
+                push_reverse_indexes(
+                    mesh_asset_index,
+                    node_index,
+                    RenderWorldRendererRef {
+                        kind: RenderWorldRendererKind::Static,
+                        index,
+                    },
+                    renderer.index_keys(),
+                );
+            }
         }
+        {
+            profiling::scope!("mesh::render_world::rebuild_reverse_indexes::skinned");
+            for (index, renderer) in self.skinned_renderers.iter().enumerate() {
+                push_reverse_indexes(
+                    mesh_asset_index,
+                    node_index,
+                    RenderWorldRendererRef {
+                        kind: RenderWorldRendererKind::Skinned,
+                        index,
+                    },
+                    renderer.index_keys(),
+                );
+            }
+        }
+    }
+
+    /// Removes one renderer's current identity from reverse indexes before refreshing it.
+    pub(super) fn remove_reverse_indexes_for_ref(&mut self, renderer_ref: RenderWorldRendererRef) {
+        let Some(keys) = self.reverse_index_keys(renderer_ref) else {
+            return;
+        };
+        remove_reverse_indexes(
+            &mut self.mesh_asset_index,
+            &mut self.node_index,
+            renderer_ref,
+            keys,
+        );
+    }
+
+    /// Adds one renderer's current identity to reverse indexes after refreshing it.
+    pub(super) fn push_reverse_indexes_for_ref(&mut self, renderer_ref: RenderWorldRendererRef) {
+        let Some(keys) = self.reverse_index_keys(renderer_ref) else {
+            return;
+        };
+        push_reverse_indexes(
+            &mut self.mesh_asset_index,
+            &mut self.node_index,
+            renderer_ref,
+            keys,
+        );
     }
 
     /// Extends a prepared snapshot with this space's retained draw templates.
@@ -117,6 +161,54 @@ impl RenderWorldSpace {
             prepared.extend_cached_draws(&renderer.draws);
         }
     }
+
+    /// Returns reverse-index keys for one retained renderer table reference.
+    fn reverse_index_keys(&self, renderer_ref: RenderWorldRendererRef) -> Option<ReverseIndexKeys> {
+        match renderer_ref.kind {
+            RenderWorldRendererKind::Static => self.static_renderers.get(renderer_ref.index),
+            RenderWorldRendererKind::Skinned => self.skinned_renderers.get(renderer_ref.index),
+        }
+        .map(RenderWorldRendererTemplate::index_keys)
+    }
+}
+
+impl RenderWorldRendererTemplate {
+    /// Returns the reverse-index keys represented by this retained template.
+    fn index_keys(&self) -> ReverseIndexKeys {
+        ReverseIndexKeys {
+            mesh_asset_id: self.mesh_asset_id,
+            node_id: self.node_id,
+        }
+    }
+}
+
+/// Removes one renderer record from reverse indexes for the supplied keys.
+fn remove_reverse_indexes(
+    mesh_asset_index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
+    node_index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
+    renderer_ref: RenderWorldRendererRef,
+    keys: ReverseIndexKeys,
+) {
+    remove_reverse_index(mesh_asset_index, keys.mesh_asset_id, renderer_ref);
+    remove_reverse_index(node_index, keys.node_id, renderer_ref);
+}
+
+/// Removes one renderer reference from a keyed reverse-index bucket.
+fn remove_reverse_index(
+    index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
+    key: i32,
+    renderer_ref: RenderWorldRendererRef,
+) {
+    if key < 0 {
+        return;
+    }
+    let Some(renderers) = index.get_mut(&key) else {
+        return;
+    };
+    renderers.retain(|&candidate| candidate != renderer_ref);
+    if renderers.is_empty() {
+        index.remove(&key);
+    }
 }
 
 /// Adds one renderer record to reverse indexes when it has valid ids.
@@ -124,17 +216,17 @@ fn push_reverse_indexes(
     mesh_asset_index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
     node_index: &mut HashMap<i32, Vec<RenderWorldRendererRef>>,
     renderer_ref: RenderWorldRendererRef,
-    renderer: &RenderWorldRendererTemplate,
+    keys: ReverseIndexKeys,
 ) {
-    if renderer.mesh_asset_id >= 0 {
+    if keys.mesh_asset_id >= 0 {
         mesh_asset_index
-            .entry(renderer.mesh_asset_id)
+            .entry(keys.mesh_asset_id)
             .or_default()
             .push(renderer_ref);
     }
-    if renderer.node_id >= 0 {
+    if keys.node_id >= 0 {
         node_index
-            .entry(renderer.node_id)
+            .entry(keys.node_id)
             .or_default()
             .push(renderer_ref);
     }

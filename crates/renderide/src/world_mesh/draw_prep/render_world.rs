@@ -439,12 +439,12 @@ impl RenderWorld {
             let refreshed = refresh_renderer_set(
                 cached,
                 &dirty_set,
+                space_view,
                 scene,
                 mesh_pool,
                 render_context,
                 space_id,
             );
-            cached.rebuild_reverse_indexes();
             outcome.renderer_count += refreshed.renderer_count;
             outcome.template_count += refreshed.template_count;
         }
