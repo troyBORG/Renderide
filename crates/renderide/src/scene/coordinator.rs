@@ -195,6 +195,25 @@ impl SceneCoordinator {
         );
     }
 
+    /// Estimates cached light rows visible to a view's optional render-space filter.
+    pub fn candidate_light_count_for_render_space_filter(
+        &self,
+        render_space_filter: Option<RenderSpaceId>,
+    ) -> usize {
+        if let Some(id) = render_space_filter {
+            return self
+                .spaces
+                .get(&id)
+                .filter(|space| space.is_active)
+                .map_or(0, |_| self.light_cache.cached_light_count_for_space(id.0));
+        }
+        self.spaces
+            .iter()
+            .filter(|(_, space)| space.is_active)
+            .map(|(id, _)| self.light_cache.cached_light_count_for_space(id.0))
+            .sum()
+    }
+
     /// Read-only access for debugging / future systems.
     pub fn space(&self, id: RenderSpaceId) -> Option<RenderSpaceView<'_>> {
         self.spaces.get(&id).map(RenderSpaceView::new)

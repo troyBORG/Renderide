@@ -353,3 +353,52 @@ fn compute_world_matrices_for_space_incremental_recomputes_only_dirty() {
     );
     assert!(cache.computed[1]);
 }
+
+#[test]
+fn parallel_partial_rebuild_matches_serial_incremental_for_large_dirty_subtree() {
+    let children_per_root = WORLD_PARTIAL_REBUILD_PARALLEL_MIN_DIRTY + 16;
+    let n = 2 + children_per_root + 8;
+    let mut nodes = Vec::with_capacity(n);
+    let mut parents = Vec::with_capacity(n);
+    nodes.push(translation_xform(1.0, 0.0, 0.0));
+    parents.push(-1);
+    nodes.push(translation_xform(0.0, 2.0, 0.0));
+    parents.push(-1);
+    for _ in 0..children_per_root {
+        nodes.push(translation_xform(0.0, 1.0, 0.0));
+        parents.push(0);
+    }
+    for _ in 0..8 {
+        nodes.push(translation_xform(0.0, 0.0, 1.0));
+        parents.push(1);
+    }
+
+    let mut parallel = WorldTransformCache::default();
+    compute_world_matrices_for_space(0, &nodes, &parents, &mut parallel).expect("initial bulk");
+    let mut serial = WorldTransformCache::default();
+    compute_world_matrices_for_space(0, &nodes, &parents, &mut serial).expect("initial bulk");
+
+    nodes[0] = translation_xform(3.0, 0.0, 0.0);
+    parallel.computed[0] = false;
+    serial.computed[0] = false;
+    for idx in 2..(2 + children_per_root) {
+        parallel.computed[idx] = false;
+        serial.computed[idx] = false;
+    }
+    parallel.local_dirty[0] = true;
+    serial.local_dirty[0] = true;
+
+    compute_world_matrices_for_space(0, &nodes, &parents, &mut parallel).expect("parallel partial");
+    serial
+        .compute_world_matrices_incremental(0, &nodes, &parents)
+        .expect("serial incremental");
+
+    for i in 0..n {
+        assert!(
+            parallel.world_matrices[i].abs_diff_eq(serial.world_matrices[i], 1e-5),
+            "world matrix mismatch at index {i}"
+        );
+        assert_eq!(parallel.degenerate_scales[i], serial.degenerate_scales[i]);
+        assert!(parallel.computed[i] && serial.computed[i]);
+    }
+}

@@ -67,6 +67,12 @@ pub enum WorldMeshDrawPlan {
 }
 
 impl WorldMeshDrawPlan {
+    /// Number of draw items carried by this plan.
+    pub fn draw_count(&self) -> usize {
+        self.as_prefetched()
+            .map_or(0, |collection| collection.items.len())
+    }
+
     /// Returns the prefetched collection when this plan carries one.
     pub fn as_prefetched(&self) -> Option<&WorldMeshDrawCollection> {
         match self {

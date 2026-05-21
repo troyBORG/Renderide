@@ -23,7 +23,9 @@ use crate::passes::post_processing::settings_slots::{
 use crate::render_graph::TransientPool;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::compiled::{FrameView, FrameViewTarget};
-use crate::render_graph::execution_backend::{GraphExecutionBackend, GraphFrameParamsSplit};
+use crate::render_graph::execution_backend::{
+    GraphExecutionBackend, GraphFrameParamsSplit, GraphViewBlackboardPreparer,
+};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::upload_arena::PersistentUploadArena;
 use crate::world_mesh::WorldMeshDrawItem;
@@ -182,6 +184,48 @@ pub(crate) struct BackendGraphAccess<'a> {
     pub(super) live_auto_exposure_settings: crate::config::AutoExposureSettings,
     /// Wall-frame delta snapshot in milliseconds.
     pub(super) wall_frame_time_ms: f64,
+}
+
+struct BackendViewBlackboardPreparer<'a> {
+    world_mesh_frame_planner: &'a crate::backend::BackendWorldMeshFramePlanner,
+    live_gtao_settings: crate::config::GtaoSettings,
+    live_bloom_settings: crate::config::BloomSettings,
+    live_motion_blur_settings: crate::config::MotionBlurSettings,
+    live_auto_exposure_settings: crate::config::AutoExposureSettings,
+    wall_frame_delta_seconds: f32,
+}
+
+impl GraphViewBlackboardPreparer for BackendViewBlackboardPreparer<'_> {
+    fn prepare_view_blackboard(
+        &self,
+        device: &wgpu::Device,
+        uploads: GraphUploadSink<'_>,
+        gpu_limits: &GpuLimits,
+        frame: &GraphPassFrame<'_>,
+        frame_plan: &PerViewFramePlan,
+        blackboard: &mut Blackboard,
+    ) {
+        blackboard.insert::<PerViewFramePlanSlot>(frame_plan.clone());
+        blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(self.live_gtao_settings));
+        blackboard.insert::<BloomSettingsSlot>(BloomSettingsValue(self.live_bloom_settings));
+        blackboard.insert::<MotionBlurSettingsSlot>(MotionBlurSettingsValue(
+            self.live_motion_blur_settings,
+        ));
+        blackboard.insert::<AutoExposureSettingsSlot>(AutoExposureSettingsValue::for_view(
+            self.live_auto_exposure_settings,
+            self.wall_frame_delta_seconds,
+            frame.view.view_id,
+        ));
+        crate::backend::prepare_world_mesh_view_blackboard(
+            self.world_mesh_frame_planner,
+            device,
+            uploads,
+            gpu_limits,
+            frame,
+            frame_plan,
+            blackboard,
+        );
+    }
 }
 
 impl<'a> BackendGraphAccess<'a> {
@@ -401,38 +445,6 @@ impl<'a> BackendGraphAccess<'a> {
         }
     }
 
-    /// Lets backend-specific systems consume and enrich one per-view blackboard before recording.
-    pub(crate) fn prepare_view_blackboard(
-        &self,
-        device: &wgpu::Device,
-        uploads: GraphUploadSink<'_>,
-        gpu_limits: &GpuLimits,
-        frame: &GraphPassFrame<'_>,
-        frame_plan: &PerViewFramePlan,
-        blackboard: &mut Blackboard,
-    ) {
-        blackboard.insert::<PerViewFramePlanSlot>(frame_plan.clone());
-        blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(self.live_gtao_settings));
-        blackboard.insert::<BloomSettingsSlot>(BloomSettingsValue(self.live_bloom_settings));
-        blackboard.insert::<MotionBlurSettingsSlot>(MotionBlurSettingsValue(
-            self.live_motion_blur_settings,
-        ));
-        blackboard.insert::<AutoExposureSettingsSlot>(AutoExposureSettingsValue::for_view(
-            self.live_auto_exposure_settings,
-            self.wall_frame_delta_seconds(),
-            frame.view.view_id,
-        ));
-        crate::backend::prepare_world_mesh_view_blackboard(
-            self.world_mesh_frame_planner,
-            device,
-            uploads,
-            gpu_limits,
-            frame,
-            frame_plan,
-            blackboard,
-        );
-    }
-
     /// Debug HUD flags consumed by per-view recording.
     pub(crate) fn per_view_hud_config(&self) -> PerViewHudConfig {
         PerViewHudConfig {
@@ -571,18 +583,21 @@ impl GraphExecutionBackend for BackendGraphAccess<'_> {
         );
     }
 
-    fn prepare_view_blackboard(
-        &self,
-        device: &wgpu::Device,
-        uploads: GraphUploadSink<'_>,
-        gpu_limits: &GpuLimits,
-        frame: &GraphPassFrame<'_>,
-        frame_plan: &PerViewFramePlan,
-        blackboard: &mut Blackboard,
-    ) {
-        BackendGraphAccess::prepare_view_blackboard(
-            self, device, uploads, gpu_limits, frame, frame_plan, blackboard,
-        );
+    fn view_blackboard_preparer(&self) -> Box<dyn GraphViewBlackboardPreparer + '_> {
+        Box::new(BackendViewBlackboardPreparer {
+            world_mesh_frame_planner: self.world_mesh_frame_planner,
+            live_gtao_settings: self.live_gtao_settings,
+            live_bloom_settings: self.live_bloom_settings,
+            live_motion_blur_settings: self.live_motion_blur_settings,
+            live_auto_exposure_settings: self.live_auto_exposure_settings,
+            wall_frame_delta_seconds: self.wall_frame_delta_seconds(),
+        })
+    }
+
+    fn estimate_view_blackboard_prepare_draw_count(&self, blackboard: &Blackboard) -> usize {
+        blackboard
+            .get::<WorldMeshDrawPlanSlot>()
+            .map_or(0, crate::world_mesh::WorldMeshDrawPlan::draw_count)
     }
 
     fn per_view_hud_config(&self) -> PerViewHudConfig {

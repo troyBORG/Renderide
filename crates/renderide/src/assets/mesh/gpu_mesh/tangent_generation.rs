@@ -24,6 +24,15 @@ const DEFAULT_RAW_TANGENT_PAYLOAD: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const TANGENT_EPSILON_SQUARED: f32 = 1.0e-20;
 /// Vertices assigned to one tangent extraction or encoding worker chunk.
 const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 512;
+/// Indices assigned to one index-buffer decode worker chunk.
+const MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES: usize = 4096;
+/// Index count above which index-buffer decode fans out across Rayon.
+const MESH_INDEX_DECODE_PARALLEL_MIN_INDICES: usize = MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES * 2;
+/// Triangles assigned to one face-collection worker chunk.
+const MESH_FACE_COLLECT_PARALLEL_CHUNK_TRIANGLES: usize = 2048;
+/// Triangle count above which face collection fans out across Rayon.
+const MESH_FACE_COLLECT_PARALLEL_MIN_TRIANGLES: usize =
+    MESH_FACE_COLLECT_PARALLEL_CHUNK_TRIANGLES * 2;
 
 /// Vertex count above which vertex-stream extraction and tangent encoding fan out across rayon.
 ///
@@ -162,10 +171,18 @@ fn normal_based_tangent_stream_bytes(
         VertexAttributeType::Normal,
         VertexDecodeKind::Direction,
     )?;
-    let tangents: Vec<Vec4> = normals
-        .iter()
-        .map(|normal| tangent_from_normal(*normal))
-        .collect();
+    let tangents: Vec<Vec4> = if normals.len() >= VERTEX_STREAM_PARALLEL_MIN {
+        normals
+            .par_iter()
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .map(|normal| tangent_from_normal(*normal))
+            .collect()
+    } else {
+        normals
+            .iter()
+            .map(|normal| tangent_from_normal(*normal))
+            .collect()
+    };
     Some(encode_tangents(&tangents))
 }
 
@@ -280,23 +297,39 @@ fn decode_indices(index_data: &[u8], index_format: IndexBufferFormat) -> Option<
             if !index_data.len().is_multiple_of(2) {
                 return None;
             }
-            Some(
+            let index_count = index_data.len() / 2;
+            let indices = if index_count >= MESH_INDEX_DECODE_PARALLEL_MIN_INDICES {
+                index_data
+                    .par_chunks_exact(2)
+                    .with_min_len(MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]) as u32)
+                    .collect()
+            } else {
                 index_data
                     .chunks_exact(2)
                     .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]) as u32)
-                    .collect(),
-            )
+                    .collect()
+            };
+            Some(indices)
         }
         IndexBufferFormat::UInt32 => {
             if !index_data.len().is_multiple_of(4) {
                 return None;
             }
-            Some(
+            let index_count = index_data.len() / 4;
+            let indices = if index_count >= MESH_INDEX_DECODE_PARALLEL_MIN_INDICES {
+                index_data
+                    .par_chunks_exact(4)
+                    .with_min_len(MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES)
+                    .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect()
+            } else {
                 index_data
                     .chunks_exact(4)
                     .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                    .collect(),
-            )
+                    .collect()
+            };
+            Some(indices)
         }
     }
 }
@@ -323,22 +356,46 @@ fn collect_triangle_faces(
         let Some(submesh_indices) = indices.get(start..end) else {
             continue;
         };
-        for triangle in submesh_indices.chunks_exact(3) {
-            let face = [
-                triangle[0] as usize,
-                triangle[1] as usize,
-                triangle[2] as usize,
-            ];
-            if face.iter().any(|index| *index >= vertex_count) {
-                continue;
-            }
-            if face[0] == face[1] || face[1] == face[2] || face[0] == face[2] {
-                continue;
-            }
-            faces.push(face);
-        }
+        collect_triangle_faces_from_indices(submesh_indices, vertex_count, &mut faces);
     }
     (!faces.is_empty()).then_some(faces)
+}
+
+fn collect_triangle_faces_from_indices(
+    indices: &[u32],
+    vertex_count: usize,
+    out: &mut Vec<[usize; 3]>,
+) {
+    let triangle_count = indices.len() / 3;
+    if triangle_count >= MESH_FACE_COLLECT_PARALLEL_MIN_TRIANGLES {
+        let mut collected = indices
+            .par_chunks_exact(3)
+            .with_min_len(MESH_FACE_COLLECT_PARALLEL_CHUNK_TRIANGLES)
+            .filter_map(|triangle| valid_triangle_face(triangle, vertex_count))
+            .collect::<Vec<_>>();
+        out.append(&mut collected);
+    } else {
+        out.extend(
+            indices
+                .chunks_exact(3)
+                .filter_map(|triangle| valid_triangle_face(triangle, vertex_count)),
+        );
+    }
+}
+
+fn valid_triangle_face(triangle: &[u32], vertex_count: usize) -> Option<[usize; 3]> {
+    let face = [
+        triangle[0] as usize,
+        triangle[1] as usize,
+        triangle[2] as usize,
+    ];
+    if face.iter().any(|index| *index >= vertex_count) {
+        return None;
+    }
+    if face[0] == face[1] || face[1] == face[2] || face[0] == face[2] {
+        return None;
+    }
+    Some(face)
 }
 
 fn encode_tangents(tangents: &[Vec4]) -> Vec<u8> {
@@ -537,6 +594,14 @@ mod tests {
             .collect()
     }
 
+    fn u16_index_bytes(indices: impl IntoIterator<Item = u16>) -> Vec<u8> {
+        indices.into_iter().flat_map(u16::to_le_bytes).collect()
+    }
+
+    fn u32_index_bytes(indices: impl IntoIterator<Item = u32>) -> Vec<u8> {
+        indices.into_iter().flat_map(u32::to_le_bytes).collect()
+    }
+
     fn read_tangent(bytes: &[u8], vertex: usize) -> [f32; 4] {
         let start = vertex * 16;
         [
@@ -725,6 +790,60 @@ mod tests {
             serial_out[v * 16..v * 16 + 16].copy_from_slice(bytemuck::bytes_of(&tangent));
         }
         assert_eq!(parallel_out, serial_out);
+    }
+
+    #[test]
+    fn decode_indices_parallel_path_preserves_order_for_both_widths() {
+        let index_count = MESH_INDEX_DECODE_PARALLEL_MIN_INDICES + 17;
+        let expected_u16 = (0..index_count)
+            .map(|index| (index % u16::MAX as usize) as u32)
+            .collect::<Vec<_>>();
+        let u16_bytes = u16_index_bytes(expected_u16.iter().copied().map(|index| index as u16));
+        let decoded_u16 =
+            decode_indices(&u16_bytes, IndexBufferFormat::UInt16).expect("u16 index decode");
+        assert_eq!(decoded_u16, expected_u16);
+
+        let expected_u32 = (0..index_count)
+            .map(|index| 70_000 + index as u32)
+            .collect::<Vec<_>>();
+        let u32_bytes = u32_index_bytes(expected_u32.iter().copied());
+        let decoded_u32 =
+            decode_indices(&u32_bytes, IndexBufferFormat::UInt32).expect("u32 index decode");
+        assert_eq!(decoded_u32, expected_u32);
+    }
+
+    #[test]
+    fn collect_triangle_faces_parallel_path_filters_invalid_faces() {
+        let triangle_count = MESH_FACE_COLLECT_PARALLEL_MIN_TRIANGLES + 11;
+        let mut indices = Vec::with_capacity(triangle_count * 3);
+        for triangle in 0..triangle_count {
+            let base = (triangle * 3) as u32;
+            indices.extend_from_slice(&[base, base + 1, base + 2]);
+        }
+        indices[0..3].copy_from_slice(&[0, 0, 1]);
+        indices[21..24].copy_from_slice(&[0, 1, u32::MAX]);
+        let last = indices.len() - 3;
+        indices[last..].copy_from_slice(&[3, 4, 4]);
+
+        let submeshes = [triangle_submesh(indices.len() as i32)];
+        let faces = collect_triangle_faces(&indices, triangle_count * 3 + 3, &submeshes)
+            .expect("parallel-collected triangle faces");
+
+        assert_eq!(faces.len(), triangle_count - 3);
+        assert_eq!(faces.first().copied(), Some([3, 4, 5]));
+        assert_eq!(
+            faces.last().copied(),
+            Some([
+                (triangle_count - 2) * 3,
+                (triangle_count - 2) * 3 + 1,
+                (triangle_count - 2) * 3 + 2
+            ])
+        );
+        assert!(
+            !faces
+                .iter()
+                .any(|face| face[0] == face[1] || face[1] == face[2] || face[0] == face[2])
+        );
     }
 
     #[test]

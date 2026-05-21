@@ -32,6 +32,18 @@ const CULL_SNAPSHOT_PARALLEL_MIN_VIEWS: usize = CULL_SNAPSHOT_PARALLEL_CHUNK_VIE
 const VIEW_COLLECTION_PARALLEL_CHUNK_VIEWS: usize = 1;
 /// Prepared view count required before view-level draw collection fans out.
 const VIEW_COLLECTION_PARALLEL_MIN_VIEWS: usize = VIEW_COLLECTION_PARALLEL_CHUNK_VIEWS * 2;
+/// Queued view draw packets assigned to one sort worker.
+const VIEW_SORT_PARALLEL_CHUNK_VIEWS: usize = 1;
+/// View count required before queued-draw sorting fans out.
+const VIEW_SORT_PARALLEL_MIN_VIEWS: usize = VIEW_SORT_PARALLEL_CHUNK_VIEWS * 2;
+/// Total queued draw count required before per-view sorting fans out.
+const VIEW_SORT_PARALLEL_MIN_TOTAL_DRAWS: usize = 128;
+/// View draw plans assigned to one visible-deform-key scan worker.
+const VISIBLE_DEFORM_KEYS_PARALLEL_CHUNK_VIEWS: usize = 1;
+/// View count required before visible-deform-key scanning fans out.
+const VISIBLE_DEFORM_KEYS_PARALLEL_MIN_VIEWS: usize = VISIBLE_DEFORM_KEYS_PARALLEL_CHUNK_VIEWS * 2;
+/// Total draw count required before visible-deform-key scanning fans out.
+const VISIBLE_DEFORM_KEYS_PARALLEL_MIN_DRAWS: usize = 128;
 
 /// Immutable runtime-owned extraction packet built before per-view draw collection starts.
 ///
@@ -101,11 +113,7 @@ pub(in crate::runtime) struct QueuedDraws<'a> {
 impl<'a> QueuedDraws<'a> {
     /// Sorts queued draws and promotes them into final per-view draw plans.
     pub(in crate::runtime) fn sort_draws(self) -> PreparedDraws<'a> {
-        let view_draws = self
-            .view_draws
-            .into_iter()
-            .map(|queued| queued.sort_and_package(self.parallelism))
-            .collect::<Vec<_>>();
+        let view_draws = sort_view_draws(self.view_draws, self.parallelism);
         {
             profiling::scope!("render::sort_view_draws::trace_plans");
             trace_view_draw_plans(self.prepared_views.plans(), &view_draws);
@@ -115,6 +123,75 @@ impl<'a> QueuedDraws<'a> {
             view_draws,
         }
     }
+}
+
+/// Sorts queued draw packets for each view, preserving view order.
+fn sort_view_draws(
+    view_draws: Vec<QueuedViewDraws>,
+    parallelism: WorldMeshDrawCollectParallelism,
+) -> Vec<WorldMeshDrawPlan> {
+    profiling::scope!("render::sort_view_draws");
+    if should_parallelize_view_sort(&view_draws) {
+        sort_view_draws_parallel(view_draws, parallelism)
+    } else {
+        sort_view_draws_serial(view_draws, parallelism)
+    }
+}
+
+/// Returns whether the queued per-view sort has enough independent work to use Rayon.
+fn should_parallelize_view_sort(view_draws: &[QueuedViewDraws]) -> bool {
+    view_draws.len() >= VIEW_SORT_PARALLEL_MIN_VIEWS
+        && view_draws
+            .iter()
+            .map(QueuedViewDraws::queued_draw_count)
+            .sum::<usize>()
+            >= VIEW_SORT_PARALLEL_MIN_TOTAL_DRAWS
+}
+
+fn sort_view_draws_serial(
+    view_draws: Vec<QueuedViewDraws>,
+    parallelism: WorldMeshDrawCollectParallelism,
+) -> Vec<WorldMeshDrawPlan> {
+    profiling::scope!("render::sort_view_draws::serial");
+    view_draws
+        .into_iter()
+        .map(|queued| queued.sort_and_package(parallelism))
+        .collect()
+}
+
+fn sort_view_draws_parallel(
+    view_draws: Vec<QueuedViewDraws>,
+    parallelism: WorldMeshDrawCollectParallelism,
+) -> Vec<WorldMeshDrawPlan> {
+    profiling::scope!("render::sort_view_draws::parallel");
+    if view_draws.len() == 2 {
+        return sort_two_view_draws_parallel(view_draws, parallelism);
+    }
+    view_draws
+        .into_par_iter()
+        .with_min_len(VIEW_SORT_PARALLEL_CHUNK_VIEWS)
+        .map(|queued| queued.sort_and_package(parallelism))
+        .collect()
+}
+
+fn sort_two_view_draws_parallel(
+    view_draws: Vec<QueuedViewDraws>,
+    parallelism: WorldMeshDrawCollectParallelism,
+) -> Vec<WorldMeshDrawPlan> {
+    profiling::scope!("render::sort_view_draws::two_view_join");
+    let mut iter = view_draws.into_iter();
+    let Some(first) = iter.next() else {
+        return Vec::new();
+    };
+    let Some(second) = iter.next() else {
+        return vec![first.sort_and_package(parallelism)];
+    };
+    debug_assert_eq!(iter.count(), 0);
+    let (first, second) = rayon::join(
+        || first.sort_and_package(parallelism),
+        || second.sort_and_package(parallelism),
+    );
+    vec![first, second]
 }
 
 /// Prepared per-frame view list plus any headless swapchain substitution resources needed to
@@ -243,19 +320,58 @@ impl SubmitFrame<'_> {
 fn visible_mesh_deform_keys_from_draw_plans(
     draw_plans: &[WorldMeshDrawPlan],
 ) -> hashbrown::HashSet<SkinCacheKey> {
+    if should_parallelize_visible_deform_keys(draw_plans) {
+        return visible_mesh_deform_keys_from_draw_plans_parallel(draw_plans);
+    }
+    visible_mesh_deform_keys_from_draw_plans_serial(draw_plans)
+}
+
+fn should_parallelize_visible_deform_keys(draw_plans: &[WorldMeshDrawPlan]) -> bool {
+    draw_plans.len() >= VISIBLE_DEFORM_KEYS_PARALLEL_MIN_VIEWS
+        && draw_plans
+            .iter()
+            .map(WorldMeshDrawPlan::draw_count)
+            .sum::<usize>()
+            >= VISIBLE_DEFORM_KEYS_PARALLEL_MIN_DRAWS
+}
+
+fn visible_mesh_deform_keys_from_draw_plans_serial(
+    draw_plans: &[WorldMeshDrawPlan],
+) -> hashbrown::HashSet<SkinCacheKey> {
     let mut keys = hashbrown::HashSet::new();
-    for collection in draw_plans
-        .iter()
-        .filter_map(WorldMeshDrawPlan::as_prefetched)
-    {
-        for item in &collection.items {
-            if item.world_space_deformed || item.blendshape_deformed {
-                keys.insert(SkinCacheKey::from_draw_parts(
-                    item.space_id,
-                    item.skinned,
-                    item.instance_id,
-                ));
-            }
+    for plan in draw_plans {
+        keys.extend(visible_mesh_deform_keys_for_plan(plan));
+    }
+    keys
+}
+
+fn visible_mesh_deform_keys_from_draw_plans_parallel(
+    draw_plans: &[WorldMeshDrawPlan],
+) -> hashbrown::HashSet<SkinCacheKey> {
+    draw_plans
+        .par_iter()
+        .with_min_len(VISIBLE_DEFORM_KEYS_PARALLEL_CHUNK_VIEWS)
+        .map(visible_mesh_deform_keys_for_plan)
+        .reduce(hashbrown::HashSet::new, |mut keys, partial| {
+            keys.extend(partial);
+            keys
+        })
+}
+
+fn visible_mesh_deform_keys_for_plan(
+    draw_plan: &WorldMeshDrawPlan,
+) -> hashbrown::HashSet<SkinCacheKey> {
+    let mut keys = hashbrown::HashSet::new();
+    let Some(collection) = draw_plan.as_prefetched() else {
+        return keys;
+    };
+    for item in &collection.items {
+        if item.world_space_deformed || item.blendshape_deformed {
+            keys.insert(SkinCacheKey::from_draw_parts(
+                item.space_id,
+                item.skinned,
+                item.instance_id,
+            ));
         }
     }
     keys
@@ -280,6 +396,11 @@ struct QueuedViewDraws {
 }
 
 impl QueuedViewDraws {
+    /// Number of queued draw candidates before final sorting and arrangement.
+    fn queued_draw_count(&self) -> usize {
+        self.queued.len()
+    }
+
     /// Sorts this view's queued draws and packages the final draw plan.
     fn sort_and_package(self, parallelism: WorldMeshDrawCollectParallelism) -> WorldMeshDrawPlan {
         let collection = self.queued.sort_and_arrange(parallelism);

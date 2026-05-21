@@ -25,6 +25,11 @@ impl<'a> GraphUploadSink<'a> {
         Self::new(batch, FrameUploadScope::pre_record())
     }
 
+    /// Creates a sink for pre-record resource preparation owned by one view index.
+    pub(crate) fn pre_record_view(batch: &'a FrameUploadBatch, view_idx: usize) -> Self {
+        Self::new(batch, FrameUploadScope::pre_record_view(view_idx))
+    }
+
     /// Queues `queue.write_buffer(buffer, offset, data)` for ordered replay before submit.
     pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
         self.batch

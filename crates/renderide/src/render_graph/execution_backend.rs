@@ -210,6 +210,20 @@ pub struct GraphFrameParamsSplit<'a> {
     pub debug_hud: PerViewHudConfig,
 }
 
+/// Backend-owned per-view blackboard preparation that can be shared across Rayon workers.
+pub trait GraphViewBlackboardPreparer: Sync {
+    /// Lets backend-specific systems enrich one per-view blackboard before recording.
+    fn prepare_view_blackboard(
+        &self,
+        device: &wgpu::Device,
+        uploads: GraphUploadSink<'_>,
+        gpu_limits: &GpuLimits,
+        frame: &GraphPassFrame<'_>,
+        frame_plan: &PerViewFramePlan,
+        blackboard: &mut Blackboard,
+    );
+}
+
 /// Backend services required by compiled render-graph execution.
 pub trait GraphExecutionBackend {
     /// Render-graph transient pool.
@@ -251,16 +265,10 @@ pub trait GraphExecutionBackend {
         views: &[FrameView<'_>],
         view_layouts: &[Option<PreRecordViewResourceLayout>],
     );
-    /// Lets backend-specific systems enrich one per-view blackboard before recording.
-    fn prepare_view_blackboard(
-        &self,
-        device: &wgpu::Device,
-        uploads: GraphUploadSink<'_>,
-        gpu_limits: &GpuLimits,
-        frame: &GraphPassFrame<'_>,
-        frame_plan: &PerViewFramePlan,
-        blackboard: &mut Blackboard,
-    );
+    /// Creates a thread-shareable per-view blackboard preparer for this graph execution.
+    fn view_blackboard_preparer(&self) -> Box<dyn GraphViewBlackboardPreparer + '_>;
+    /// Estimates the blackboard work size used to gate parallel pre-record preparation.
+    fn estimate_view_blackboard_prepare_draw_count(&self, blackboard: &Blackboard) -> usize;
     /// Debug HUD flags consumed by per-view recording.
     fn per_view_hud_config(&self) -> PerViewHudConfig;
     /// Whether the HUD will draw visible content.

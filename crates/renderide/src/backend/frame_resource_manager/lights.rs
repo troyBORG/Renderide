@@ -1,7 +1,10 @@
 //! Light preparation and per-view light access for [`FrameResourceManager`].
 
 use crate::camera::ViewId;
-use crate::scene::{SceneCoordinator, light_contributes, light_has_negative_contribution};
+use crate::scene::{
+    RenderSpaceId, ResolvedLight, SceneCoordinator, light_contributes,
+    light_has_negative_contribution,
+};
 
 use super::super::light_gpu::{
     GpuLight, MAX_LIGHTS, gpu_light_from_resolved, order_lights_for_clustered_shading_in_place,
@@ -9,6 +12,21 @@ use super::super::light_gpu::{
 use super::manager::FrameResourceManager;
 use super::per_view_state::PreparedViewLights;
 use super::view_desc::FrameLightViewDesc;
+
+/// Per-view light packs assigned to one Rayon worker.
+const LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS: usize = 1;
+/// View count required before per-view light preparation fans out.
+const LIGHT_VIEW_PREP_PARALLEL_MIN_VIEWS: usize = LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS * 2;
+/// Candidate light rows required before per-view light preparation fans out.
+const LIGHT_VIEW_PREP_PARALLEL_MIN_LIGHTS: usize = 64;
+
+struct PreparedViewLightPacket {
+    view_id: ViewId,
+    render_context: crate::shared::RenderingContext,
+    render_space_filter: Option<RenderSpaceId>,
+    resolved_len: usize,
+    lights: PreparedViewLights,
+}
 
 impl FrameResourceManager {
     /// Packed GPU lights from the last [`Self::prepare_lights_from_scene`] call.
@@ -66,21 +84,28 @@ impl FrameResourceManager {
         I: IntoIterator<Item = FrameLightViewDesc>,
     {
         profiling::scope!("render::prepare_lights_for_views");
+        let views = views.into_iter().collect::<Vec<_>>();
         self.light_scratch.clear();
         self.signed_scene_color_required = false;
+        let packets = if should_parallelize_light_view_prep(scene, &views) {
+            use rayon::prelude::*;
+            profiling::scope!("render::prepare_lights_for_views::parallel");
+            views
+                .par_iter()
+                .with_min_len(LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS)
+                .map(|&desc| prepare_lights_for_view_packet(scene, desc))
+                .collect::<Vec<_>>()
+        } else {
+            profiling::scope!("render::prepare_lights_for_views::serial");
+            views
+                .iter()
+                .map(|&desc| prepare_lights_for_view_packet(scene, desc))
+                .collect::<Vec<_>>()
+        };
+
         let mut wrote_fallback = false;
-        for desc in views {
-            self.prepare_lights_for_view(scene, desc);
-            self.signed_scene_color_required |= self
-                .per_view_lights
-                .get(desc.view_id)
-                .is_some_and(|lights| lights.signed_scene_color_required);
-            if !wrote_fallback {
-                let fallback_lights = self.frame_lights_for_view(desc.view_id).to_vec();
-                self.light_scratch.clear();
-                self.light_scratch.extend(fallback_lights);
-                wrote_fallback = true;
-            }
+        for packet in packets {
+            self.commit_prepared_light_packet(packet, &mut wrote_fallback);
         }
         if self.signed_scene_color_required && !self.signed_scene_color_required_logged {
             logger::info!(
@@ -90,91 +115,133 @@ impl FrameResourceManager {
         }
     }
 
-    fn prepare_lights_for_view(&mut self, scene: &SceneCoordinator, desc: FrameLightViewDesc) {
-        profiling::scope!("render::prepare_lights_for_view");
-        self.resolved_flatten_scratch.clear();
-        self.collect_light_space_ids(scene, desc.render_space_filter);
-        self.resolve_lights_for_space_ids(scene, desc);
-        {
-            profiling::scope!("render::prepare_lights::filter_contributors");
-            self.resolved_flatten_scratch.retain(light_contributes);
-        }
-        order_lights_for_clustered_shading_in_place(&mut self.resolved_flatten_scratch);
-        let resolved_len = self.resolved_flatten_scratch.len();
-        if resolved_len > MAX_LIGHTS && !self.lights_overflow_warned {
+    fn commit_prepared_light_packet(
+        &mut self,
+        packet: PreparedViewLightPacket,
+        wrote_fallback: &mut bool,
+    ) {
+        if packet.resolved_len > MAX_LIGHTS && !self.lights_overflow_warned {
             logger::warn!(
-                "scene contains {resolved_len} contributing lights but the engine only uploads \
+                "scene contains {} contributing lights but the engine only uploads \
                  the first {MAX_LIGHTS} (MAX_LIGHTS); the remainder will be ignored for shading. \
-                 This warning is only logged once per renderer instance."
+                 This warning is only logged once per renderer instance.",
+                packet.resolved_len
             );
             self.lights_overflow_warned = true;
         }
-        let kept = resolved_len.min(MAX_LIGHTS);
-        let signed_scene_color_required = self
-            .resolved_flatten_scratch
-            .iter()
-            .take(kept)
-            .any(light_has_negative_contribution);
+
+        self.signed_scene_color_required |= packet.lights.signed_scene_color_required;
+        if !*wrote_fallback {
+            self.light_scratch
+                .extend_from_slice(packet.lights.lights.as_slice());
+            *wrote_fallback = true;
+        }
+
+        let light_count = packet.lights.lights.len();
+        let signed_scene_color_required = packet.lights.signed_scene_color_required;
         let entry = self
             .per_view_lights
-            .get_or_insert_with(desc.view_id, PreparedViewLights::default);
+            .get_or_insert_with(packet.view_id, PreparedViewLights::default);
         entry.lights.clear();
-        entry.lights.reserve(kept);
-        entry.lights.extend(
-            self.resolved_flatten_scratch
-                .iter()
-                .take(kept)
-                .map(gpu_light_from_resolved),
-        );
+        entry
+            .lights
+            .extend_from_slice(packet.lights.lights.as_slice());
         entry.signed_scene_color_required = signed_scene_color_required;
         logger::trace!(
             "prepared lights for view {:?}: lights={} render_context={:?} render_space_filter={:?}",
-            desc.view_id,
-            entry.lights.len(),
+            packet.view_id,
+            light_count,
+            packet.render_context,
+            packet.render_space_filter
+        );
+    }
+}
+
+fn should_parallelize_light_view_prep(
+    scene: &SceneCoordinator,
+    views: &[FrameLightViewDesc],
+) -> bool {
+    views.len() >= LIGHT_VIEW_PREP_PARALLEL_MIN_VIEWS
+        && views
+            .iter()
+            .map(|view| {
+                scene.candidate_light_count_for_render_space_filter(view.render_space_filter)
+            })
+            .sum::<usize>()
+            >= LIGHT_VIEW_PREP_PARALLEL_MIN_LIGHTS
+}
+
+fn prepare_lights_for_view_packet(
+    scene: &SceneCoordinator,
+    desc: FrameLightViewDesc,
+) -> PreparedViewLightPacket {
+    profiling::scope!("render::prepare_lights_for_view");
+    let mut light_space_ids = Vec::new();
+    collect_light_space_ids(scene, desc.render_space_filter, &mut light_space_ids);
+    let mut resolved = Vec::new();
+    resolve_lights_for_space_ids(scene, desc, &light_space_ids, &mut resolved);
+    {
+        profiling::scope!("render::prepare_lights::filter_contributors");
+        resolved.retain(light_contributes);
+    }
+    order_lights_for_clustered_shading_in_place(&mut resolved);
+    let resolved_len = resolved.len();
+    let kept = resolved_len.min(MAX_LIGHTS);
+    let signed_scene_color_required = resolved
+        .iter()
+        .take(kept)
+        .any(light_has_negative_contribution);
+    let mut lights = PreparedViewLights::default();
+    lights.lights.reserve(kept);
+    lights
+        .lights
+        .extend(resolved.iter().take(kept).map(gpu_light_from_resolved));
+    lights.signed_scene_color_required = signed_scene_color_required;
+    PreparedViewLightPacket {
+        view_id: desc.view_id,
+        render_context: desc.render_context,
+        render_space_filter: desc.render_space_filter,
+        resolved_len,
+        lights,
+    }
+}
+
+fn collect_light_space_ids(
+    scene: &SceneCoordinator,
+    render_space_filter: Option<RenderSpaceId>,
+    out: &mut Vec<RenderSpaceId>,
+) {
+    profiling::scope!("render::prepare_lights::collect_active_spaces");
+    out.clear();
+    if let Some(id) = render_space_filter {
+        if scene.space(id).is_some_and(|space| space.is_active()) {
+            out.push(id);
+        }
+        return;
+    }
+    out.extend(
+        scene
+            .render_space_ids()
+            .filter(|id| scene.space(*id).is_some_and(|space| space.is_active())),
+    );
+}
+
+fn resolve_lights_for_space_ids(
+    scene: &SceneCoordinator,
+    desc: FrameLightViewDesc,
+    light_space_ids: &[RenderSpaceId],
+    out: &mut Vec<ResolvedLight>,
+) {
+    if light_space_ids.is_empty() {
+        return;
+    }
+    profiling::scope!("render::prepare_lights::resolve_spaces");
+    for &id in light_space_ids {
+        scene.resolve_lights_for_render_context_into(
+            id,
             desc.render_context,
-            desc.render_space_filter
+            desc.head_output_transform,
+            out,
         );
-    }
-
-    fn collect_light_space_ids(
-        &mut self,
-        scene: &SceneCoordinator,
-        render_space_filter: Option<crate::scene::RenderSpaceId>,
-    ) {
-        profiling::scope!("render::prepare_lights::collect_active_spaces");
-        self.light_space_ids_scratch.clear();
-        if let Some(id) = render_space_filter {
-            if scene.space(id).is_some_and(|space| space.is_active()) {
-                self.light_space_ids_scratch.push(id);
-            }
-            return;
-        }
-        self.light_space_ids_scratch.extend(
-            scene
-                .render_space_ids()
-                .filter(|id| scene.space(*id).is_some_and(|space| space.is_active())),
-        );
-    }
-
-    fn resolve_lights_for_space_ids(&mut self, scene: &SceneCoordinator, desc: FrameLightViewDesc) {
-        if self.light_space_ids_scratch.is_empty() {
-            return;
-        }
-        profiling::scope!("render::prepare_lights::resolve_spaces");
-        // The host scenes we render typically have one or two active render spaces (main world
-        // plus an optional overlay), and each space's `resolve_lights_into` is short. Earlier
-        // versions of this function fanned the multi-space path out across `rayon::par_iter` with
-        // a fresh `Vec<Vec<ResolvedLight>>` per frame; the per-frame allocation and the rayon
-        // dispatch overhead both exceeded the work being parallelized. Serial append into the
-        // already-cleared `resolved_flatten_scratch` reuses last frame's allocation and lets the
-        // CPU plough through the spaces with no synchronization.
-        for &id in &self.light_space_ids_scratch {
-            scene.resolve_lights_for_render_context_into(
-                id,
-                desc.render_context,
-                desc.head_output_transform,
-                &mut self.resolved_flatten_scratch,
-            );
-        }
     }
 }

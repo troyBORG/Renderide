@@ -18,10 +18,32 @@ const WORLD_BULK_REBUILD_PARALLEL_CHUNK_TASKS: usize = 1;
 const WORLD_BULK_REBUILD_PARALLEL_MIN: usize = WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE * 2;
 /// Node count in one hierarchy depth level above which that level fans out across rayon.
 const WORLD_BULK_REBUILD_PARALLEL_LEVEL_MIN: usize = WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE * 2;
+/// Nodes assigned to one partial dirty rebuild worker chunk.
+const WORLD_PARTIAL_REBUILD_PARALLEL_CHUNK_NODES: usize = 64;
+/// Dirty node count required before partial dirty rebuilds use the level-synchronous path.
+const WORLD_PARTIAL_REBUILD_PARALLEL_MIN_DIRTY: usize = 1024;
+/// Minimum dirty density divisor for the partial rebuild path.
+const WORLD_PARTIAL_REBUILD_MIN_DENSITY_DIVISOR: usize = 16;
 
 #[inline]
 fn should_parallelize_bulk_level(node_count: usize) -> bool {
     node_count >= WORLD_BULK_REBUILD_PARALLEL_LEVEL_MIN
+}
+
+#[inline]
+fn should_parallelize_partial_rebuild(node_count: usize, dirty_count: usize) -> bool {
+    dirty_count >= WORLD_PARTIAL_REBUILD_PARALLEL_MIN_DIRTY
+        && dirty_count.saturating_mul(WORLD_PARTIAL_REBUILD_MIN_DENSITY_DIVISOR) >= node_count
+}
+
+#[inline]
+fn dirty_world_matrix_count(computed: &[bool]) -> usize {
+    computed.iter().filter(|&&is_computed| !is_computed).count()
+}
+
+#[inline]
+fn should_parallelize_partial_level(node_count: usize) -> bool {
+    node_count >= WORLD_PARTIAL_REBUILD_PARALLEL_CHUNK_NODES * 2
 }
 
 fn collect_bulk_level_parallel<F>(
@@ -99,6 +121,8 @@ pub struct WorldTransformCache {
     pub(super) bfs_writes: Vec<(Mat4, bool)>,
     /// Bulk-rebuild scratch: per-worker chunk outputs used to give Tracy one span per Rayon task.
     pub(super) bfs_parallel_writes: Vec<Vec<(Mat4, bool)>>,
+    /// Partial-rebuild scratch: dirty node indices for the current hierarchy depth level.
+    pub(super) bfs_dirty_level_indices: Vec<usize>,
     /// Transform-apply scratch: per-node dirty flags reused across dense transform updates.
     pub(super) transform_dirty_flags: Vec<bool>,
     /// Transform-apply scratch: dense list of nodes marked in [`Self::transform_dirty_flags`].
@@ -122,6 +146,7 @@ impl Default for WorldTransformCache {
             bfs_cycle_nodes: Vec::new(),
             bfs_writes: Vec::new(),
             bfs_parallel_writes: Vec::new(),
+            bfs_dirty_level_indices: Vec::new(),
             transform_dirty_flags: Vec::new(),
             transform_dirty_indices: Vec::new(),
         }
@@ -419,6 +444,120 @@ impl WorldTransformCache {
         }
     }
 
+    /// Partial rebuild: recomputes many dirty nodes by hierarchy depth while preserving already
+    /// valid ancestors.
+    fn compute_world_matrices_partial_rebuild(
+        &mut self,
+        scene_id: i32,
+        nodes: &[RenderTransform],
+        node_parents: &[i32],
+        dirty_count: usize,
+    ) -> bool {
+        profiling::scope!("scene::world_partial_rebuild");
+        let n = nodes.len();
+        let WorldTransformCache {
+            world_matrices,
+            computed,
+            local_matrices,
+            local_dirty,
+            degenerate_scales,
+            bfs_depth,
+            bfs_levels,
+            bfs_cycle_nodes,
+            bfs_writes,
+            bfs_parallel_writes,
+            bfs_dirty_level_indices,
+            ..
+        } = self;
+
+        classify_nodes_by_depth(node_parents, n, bfs_depth, bfs_levels, bfs_cycle_nodes);
+        if !bfs_cycle_nodes.is_empty()
+            && bfs_cycle_nodes
+                .len()
+                .saturating_mul(WORLD_PARTIAL_REBUILD_MIN_DENSITY_DIVISOR)
+                >= dirty_count
+        {
+            return false;
+        }
+
+        for (i, dirty) in local_dirty.iter_mut().enumerate().take(n) {
+            if *dirty {
+                local_matrices[i] = render_transform_to_matrix(&nodes[i]);
+                *dirty = false;
+            }
+        }
+
+        for cycle_id in bfs_cycle_nodes.iter() {
+            if computed.get(*cycle_id).copied().unwrap_or(true) {
+                continue;
+            }
+            logger::trace!(
+                "parent cycle at scene {} transform {} -- local-only fallback",
+                scene_id,
+                cycle_id
+            );
+            let local = local_matrices[*cycle_id];
+            world_matrices[*cycle_id] = local;
+            degenerate_scales[*cycle_id] =
+                transform_matrix_has_degenerate_scale(&nodes[*cycle_id], local);
+            computed[*cycle_id] = true;
+        }
+
+        for level in bfs_levels.iter() {
+            bfs_dirty_level_indices.clear();
+            bfs_dirty_level_indices.extend(
+                level
+                    .iter()
+                    .copied()
+                    .filter(|&i| !computed.get(i).copied().unwrap_or(true)),
+            );
+            if bfs_dirty_level_indices.is_empty() {
+                continue;
+            }
+
+            let local_ro: &[Mat4] = local_matrices;
+            let world_ro: &[Mat4] = world_matrices;
+            let computed_ro: &[bool] = computed;
+            let degen_ro: &[bool] = degenerate_scales;
+            let compute_one = |&i: &usize| {
+                let local = local_ro[i];
+                let p = node_parents.get(i).copied().unwrap_or(-1);
+                if p < 0 || (p as usize) >= n || p == i as i32 || !computed_ro[p as usize] {
+                    return (
+                        local,
+                        transform_matrix_has_degenerate_scale(&nodes[i], local),
+                    );
+                }
+                let parent_index = p as usize;
+                let world = world_ro[parent_index] * local;
+                (
+                    world,
+                    degen_ro[parent_index]
+                        || transform_matrix_has_degenerate_scale(&nodes[i], world),
+                )
+            };
+
+            bfs_writes.clear();
+            if should_parallelize_partial_level(bfs_dirty_level_indices.len()) {
+                collect_bulk_level_parallel(
+                    bfs_dirty_level_indices,
+                    bfs_parallel_writes,
+                    bfs_writes,
+                    compute_one,
+                );
+            } else {
+                bfs_writes.extend(bfs_dirty_level_indices.iter().map(compute_one));
+            }
+            for (slot, &i) in bfs_writes.iter().zip(bfs_dirty_level_indices.iter()) {
+                world_matrices[i] = slot.0;
+                degenerate_scales[i] = slot.1;
+                computed[i] = true;
+            }
+        }
+
+        true
+    }
+
     /// Incremental world matrices: only recomputes indices with `computed[i] == false`.
     pub(super) fn compute_world_matrices_incremental(
         &mut self,
@@ -581,6 +720,16 @@ pub fn compute_world_matrices_for_space(
 
     if n >= WORLD_BULK_REBUILD_PARALLEL_MIN && cache_is_fully_dirty(&cache.computed) {
         cache.compute_world_matrices_bulk_rebuild(scene_id, nodes, node_parents);
+        return Ok(());
+    }
+
+    let dirty_count = dirty_world_matrix_count(&cache.computed);
+    if dirty_count == 0 {
+        return Ok(());
+    }
+    if should_parallelize_partial_rebuild(n, dirty_count)
+        && cache.compute_world_matrices_partial_rebuild(scene_id, nodes, node_parents, dirty_count)
+    {
         return Ok(());
     }
 

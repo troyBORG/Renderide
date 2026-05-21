@@ -184,6 +184,11 @@ impl LightCache {
         self.spaces.get(&space_id).map(Vec::as_slice)
     }
 
+    /// Number of cached lights for `space_id` after the last apply.
+    pub fn cached_light_count_for_space(&self, space_id: i32) -> usize {
+        self.spaces.get(&space_id).map_or(0, Vec::len)
+    }
+
     /// Drops all light entries tied to a removed render space.
     pub fn remove_space(&mut self, space_id: i32) {
         self.spaces.remove(&space_id);

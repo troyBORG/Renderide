@@ -41,6 +41,15 @@ impl FrameUploadScope {
         }
     }
 
+    /// Scope for pre-record resource preparation owned by one per-view worker.
+    pub(crate) fn pre_record_view(view_idx: usize) -> Self {
+        Self {
+            phase: FrameUploadPhase::PreRecord,
+            view_idx: saturating_u32(view_idx.saturating_add(1)),
+            pass_idx: 0,
+        }
+    }
+
     /// Scope for a frame-global pass.
     pub(crate) fn frame_global(pass_idx: usize) -> Self {
         Self {
@@ -82,5 +91,29 @@ impl Drop for FrameUploadScopeGuard {
     fn drop(&mut self) {
         CURRENT_UPLOAD_SCOPE.with(|scope| scope.set(self.previous_scope));
         CURRENT_UPLOAD_LOCAL_SEQ.with(|seq| seq.set(self.previous_local_seq));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FrameUploadScope;
+
+    #[test]
+    fn pre_record_view_scopes_sort_by_view_before_frame_global() {
+        let mut scopes = [
+            FrameUploadScope::frame_global(0),
+            FrameUploadScope::pre_record_view(0),
+            FrameUploadScope::pre_record_view(2),
+            FrameUploadScope::pre_record(),
+            FrameUploadScope::pre_record_view(1),
+        ];
+
+        scopes.sort_unstable();
+
+        assert_eq!(scopes[0], FrameUploadScope::pre_record());
+        assert_eq!(scopes[1], FrameUploadScope::pre_record_view(0));
+        assert_eq!(scopes[2], FrameUploadScope::pre_record_view(1));
+        assert_eq!(scopes[3], FrameUploadScope::pre_record_view(2));
+        assert_eq!(scopes[4], FrameUploadScope::frame_global(0));
     }
 }

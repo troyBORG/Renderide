@@ -125,6 +125,11 @@ pub struct QueuedWorldMeshDraws {
 }
 
 impl QueuedWorldMeshDraws {
+    /// Number of queued draw candidates before arrangement.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
     /// Sorts and arranges queued draws into render-phase submission order.
     pub fn sort_and_arrange(
         mut self,

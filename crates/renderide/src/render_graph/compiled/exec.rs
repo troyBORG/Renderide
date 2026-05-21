@@ -17,12 +17,16 @@
 //! - `Compute` -> passes receive raw encoder; calls `record_compute`.
 
 use hashbrown::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
-use crate::diagnostics::PerViewHudOutputs;
-use crate::gpu::GpuContext;
+use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs};
+use crate::gpu::{GpuContext, GpuLimits, MsaaDepthResolveResources};
 use crate::render_graph::GraphExecutionBackend;
 use crate::render_graph::blackboard::GraphCommandStats;
+use crate::render_graph::execution_backend::{
+    GraphAssetResources, GraphFrameResources, GraphViewBlackboardPreparer,
+};
 use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, PostSubmitContext};
@@ -31,9 +35,38 @@ use super::super::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use super::{CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext, helpers};
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::graph_inputs::{FrameSystemsShared, PerViewFramePlan};
+use crate::materials::MaterialSystem;
+use crate::mesh_deform::{GpuSkinCache, MeshPreprocessPipelines};
+use crate::occlusion::OcclusionGraphHook;
 
 fn elapsed_ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
+}
+
+/// Per-view pre-record work items assigned to one blackboard-preparation worker.
+const PRE_RECORD_VIEW_PREP_PARALLEL_CHUNK_VIEWS: usize = 1;
+/// View count required before per-view blackboard preparation fans out.
+const PRE_RECORD_VIEW_PREP_PARALLEL_MIN_VIEWS: usize =
+    PRE_RECORD_VIEW_PREP_PARALLEL_CHUNK_VIEWS * 2;
+/// Total draw count required before per-view blackboard preparation fans out.
+const PRE_RECORD_VIEW_PREP_PARALLEL_MIN_DRAWS: usize = 128;
+
+struct ViewBlackboardPrepareShared<'a> {
+    scene: &'a SceneCoordinator,
+    device: &'a wgpu::Device,
+    gpu_limits: &'a GpuLimits,
+    upload_batch: &'a FrameUploadBatch,
+    preparer: &'a dyn GraphViewBlackboardPreparer,
+    occlusion: &'a dyn OcclusionGraphHook,
+    frame_resources: &'a dyn GraphFrameResources,
+    materials: &'a MaterialSystem,
+    asset_resources: &'a dyn GraphAssetResources,
+    mesh_preprocess: Option<&'a MeshPreprocessPipelines>,
+    skin_cache: Option<&'a GpuSkinCache>,
+    debug_hud: PerViewHudConfig,
+    scene_color_format: wgpu::TextureFormat,
+    gpu_limits_arc: Option<Arc<GpuLimits>>,
+    msaa_depth_resolve: Option<Arc<MsaaDepthResolveResources>>,
 }
 
 mod diagnostics;
@@ -465,53 +498,96 @@ impl CompiledRenderGraph {
         upload_batch: &FrameUploadBatch,
     ) {
         profiling::scope!("graph::prepare_view_blackboards");
-        for work_item in work_items.iter_mut() {
-            profiling::scope!("graph::prepare_view_blackboard");
-            let resolved = work_item.resolved.as_resolved();
-            let hi_z_slot = mv_ctx
-                .backend
-                .occlusion()
-                .ensure_hi_z_state(resolved.view_id);
-            let frame_params = helpers::frame_render_params_from_shared(
-                FrameSystemsShared {
-                    scene: mv_ctx.scene,
-                    occlusion: mv_ctx.backend.occlusion(),
-                    frame_resources: mv_ctx.backend.frame_resources(),
-                    materials: mv_ctx.backend.materials(),
-                    asset_resources: mv_ctx.backend.asset_resources(),
-                    mesh_preprocess: mv_ctx.backend.mesh_preprocess(),
-                    mesh_deform_scratch: None,
-                    mesh_deform_skin_cache: None,
-                    skin_cache: mv_ctx.backend.skin_cache(),
-                    debug_hud: mv_ctx.backend.per_view_hud_config(),
-                },
-                helpers::GraphPassFrameViewInputs {
-                    resolved: &resolved,
-                    scene_color_format: mv_ctx.backend.scene_color_format_wgpu(),
-                    host_camera: &work_item.host_camera,
-                    render_context: work_item.render_context,
-                    clear: work_item.clear,
-                    post_processing: work_item.post_processing,
-                    gpu_limits: mv_ctx.backend.gpu_limits().cloned(),
-                    msaa_depth_resolve: mv_ctx.backend.msaa_depth_resolve(),
-                    hi_z_slot,
-                },
-            );
-            let (frame_bg, frame_buf) = &work_item.per_view_frame_bg_and_buf;
-            let frame_plan = PerViewFramePlan {
-                frame_bind_group: std::sync::Arc::clone(frame_bg),
-                frame_uniform_buffer: frame_buf.clone(),
-                view_idx: work_item.view_idx,
-            };
-            mv_ctx.backend.prepare_view_blackboard(
-                mv_ctx.device,
-                GraphUploadSink::pre_record(upload_batch),
-                mv_ctx.gpu_limits,
-                &frame_params,
-                &frame_plan,
-                &mut work_item.initial_blackboard,
-            );
+        let backend = &*mv_ctx.backend;
+        let total_draw_count = work_items
+            .iter()
+            .map(|work_item| {
+                backend.estimate_view_blackboard_prepare_draw_count(&work_item.initial_blackboard)
+            })
+            .sum::<usize>();
+        let preparer = backend.view_blackboard_preparer();
+        let shared = ViewBlackboardPrepareShared {
+            scene: mv_ctx.scene,
+            device: mv_ctx.device,
+            gpu_limits: mv_ctx.gpu_limits,
+            upload_batch,
+            preparer: preparer.as_ref(),
+            occlusion: backend.occlusion(),
+            frame_resources: backend.frame_resources(),
+            materials: backend.materials(),
+            asset_resources: backend.asset_resources(),
+            mesh_preprocess: backend.mesh_preprocess(),
+            skin_cache: backend.skin_cache(),
+            debug_hud: backend.per_view_hud_config(),
+            scene_color_format: backend.scene_color_format_wgpu(),
+            gpu_limits_arc: backend.gpu_limits().cloned(),
+            msaa_depth_resolve: backend.msaa_depth_resolve(),
+        };
+        if should_parallelize_view_blackboard_prepare(work_items.len(), total_draw_count) {
+            profiling::scope!("graph::prepare_view_blackboards::parallel");
+            use rayon::prelude::*;
+            work_items
+                .par_iter_mut()
+                .with_min_len(PRE_RECORD_VIEW_PREP_PARALLEL_CHUNK_VIEWS)
+                .for_each(|work_item| {
+                    self.prepare_one_view_blackboard(&shared, work_item);
+                });
+        } else {
+            profiling::scope!("graph::prepare_view_blackboards::serial");
+            for work_item in work_items.iter_mut() {
+                self.prepare_one_view_blackboard(&shared, work_item);
+            }
         }
+    }
+
+    /// Prepares one view's blackboard before command recording.
+    fn prepare_one_view_blackboard(
+        &self,
+        shared: &ViewBlackboardPrepareShared<'_>,
+        work_item: &mut PerViewWorkItem,
+    ) {
+        profiling::scope!("graph::prepare_view_blackboard");
+        let resolved = work_item.resolved.as_resolved();
+        let hi_z_slot = shared.occlusion.ensure_hi_z_state(resolved.view_id);
+        let frame_params = helpers::frame_render_params_from_shared(
+            FrameSystemsShared {
+                scene: shared.scene,
+                occlusion: shared.occlusion,
+                frame_resources: shared.frame_resources,
+                materials: shared.materials,
+                asset_resources: shared.asset_resources,
+                mesh_preprocess: shared.mesh_preprocess,
+                mesh_deform_scratch: None,
+                mesh_deform_skin_cache: None,
+                skin_cache: shared.skin_cache,
+                debug_hud: shared.debug_hud,
+            },
+            helpers::GraphPassFrameViewInputs {
+                resolved: &resolved,
+                scene_color_format: shared.scene_color_format,
+                host_camera: &work_item.host_camera,
+                render_context: work_item.render_context,
+                clear: work_item.clear,
+                post_processing: work_item.post_processing,
+                gpu_limits: shared.gpu_limits_arc.clone(),
+                msaa_depth_resolve: shared.msaa_depth_resolve.clone(),
+                hi_z_slot,
+            },
+        );
+        let (frame_bg, frame_buf) = &work_item.per_view_frame_bg_and_buf;
+        let frame_plan = PerViewFramePlan {
+            frame_bind_group: Arc::clone(frame_bg),
+            frame_uniform_buffer: frame_buf.clone(),
+            view_idx: work_item.view_idx,
+        };
+        shared.preparer.prepare_view_blackboard(
+            shared.device,
+            GraphUploadSink::pre_record_view(shared.upload_batch, work_item.view_idx),
+            shared.gpu_limits,
+            &frame_params,
+            &frame_plan,
+            &mut work_item.initial_blackboard,
+        );
     }
 
     /// Prepares owned per-view work items on the main thread before serial or parallel recording.
@@ -560,6 +636,12 @@ impl CompiledRenderGraph {
         }
         Ok(work_items)
     }
+}
+
+/// Returns whether per-view blackboard preparation has enough work to use Rayon.
+fn should_parallelize_view_blackboard_prepare(view_count: usize, total_draw_count: usize) -> bool {
+    view_count >= PRE_RECORD_VIEW_PREP_PARALLEL_MIN_VIEWS
+        && total_draw_count >= PRE_RECORD_VIEW_PREP_PARALLEL_MIN_DRAWS
 }
 
 mod pre_warm;

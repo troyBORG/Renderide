@@ -8,7 +8,6 @@ use parking_lot::Mutex;
 
 use crate::gpu::GpuLimits;
 use crate::mesh_deform::SkinCacheKey;
-use crate::scene::{RenderSpaceId, ResolvedLight};
 
 use super::super::frame_gpu::{EmptyMaterialBindGroup, FrameGpuResources};
 use super::super::frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
@@ -44,10 +43,6 @@ pub struct FrameResourceManager {
     pub(super) per_view_lights: PerViewResourceMap<PreparedViewLights>,
     /// Whether any packed light set subtracts in at least one signed-radiance channel.
     pub(super) signed_scene_color_required: bool,
-    /// Reused each frame to flatten all spaces' [`ResolvedLight`] before ordering and GPU pack.
-    pub(super) resolved_flatten_scratch: Vec<ResolvedLight>,
-    /// Reused each view to collect active render spaces that should contribute lights.
-    pub(super) light_space_ids_scratch: Vec<RenderSpaceId>,
     /// When true, [`crate::passes::MeshDeformPass`] already dispatched for the current graph
     /// submission.
     ///
@@ -86,8 +81,6 @@ impl FrameResourceManager {
             light_scratch: Vec::new(),
             per_view_lights: PerViewResourceMap::new(),
             signed_scene_color_required: false,
-            resolved_flatten_scratch: Vec::new(),
-            light_space_ids_scratch: Vec::new(),
             mesh_deform_dispatched_this_submission: AtomicBool::new(false),
             visible_mesh_deform_keys: Mutex::new(None),
             per_view_per_draw_scratch: PerViewResourceMap::new(),
