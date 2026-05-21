@@ -138,7 +138,7 @@ pub(crate) use render_queue::{
 pub(crate) use render_state::MaterialDepthOffsetState;
 pub(crate) use render_state::{
     MaterialDepthCompareDomain, MaterialDepthCompareOverride, MaterialRenderState, RasterFrontFace,
-    RasterPrimitiveTopology, material_render_state_for_lookup, material_render_state_from_maps,
+    RasterPrimitiveTopology, material_render_state_from_maps,
 };
 
 #[cfg(test)]
