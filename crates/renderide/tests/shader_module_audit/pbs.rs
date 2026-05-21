@@ -350,10 +350,19 @@ fn pbs_distance_lerp_roots_keep_source_zero_uv_and_raw_displacement_direction() 
             );
         }
         assert!(
-            src.contains("select(\n        n.xyz,\n        mat._DisplacementDirection.xyz,"),
-            "{material} must preserve raw displacement direction magnitude"
+            src.contains("pdist::vertex_main("),
+            "{material} must route displacement direction selection through the DistanceLerp module"
         );
     }
+
+    let module = module_source("pbs/families/distance_lerp.wgsl")?;
+    assert!(
+        module.contains(
+            "let direction = select(object_n, override_direction, override_direction_enabled);"
+        ) && !module.contains("normalize(override_direction)")
+            && !module.contains("normalize(object_n)"),
+        "distance_lerp.wgsl must preserve raw displacement direction magnitude"
+    );
     Ok(())
 }
 

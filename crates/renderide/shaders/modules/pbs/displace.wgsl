@@ -5,6 +5,8 @@
 //! aligned when displacement semantics change.
 
 #import renderide::core::uv as uvu
+#import renderide::draw::types as dt
+#import renderide::mesh::vertex as mv
 
 #define_import_path renderide::pbs::displace
 
@@ -14,6 +16,37 @@ struct DisplacementResult {
     position: vec3<f32>,
     /// Raw mesh UV forwarded to the fragment stage. Unity applies `_UVOffsetMap` in `surf`.
     uv: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) world_n: vec3<f32>,
+    @location(2) world_t: vec4<f32>,
+    @location(3) base_uv: vec2<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
+}
+
+fn vertex_output(
+    draw: dt::PerDrawUniforms,
+    instance_index: u32,
+    view_idx: u32,
+    n: vec4<f32>,
+    t: vec4<f32>,
+    displaced: vec3<f32>,
+    uv: vec2<f32>,
+) -> VertexOutput {
+    let world_p = draw.model * vec4<f32>(displaced, 1.0);
+    let vp = mv::select_view_proj(draw, view_idx);
+
+    var out: VertexOutput;
+    out.clip_pos = vp * world_p;
+    out.world_pos = world_p.xyz;
+    out.world_n = mv::world_normal(draw, n);
+    out.world_t = mv::world_tangent(draw, t);
+    out.base_uv = uv;
+    out.view_layer = mv::packed_view_layer(instance_index, view_idx);
+    return out;
 }
 
 /// Applies the PBSDisplace vertex-stage offset keywords.

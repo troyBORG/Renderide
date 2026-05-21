@@ -44,16 +44,6 @@ fn kw_RESOLUTION_TEX() -> bool {
     return pixelate_kw(PIXELATE_KW_RESOLUTION_TEX);
 }
 
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) primary_uv: vec2<f32>,
-    @location(1) world_pos: vec3<f32>,
-    @location(2) world_n: vec3<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
-    @location(4) view_n: vec3<f32>,
-    @location(5) obj_xy: vec2<f32>,
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -64,26 +54,17 @@ fn vs_main(
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
     @location(4) t: vec4<f32>,
-) -> VertexOutput {
+) -> fv::RectVertexOutput {
 #ifdef MULTIVIEW
-    let inner = fv::vertex_main(instance_index, view_idx, pos, n, t, uv0);
+    return fv::rect_vertex_main(instance_index, view_idx, pos, n, t, uv0);
 #else
-    let inner = fv::vertex_main(instance_index, 0u, pos, n, t, uv0);
+    return fv::rect_vertex_main(instance_index, 0u, pos, n, t, uv0);
 #endif
-    var out: VertexOutput;
-    out.clip_pos = inner.clip_pos;
-    out.primary_uv = inner.primary_uv;
-    out.world_pos = inner.world_pos;
-    out.world_n = inner.world_n;
-    out.view_layer = inner.view_layer;
-    out.view_n = inner.view_n;
-    out.obj_xy = pos.xy;
-    return out;
 }
 
 //#pass type=forward name=forward_filter blend=material_filter
 @fragment
-fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(vout: fv::RectVertexOutput) -> @location(0) vec4<f32> {
     fc::discard_rect_if_enabled(vout.obj_xy, mat._Rect, kw_RECTCLIP());
 
     var resolution = max(mat._Resolution.xy, vec2<f32>(1.0));

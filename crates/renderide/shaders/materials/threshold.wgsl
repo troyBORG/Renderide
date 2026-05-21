@@ -10,8 +10,7 @@
 //#mat_default _Transition float 0.01
 
 #import renderide::post::filter_common as fc
-#import renderide::mesh::vertex as mv
-#import renderide::draw::per_draw as pd
+#import renderide::post::filter_vertex as fv
 #import renderide::material::variant_bits as vb
 
 struct FiltersThresholdMaterial {
@@ -29,12 +28,6 @@ fn threshold_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) obj_xy: vec2<f32>,
-    @location(1) @interpolate(flat) view_layer: u32,
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -42,39 +35,29 @@ fn vs_main(
     @builtin(view_index) view_idx: u32,
 #endif
     @location(0) pos: vec4<f32>,
-) -> VertexOutput {
-    let d = pd::get_draw(instance_index);
-    let world_p = mv::world_position(d, pos);
+) -> fv::PositionRectVertexOutput {
 #ifdef MULTIVIEW
-    let vp = mv::select_view_proj(d, view_idx);
-    let layer = view_idx;
+    return fv::position_rect_vertex_main(instance_index, view_idx, pos);
 #else
-    let vp = mv::select_view_proj(d, 0u);
-    let layer = 0u;
+    return fv::position_rect_vertex_main(instance_index, 0u, pos);
 #endif
-
-    var out: VertexOutput;
-    out.clip_pos = vp * world_p;
-    out.obj_xy = pos.xy;
-    out.view_layer = layer;
-    return out;
 }
 
 //#pass type=forward name=forward_filter blend=material_filter
 @fragment
-fn fs_main(
-    @builtin(position) frag_pos: vec4<f32>,
-    @location(0) obj_xy: vec2<f32>,
-    @location(1) @interpolate(flat) view_layer: u32,
-) -> @location(0) vec4<f32> {
-    fc::discard_rect_if_enabled(obj_xy, mat._Rect, threshold_kw(THRESHOLD_KW_RECTCLIP));
-
-    let c = fc::sample_scene_color_at_clip(frag_pos, view_layer);
+fn fs_main(in: fv::PositionRectVertexOutput) -> @location(0) vec4<f32> {
+    let c = fc::sample_clipped_scene_color_at_clip(
+        in.obj_xy,
+        mat._Rect,
+        threshold_kw(THRESHOLD_KW_RECTCLIP),
+        in.clip_pos,
+        in.view_layer,
+    );
     let transition = select(
         mat._Transition,
         select(-1e-6, 1e-6, mat._Transition >= 0.0),
         abs(mat._Transition) < 1e-6,
     );
     let filtered = clamp(((c.rgb - vec3<f32>(mat._Threshold)) / transition) + vec3<f32>(mat._Transition * 0.5), vec3<f32>(0.0), vec3<f32>(1.0));
-    return fc::retain_globals(vec4<f32>(filtered, c.a));
+    return fc::retain_scene_alpha(c, filtered);
 }

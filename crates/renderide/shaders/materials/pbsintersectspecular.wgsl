@@ -18,16 +18,13 @@
 //#mat_default _NormalScale float 1.0
 //#mat_default _SpecularColor vec4 1.0 1.0 1.0 0.5
 
-#import renderide::core::math as rmath
 #import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
+#import renderide::pbs::families::intersect as pint
 #import renderide::pbs::lighting as plight
-#import renderide::pbs::normal as pnorm
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::frame::scene_depth_sample as sds
 #import renderide::core::uv as uvu
-#import renderide::core::normal_decode as nd
 
 struct PbsIntersectSpecularMaterial {
     _Color: vec4<f32>,
@@ -66,32 +63,6 @@ fn pbs_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
-fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
-    if (pbs_kw(PBSINTERSECTSPECULAR_KW_NORMALMAP)) {
-        let tbn = pnorm::orthonormal_tbn(world_n, world_t);
-        var ts_n = nd::decode_ts_normal_with_placeholder_sample(
-            textureSample(_NormalMap, _NormalMap_sampler, uv_main),
-            mat._NormalScale,
-        );
-        if (!front_facing) {
-            ts_n.z = -ts_n.z;
-        }
-        return normalize(tbn * ts_n);
-    }
-    if (!front_facing) {
-        return -world_n;
-    }
-    return world_n;
-}
-
-fn intersection_lerp(frag_pos: vec4<f32>, world_pos: vec3<f32>, view_layer: u32) -> f32 {
-    let diff = sds::scene_linear_depth(frag_pos, view_layer) - sds::fragment_linear_depth(world_pos, view_layer);
-    if (diff < mat._EndTransitionStart) {
-        return rmath::safe_linear_factor(mat._BeginTransitionStart, mat._BeginTransitionEnd, diff);
-    }
-    return 1.0 - rmath::safe_linear_factor(mat._EndTransitionStart, mat._EndTransitionEnd, diff);
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -122,7 +93,15 @@ fn fs_main(
     @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
-    let intersect_lerp = intersection_lerp(frag_pos, world_pos, view_layer);
+    let intersect_lerp = pint::intersection_lerp(
+        frag_pos,
+        world_pos,
+        view_layer,
+        mat._BeginTransitionStart,
+        mat._BeginTransitionEnd,
+        mat._EndTransitionStart,
+        mat._EndTransitionEnd,
+    );
 
     var c0 = mix(mat._Color, mat._IntersectColor, intersect_lerp);
     if (pbs_kw(PBSINTERSECTSPECULAR_KW_ALBEDOTEX)) {
@@ -131,7 +110,17 @@ fn fs_main(
     let base_color = c0.rgb;
     let alpha = c0.a;
 
-    let n = sample_normal_world(uv_main, world_n, world_t, front_facing);
+    let n = psamp::sample_optional_two_sided_world_normal(
+        pbs_kw(PBSINTERSECTSPECULAR_KW_NORMALMAP),
+        _NormalMap,
+        _NormalMap_sampler,
+        uv_main,
+        0.0,
+        mat._NormalScale,
+        world_n,
+        world_t,
+        front_facing,
+    );
 
     var occlusion = 1.0;
     if (pbs_kw(PBSINTERSECTSPECULAR_KW_OCCLUSION)) {

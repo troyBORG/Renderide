@@ -62,9 +62,7 @@ fn vs_main(
 //#pass type=forward name=forward_filter blend=material_filter
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    fc::discard_rect_if_enabled(in.obj_xy, mat._Rect, kw_RECTCLIP());
-
-    let c = fc::sample_scene_color_at_clip(in.clip_pos, in.view_layer);
+    let c = fc::sample_clipped_scene_color_at_clip(in.obj_xy, mat._Rect, kw_RECTCLIP(), in.clip_pos, in.view_layer);
     let gain = max(max(c.r, c.g), max(c.b, 1.0));
     var normalized = c.rgb / gain;
     if (kw_SRGB()) {
@@ -77,5 +75,5 @@ fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
         filtered = mix(filtered, secondary, mat._Lerp);
     }
     filtered = filtered * gain;
-    return fc::retain_globals(vec4<f32>(filtered, c.a));
+    return fc::retain_scene_alpha(c, filtered);
 }

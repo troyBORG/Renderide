@@ -49,9 +49,7 @@ fn vs_main(
 //#pass type=forward name=forward_filter blend=material_filter zwrite=material(on) ztest=material(main) cull=material(back) color_mask=material(rgba) stencil=material offset=material(0,0)
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    fc::discard_rect_if_enabled(in.obj_xy, mat._Rect, kw_RECTCLIP());
-
-    let c = fc::sample_scene_color_at_clip(in.clip_pos, in.view_layer);
+    let c = fc::sample_clipped_scene_color_at_clip(in.obj_xy, mat._Rect, kw_RECTCLIP(), in.clip_pos, in.view_layer);
     let filtered = pow(c.rgb, vec3<f32>(mat._Gamma));
-    return fc::retain_globals(vec4<f32>(filtered, c.a));
+    return fc::retain_scene_alpha(c, filtered);
 }

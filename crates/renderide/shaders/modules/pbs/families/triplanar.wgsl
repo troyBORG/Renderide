@@ -4,12 +4,46 @@
 
 #import renderide::core::normal_decode as nd
 #import renderide::core::texture_sampling as ts
+#import renderide::draw::per_draw as pd
+#import renderide::mesh::vertex as mv
 
 struct PlanarUvs {
     uv_x: vec2<f32>,
     uv_y: vec2<f32>,
     uv_z: vec2<f32>,
     axis_sign: vec3<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) world_n: vec3<f32>,
+    @location(2) projection_n: vec3<f32>,
+    @location(3) proj_pos: vec3<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
+}
+
+fn vertex_main(
+    instance_index: u32,
+    view_idx: u32,
+    pos: vec4<f32>,
+    n: vec4<f32>,
+    object_space_enabled: bool,
+) -> VertexOutput {
+    let d = pd::get_draw(instance_index);
+    let world_p = mv::world_position(d, pos);
+    let wn = mv::world_normal(d, n);
+    let object_n = normalize(n.xyz);
+    let vp = mv::select_view_proj(d, view_idx);
+
+    var out: VertexOutput;
+    out.clip_pos = vp * world_p;
+    out.world_pos = world_p.xyz;
+    out.world_n = wn;
+    out.proj_pos = select(world_p.xyz, pos.xyz, object_space_enabled);
+    out.projection_n = select(wn, object_n, object_space_enabled);
+    out.view_layer = mv::packed_view_layer(instance_index, view_idx);
+    return out;
 }
 
 fn blend_rnm(n1_in: vec3<f32>, n2_in: vec3<f32>) -> vec3<f32> {
@@ -125,6 +159,41 @@ fn sample_normal_projected_biased(
     let world_z = vec3<f32>(blended_z.x, blended_z.y, blended_z.z);
 
     return normalize(world_x * weights.x + world_y * weights.y + world_z * weights.z);
+}
+
+fn resolve_world_normal(
+    normal_map_enabled: bool,
+    object_space_enabled: bool,
+    view_layer: u32,
+    world_n: vec3<f32>,
+    projection_n: vec3<f32>,
+    normal_tex: texture_2d<f32>,
+    normal_samp: sampler,
+    uvs: PlanarUvs,
+    weights: vec3<f32>,
+    normal_scale: f32,
+    lod_bias: f32,
+    front_facing: bool,
+) -> vec3<f32> {
+    var n_world = sample_normal_projected_biased(
+        normal_map_enabled,
+        normal_tex,
+        normal_samp,
+        uvs,
+        normal_scale,
+        projection_n,
+        weights,
+        lod_bias,
+    );
+    if (object_space_enabled) {
+        if (normal_map_enabled) {
+            let draw = pd::get_draw(view_layer >> 1u);
+            n_world = normalize(mv::model_vector(draw, n_world));
+        } else {
+            n_world = normalize(world_n);
+        }
+    }
+    return flip_normal_for_back_face(n_world, world_n, front_facing);
 }
 
 /// Reflect the shading normal across the geometric tangent plane on back faces, mirroring Unity's

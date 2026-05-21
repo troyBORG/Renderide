@@ -64,14 +64,12 @@ fn vs_main(
 //#pass type=forward name=forward_filter blend=material_filter
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    fc::discard_rect_if_enabled(in.obj_xy, mat._Rect, kw_RECTCLIP());
-
-    let c = fc::sample_scene_color_at_clip(in.clip_pos, in.view_layer);
+    let c = fc::sample_clipped_scene_color_at_clip(in.obj_xy, mat._Rect, kw_RECTCLIP(), in.clip_pos, in.view_layer);
     let grayscale = dot(c.rgb, vec3<f32>(mat._RatioR, mat._RatioG, mat._RatioB));
     var new_color = vec3<f32>(grayscale);
     if (kw_GRADIENT()) {
         new_color = textureSampleLevel(_Gradient, _Gradient_sampler, vec2<f32>(grayscale, 0.0), 0.0).rgb;
     }
     let filtered = mix(c.rgb, new_color, mat._Lerp);
-    return fc::retain_globals(vec4<f32>(filtered, c.a));
+    return fc::retain_scene_alpha(c, filtered);
 }

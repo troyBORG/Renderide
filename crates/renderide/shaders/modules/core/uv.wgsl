@@ -12,6 +12,23 @@ fn apply_st(uv_in: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
     return uv_in * st.xy + st.zw;
 }
 
+fn pick_uv4(uv0: vec2<f32>, uv1: vec2<f32>, uv2: vec2<f32>, uv3: vec2<f32>, idx: f32) -> vec2<f32> {
+    let lo = select(uv0, uv1, idx >= 1.0);
+    let hi = select(uv2, uv3, idx >= 3.0);
+    return select(lo, hi, idx >= 2.0);
+}
+
+fn apply_st_uv4(
+    uv0: vec2<f32>,
+    uv1: vec2<f32>,
+    uv2: vec2<f32>,
+    uv3: vec2<f32>,
+    idx: f32,
+    st: vec4<f32>,
+) -> vec2<f32> {
+    return apply_st(pick_uv4(uv0, uv1, uv2, uv3, idx), st);
+}
+
 fn polar_uv(raw_uv: vec2<f32>, radius_pow: f32) -> vec2<f32> {
     let centered = raw_uv * 2.0 - 1.0;
     let angle_len = 6.28318530718;

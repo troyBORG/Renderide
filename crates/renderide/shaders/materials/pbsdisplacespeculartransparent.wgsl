@@ -21,15 +21,11 @@
 //#mat_default _AlphaClip float 0.5
 
 #import renderide::material::variant_bits as vb
-#import renderide::mesh::vertex as mv
 #import renderide::draw::per_draw as pd
 #import renderide::pbs::displace as pdisp
 #import renderide::pbs::lighting as plight
-#import renderide::pbs::normal as pnorm
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::core::math as rmath
-#import renderide::core::normal_decode as nd
 #import renderide::core::uv as uvu
 
 struct PbsDisplaceSpecularTransparentMaterial {
@@ -123,28 +119,6 @@ fn kw_VERTEX_POS_OFFSET() -> bool {
 @group(1) @binding(15) var _PositionOffsetMap: texture_2d<f32>;
 @group(1) @binding(16) var _PositionOffsetMap_sampler: sampler;
 
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) world_pos: vec3<f32>,
-    @location(1) world_n: vec3<f32>,
-    @location(2) world_t: vec4<f32>,
-    @location(3) uv0: vec2<f32>,
-    @location(4) @interpolate(flat) view_layer: u32,
-}
-
-fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
-    if (!kw_NORMALMAP()) {
-        return normalize(world_n);
-    }
-
-    let tbn = pnorm::orthonormal_tbn(world_n, world_t);
-    let ts_n = nd::decode_ts_normal_with_placeholder_sample(
-        textureSample(_NormalMap, _NormalMap_sampler, uv_main),
-        mat._NormalScale,
-    );
-    return normalize(tbn * ts_n);
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -155,7 +129,7 @@ fn vs_main(
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
     @location(4) t:vec4<f32>,
-) -> VertexOutput {
+) -> pdisp::VertexOutput {
     let d = pd::get_draw(instance_index);
     let displaced_uv = pdisp::apply_vertex_offsets(
         pos.xyz,
@@ -178,26 +152,11 @@ fn vs_main(
     let displaced = displaced_uv.position;
     let uv = displaced_uv.uv;
 
-    let world_p = d.model * vec4<f32>(displaced, 1.0);
-    let wn = rmath::safe_normalize(d.normal_matrix * n.xyz, vec3<f32>(0.0, 1.0, 0.0));
-    let wt = mv::world_tangent(d, t);
 #ifdef MULTIVIEW
-    let vp = mv::select_view_proj(d, view_idx);
+    return pdisp::vertex_output(d, instance_index, view_idx, n, t, displaced, uv);
 #else
-    let vp = mv::select_view_proj(d, 0u);
+    return pdisp::vertex_output(d, instance_index, 0u, n, t, displaced, uv);
 #endif
-    var out: VertexOutput;
-    out.clip_pos = vp * world_p;
-    out.world_pos = world_p.xyz;
-    out.world_n = wn;
-    out.world_t = wt;
-    out.uv0 = uv;
-#ifdef MULTIVIEW
-    out.view_layer = mv::packed_view_layer(instance_index, view_idx);
-#else
-    out.view_layer = mv::packed_view_layer(instance_index, 0u);
-#endif
-    return out;
 }
 
 fn shade(
@@ -248,7 +207,16 @@ fn shade(
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 
-    let n = sample_normal_world(uv_main, world_n, world_t);
+    let n = psamp::sample_optional_world_normal(
+        kw_NORMALMAP(),
+        _NormalMap,
+        _NormalMap_sampler,
+        uv_main,
+        0.0,
+        mat._NormalScale,
+        world_n,
+        world_t,
+    );
     let base_color = c.rgb;
     let surface = psurf::specular_with_geometric_normal(
         base_color,

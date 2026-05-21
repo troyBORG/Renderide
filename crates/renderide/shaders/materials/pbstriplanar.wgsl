@@ -24,9 +24,7 @@
 //#mat_default _TriBlendPower float 4.0
 //#mat_default _Glossiness float 0.5
 
-#import renderide::draw::per_draw as pd
 #import renderide::material::variant_bits as vb
-#import renderide::mesh::vertex as mv
 #import renderide::pbs::families::triplanar as ptri
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -110,18 +108,6 @@ fn kw_OCCLUSION() -> bool {
     return pbstriplanar_kw(PBSTRIPLANAR_KW_OCCLUSION);
 }
 
-/// Interpolated vertex output forwarded to both forward-base and forward-add fragments.
-///
-/// `proj_pos` and `projection_n` use world or object space according to the shader keyword.
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) world_pos: vec3<f32>,
-    @location(1) world_n: vec3<f32>,
-    @location(2) projection_n: vec3<f32>,
-    @location(3) proj_pos: vec3<f32>,
-    @location(4) @interpolate(flat) view_layer: u32,
-}
-
 /// Resolved per-fragment shading inputs for the metallic Cook-Torrance path.
 struct SurfaceData {
     base_color: vec3<f32>,
@@ -173,25 +159,20 @@ fn sample_surface(
         emission = emission * ptri::sample_rgba_biased(_EmissionMap, _EmissionMap_sampler, uvs, weights, mat._EmissionMap_LodBias);
     }
 
-    var n_world = ptri::sample_normal_projected_biased(
+    let n = ptri::resolve_world_normal(
         normal_map,
+        object_space,
+        view_layer,
+        world_n,
+        projection_n,
         _NormalMap,
         _NormalMap_sampler,
         uvs,
-        mat._NormalScale,
-        projection_n,
         weights,
+        mat._NormalScale,
         mat._NormalMap_LodBias,
+        front_facing,
     );
-    if (object_space) {
-        if (normal_map) {
-            let d = pd::get_draw(view_layer >> 1u);
-            n_world = normalize(mv::model_vector(d, n_world));
-        } else {
-            n_world = normalize(world_n);
-        }
-    }
-    let n = ptri::flip_normal_for_back_face(n_world, world_n, front_facing);
 
     return SurfaceData(
         c.rgb,
@@ -214,29 +195,12 @@ fn vs_main(
 #endif
     @location(0) pos: vec4<f32>,
     @location(1) n: vec4<f32>,
-) -> VertexOutput {
-    let d = pd::get_draw(instance_index);
-    let world_p = mv::world_position(d, pos);
-    let wn = mv::world_normal(d, n);
-    let object_n = normalize(n.xyz);
+) -> ptri::VertexOutput {
 #ifdef MULTIVIEW
-    let vp = mv::select_view_proj(d, view_idx);
+    return ptri::vertex_main(instance_index, view_idx, pos, n, kw_OBJECTSPACE());
 #else
-    let vp = mv::select_view_proj(d, 0u);
+    return ptri::vertex_main(instance_index, 0u, pos, n, kw_OBJECTSPACE());
 #endif
-
-    var out: VertexOutput;
-    out.clip_pos = vp * world_p;
-    out.world_pos = world_p.xyz;
-    out.world_n = wn;
-    out.proj_pos = select(world_p.xyz, pos.xyz, kw_OBJECTSPACE());
-    out.projection_n = select(wn, object_n, kw_OBJECTSPACE());
-#ifdef MULTIVIEW
-    out.view_layer = mv::packed_view_layer(instance_index, view_idx);
-#else
-    out.view_layer = mv::packed_view_layer(instance_index, 0u);
-#endif
-    return out;
 }
 
 /// Forward-base pass: ambient + directional lighting + emission.

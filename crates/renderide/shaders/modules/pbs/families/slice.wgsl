@@ -3,6 +3,9 @@
 #define_import_path renderide::pbs::families::slice
 
 #import renderide::core::math as rmath
+#import renderide::core::normal_decode as nd
+#import renderide::core::texture_sampling as ts
+#import renderide::pbs::normal as pnorm
 
 /// Result of evaluating up to eight slice planes against a fragment position.
 struct SliceEvalResult {
@@ -54,4 +57,52 @@ fn slice_position(
 
 fn blend_detail_normal(base_ts: vec3<f32>, detail_ts: vec3<f32>) -> vec3<f32> {
     return normalize(vec3<f32>(base_ts.xy + detail_ts.xy, base_ts.z * detail_ts.z));
+}
+
+fn sample_world_normal(
+    normal_map_enabled: bool,
+    detail_normal_map_enabled: bool,
+    normal_map: texture_2d<f32>,
+    normal_map_sampler: sampler,
+    detail_normal_map: texture_2d<f32>,
+    detail_normal_map_sampler: sampler,
+    uv_main: vec2<f32>,
+    uv_detail: vec2<f32>,
+    normal_lod_bias: f32,
+    detail_normal_lod_bias: f32,
+    normal_scale: f32,
+    detail_normal_scale: f32,
+    world_n: vec3<f32>,
+    world_t: vec4<f32>,
+    front_facing: bool,
+) -> vec3<f32> {
+    if (normal_map_enabled || detail_normal_map_enabled) {
+        let tbn = pnorm::orthonormal_tbn(world_n, world_t);
+        var ts_n = nd::decode_ts_normal_with_placeholder_sample(
+            ts::sample_tex_2d(normal_map, normal_map_sampler, uv_main, normal_lod_bias),
+            normal_scale,
+        );
+        if (detail_normal_map_enabled) {
+            let detail = nd::decode_ts_normal_with_placeholder_sample(
+                ts::sample_tex_2d(
+                    detail_normal_map,
+                    detail_normal_map_sampler,
+                    uv_detail,
+                    detail_normal_lod_bias,
+                ),
+                detail_normal_scale,
+            );
+            ts_n = blend_detail_normal(ts_n, detail);
+        }
+        if (!front_facing) {
+            ts_n = vec3<f32>(ts_n.x, ts_n.y, -ts_n.z);
+        }
+        return normalize(tbn * ts_n);
+    }
+
+    var n = normalize(world_n);
+    if (!front_facing) {
+        n = -n;
+    }
+    return n;
 }

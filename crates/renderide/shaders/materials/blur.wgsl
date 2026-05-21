@@ -17,7 +17,6 @@
 #import renderide::core::texture_sampling as ts
 #import renderide::core::uv as uvu
 #import renderide::post::filter_math as fm
-#import renderide::post::filter_vertex as fv
 #import renderide::post::filter_common as fc
 #import renderide::post::filter_refraction as fr
 #import renderide::frame::grab_pass as gp
@@ -49,17 +48,6 @@ const BLUR_KW_SPREAD_TEX: u32 = 1u << 4u;
 @group(1) @binding(2) var _SpreadTex_sampler: sampler;
 @group(1) @binding(3) var _NormalMap: texture_2d<f32>;
 @group(1) @binding(4) var _NormalMap_sampler: sampler;
-
-struct BlurVertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) primary_uv: vec2<f32>,
-    @location(1) world_pos: vec3<f32>,
-    @location(2) view_n: vec3<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
-    @location(4) obj_xy: vec2<f32>,
-    @location(5) view_t: vec4<f32>,
-    @location(6) clip_w: f32,
-}
 
 fn blur_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
@@ -95,23 +83,12 @@ fn vs_main(
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
     @location(4) t: vec4<f32>,
-) -> BlurVertexOutput {
+) -> fr::VertexOutput {
 #ifdef MULTIVIEW
-    let layer = view_idx;
+    return fr::vertex_main(instance_index, view_idx, pos, n, t, uv0);
 #else
-    let layer = 0u;
+    return fr::vertex_main(instance_index, 0u, pos, n, t, uv0);
 #endif
-    let inner = fv::vertex_main(instance_index, layer, pos, n, t, uv0);
-    var out: BlurVertexOutput;
-    out.clip_pos = inner.clip_pos;
-    out.primary_uv = inner.primary_uv;
-    out.world_pos = inner.world_pos;
-    out.view_n = inner.view_n;
-    out.view_layer = inner.view_layer;
-    out.obj_xy = pos.xy;
-    out.view_t = fr::view_tangent_for_draw(instance_index, layer, inner.world_t);
-    out.clip_w = inner.clip_pos.w;
-    return out;
 }
 
 fn refraction_enabled() -> bool {
@@ -162,7 +139,7 @@ fn sample_blur(center_uv: vec2<f32>, spread: vec2<f32>, iterations: f32, view_la
 
 //#pass type=forward name=forward_filter blend=material_filter
 @fragment
-fn fs_main(in: BlurVertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: fr::VertexOutput) -> @location(0) vec4<f32> {
     fc::discard_rect_if_enabled(in.obj_xy, mat._Rect, kw_RECTCLIP());
     let screen_uv = fc::screen_uv(in.clip_pos);
     let center_uv = screen_uv - refract_offset(in.primary_uv, in.view_n, in.view_t, in.clip_w);

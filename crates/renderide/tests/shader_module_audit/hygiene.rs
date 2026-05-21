@@ -109,8 +109,10 @@ fn material_roots_do_not_redeclare_shared_helpers() -> io::Result<()> {
 
         for forbidden in [
             "fn alpha_over",
+            "fn intersection_lerp",
             "fn inside_rect",
             "fn outside_rect",
+            "fn pick_uv(",
             "fn unpack_normal_xy",
             "fn roughness_from_smoothness",
             "fn safe_normalize",
@@ -128,6 +130,94 @@ fn material_roots_do_not_redeclare_shared_helpers() -> io::Result<()> {
         "material roots should import shared helper modules instead of redeclaring them:\n  {}",
         offenders.join("\n  ")
     );
+    Ok(())
+}
+
+#[test]
+fn pbs_family_roots_use_shared_shader_modules() -> io::Result<()> {
+    for material in ["pbsmultiuv.wgsl", "pbsmultiuvspecular.wgsl"] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("uvu::apply_st_uv4(") && !src.contains("fn pick_uv("),
+            "{material} must route UV0-UV3 selection through core::uv"
+        );
+    }
+
+    for material in ["pbsintersect.wgsl", "pbsintersectspecular.wgsl"] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("renderide::pbs::families::intersect as pint")
+                && src.contains("pint::intersection_lerp(")
+                && !src.contains("fn intersection_lerp("),
+            "{material} must route scene-depth intersection math through the intersect family module"
+        );
+    }
+
+    for material in [
+        "pbsdisplace.wgsl",
+        "pbsdisplacespecular.wgsl",
+        "pbsdisplacetransparent.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("-> pdisp::VertexOutput")
+                && src.contains("pdisp::vertex_output(")
+                && !src.contains("struct VertexOutput")
+                && !src.contains("fn sample_normal_world("),
+            "{material} must use the displacement module for vertex payloads and PBS sampling helpers for normals"
+        );
+    }
+
+    for material in [
+        "pbsdistancelerp.wgsl",
+        "pbsdistancelerpspecular.wgsl",
+        "pbsdistancelerptransparent.wgsl",
+        "pbsdistancelerpspeculartransparent.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("-> pdist::VertexOutput")
+                && src.contains("pdist::vertex_main(")
+                && !src.contains("struct VertexOutput")
+                && !src.contains("fn sample_normal_world("),
+            "{material} must use the DistanceLerp family module for vertex payloads and PBS sampling helpers for normals"
+        );
+    }
+
+    for material in [
+        "pbsslice.wgsl",
+        "pbsslicespecular.wgsl",
+        "pbsslicetransparent.wgsl",
+        "pbsslicetransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("pslice::sample_world_normal(")
+                && !src.contains("fn sample_normal_world(")
+                && !src.contains("renderide::pbs::normal as pnorm")
+                && !src.contains("renderide::core::normal_decode as nd"),
+            "{material} must route slice normal-map blending through the Slice family module"
+        );
+    }
+
+    for material in [
+        "pbstriplanar.wgsl",
+        "pbstriplanarspecular.wgsl",
+        "pbstriplanartransparent.wgsl",
+        "pbstriplanartransparentspecular.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("ptri::vertex_main(")
+                && src.contains("ptri::resolve_world_normal(")
+                && !src.contains("mv::model_vector(")
+                && !src.contains("renderide::draw::per_draw as pd")
+                && !src.contains("renderide::mesh::vertex as mv"),
+            "{material} must use the triplanar family module for vertex payloads and object-space normal remapping"
+        );
+    }
+
     Ok(())
 }
 

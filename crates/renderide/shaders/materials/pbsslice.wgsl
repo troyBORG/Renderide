@@ -31,12 +31,10 @@
 #import renderide::material::variant_bits as vb
 #import renderide::pbs::families::slice as pslice
 #import renderide::pbs::lighting as plight
-#import renderide::pbs::normal as pnorm
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
 #import renderide::core::texture_sampling as ts
 #import renderide::core::uv as uvu
-#import renderide::core::normal_decode as nd
 
 struct PBSSliceMaterial {
     _Color: vec4<f32>,
@@ -104,40 +102,6 @@ fn sample_albedo_color(uv_main: vec2<f32>, edge_lerp: f32) -> vec4<f32> {
     return tint;
 }
 
-fn sample_normal_world(
-    uv_main: vec2<f32>,
-    uv_detail: vec2<f32>,
-    world_n: vec3<f32>,
-    world_t: vec4<f32>,
-    front_facing: bool,
-) -> vec3<f32> {
-    let use_normal_map = pbs_kw(PBSSLICE_KW_NORMALMAP) || pbs_kw(PBSSLICE_KW_DETAIL_NORMALMAP);
-    if (use_normal_map) {
-        let tbn = pnorm::orthonormal_tbn(world_n, world_t);
-        var ts_n = nd::decode_ts_normal_with_placeholder_sample(
-            ts::sample_tex_2d(_NormalMap, _NormalMap_sampler, uv_main, mat._NormalMap_LodBias),
-            mat._NormalScale,
-        );
-        if (pbs_kw(PBSSLICE_KW_DETAIL_NORMALMAP)) {
-            let detail = nd::decode_ts_normal_with_placeholder_sample(
-                ts::sample_tex_2d(_DetailNormalMap, _DetailNormalMap_sampler, uv_detail, mat._DetailNormalMap_LodBias),
-                mat._DetailNormalMapScale,
-            );
-            ts_n = pslice::blend_detail_normal(ts_n, detail);
-        }
-        // Unity surface shader path flips tangent-space Z on back faces.
-        if (!front_facing) {
-            ts_n = vec3<f32>(ts_n.x, ts_n.y, -ts_n.z);
-        }
-        return normalize(tbn * ts_n);
-    }
-    var n = normalize(world_n);
-    if (!front_facing) {
-        n = -n;
-    }
-    return n;
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -201,7 +165,23 @@ fn fs_main(
 
     let base_color = c.rgb;
     let alpha = c.a;
-    let n = sample_normal_world(uv_main, uv_detail_normal, world_n, world_t, front_facing);
+    let n = pslice::sample_world_normal(
+        pbs_kw(PBSSLICE_KW_NORMALMAP),
+        pbs_kw(PBSSLICE_KW_DETAIL_NORMALMAP),
+        _NormalMap,
+        _NormalMap_sampler,
+        _DetailNormalMap,
+        _DetailNormalMap_sampler,
+        uv_main,
+        uv_detail_normal,
+        mat._NormalMap_LodBias,
+        mat._DetailNormalMap_LodBias,
+        mat._NormalScale,
+        mat._DetailNormalMapScale,
+        world_n,
+        world_t,
+        front_facing,
+    );
 
     var occlusion: f32 = 1.0;
     if (pbs_kw(PBSSLICE_KW_OCCLUSION)) {

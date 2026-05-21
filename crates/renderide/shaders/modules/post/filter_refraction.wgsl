@@ -11,11 +11,46 @@
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::post::filter_math as fm
+#import renderide::post::filter_vertex as fv
+
+struct VertexOutput {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) primary_uv: vec2<f32>,
+    @location(1) world_pos: vec3<f32>,
+    @location(2) world_n: vec3<f32>,
+    @location(3) @interpolate(flat) view_layer: u32,
+    @location(4) view_n: vec3<f32>,
+    @location(5) obj_xy: vec2<f32>,
+    @location(6) view_t: vec4<f32>,
+    @location(7) clip_w: f32,
+}
 
 fn view_tangent_for_draw(instance_index: u32, view_idx: u32, world_t: vec4<f32>) -> vec4<f32> {
     let d = pd::get_draw(instance_index);
     let vp = mv::select_view_proj(d, view_idx);
     return vec4<f32>(vbasis::world_to_view_normal(world_t.xyz, vp), world_t.w);
+}
+
+fn vertex_main(
+    instance_index: u32,
+    view_idx: u32,
+    pos: vec4<f32>,
+    n: vec4<f32>,
+    t: vec4<f32>,
+    uv0: vec2<f32>,
+) -> VertexOutput {
+    let inner = fv::vertex_main(instance_index, view_idx, pos, n, t, uv0);
+    var out: VertexOutput;
+    out.clip_pos = inner.clip_pos;
+    out.primary_uv = inner.primary_uv;
+    out.world_pos = inner.world_pos;
+    out.world_n = inner.world_n;
+    out.view_layer = inner.view_layer;
+    out.view_n = inner.view_n;
+    out.obj_xy = pos.xy;
+    out.view_t = view_tangent_for_draw(instance_index, view_idx, inner.world_t);
+    out.clip_w = inner.clip_pos.w;
+    return out;
 }
 
 fn normal_offset(

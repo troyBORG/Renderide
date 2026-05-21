@@ -27,6 +27,12 @@ struct RectVertexOutput {
     @location(5) obj_xy: vec2<f32>,
 }
 
+struct PositionRectVertexOutput {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) obj_xy: vec2<f32>,
+    @location(1) @interpolate(flat) view_layer: u32,
+}
+
 fn vertex_main(
     instance_index: u32,
     view_idx: u32,
@@ -68,5 +74,21 @@ fn rect_vertex_main(
     out.view_layer = inner.view_layer;
     out.view_n = inner.view_n;
     out.obj_xy = pos.xy;
+    return out;
+}
+
+fn position_rect_vertex_main(
+    instance_index: u32,
+    view_idx: u32,
+    pos: vec4<f32>,
+) -> PositionRectVertexOutput {
+    let d = pd::get_draw(instance_index);
+    let world_p = mv::world_position(d, pos);
+    let vp = mv::select_view_proj(d, view_idx);
+
+    var out: PositionRectVertexOutput;
+    out.clip_pos = vp * world_p;
+    out.obj_xy = pos.xy;
+    out.view_layer = view_idx;
     return out;
 }

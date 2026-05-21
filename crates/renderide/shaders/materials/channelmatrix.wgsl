@@ -57,13 +57,12 @@ fn vs_main(
 //#pass type=forward name=forward_filter blend=material_filter
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    fc::discard_rect_if_enabled(in.obj_xy, mat._Rect, kw_RECTCLIP());
-    let c = fc::sample_scene_color_at_clip(in.clip_pos, in.view_layer);
+    let c = fc::sample_clipped_scene_color_at_clip(in.obj_xy, mat._Rect, kw_RECTCLIP(), in.clip_pos, in.view_layer);
     let remapped = vec3<f32>(
         dot(mat._LevelsR.xyz, c.rgb) + mat._LevelsR.w,
         dot(mat._LevelsG.xyz, c.rgb) + mat._LevelsG.w,
         dot(mat._LevelsB.xyz, c.rgb) + mat._LevelsB.w,
     );
     let filtered = clamp(remapped, mat._ClampMin.xyz, mat._ClampMax.xyz);
-    return fc::retain_globals(vec4<f32>(filtered, c.a));
+    return fc::retain_scene_alpha(c, filtered);
 }
