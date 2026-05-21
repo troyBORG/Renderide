@@ -464,17 +464,15 @@ pub(in crate::runtime) fn select_inner_parallelism(
     }
 }
 
-/// Prepared-draw count above which two outer-parallel views are allowed to keep inner chunk
-/// parallelism enabled. Below this, nested rayon scheduling usually costs more than it saves.
+/// Prepared-draw count above which two outer-parallel views keep inner chunk parallelism enabled.
 ///
-/// The gate is four prepared 64-draw chunks: enough independent work for two views without
-/// making small stereo frames recursively fan out.
-const MIN_DRAWS_FOR_TWO_VIEW_INNER_PARALLELISM: usize = 256;
+/// The gate is two prepared 64-draw chunks per view.
+const MIN_DRAWS_FOR_TWO_VIEW_INNER_PARALLELISM: usize = 128;
 
 /// Estimated total prepared draws above which view-level parallel collection pays for itself.
 ///
-/// Two views with one 64-draw chunk each can overlap cull and draw collection work.
-const MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION: usize = 128;
+/// Two non-empty view chunks can overlap cull and draw collection work.
+const MIN_TOTAL_DRAWS_FOR_PARALLEL_VIEW_COLLECTION: usize = 2;
 
 /// Refines the frame-level inner parallelism once the backend has built the prepared draw list.
 ///

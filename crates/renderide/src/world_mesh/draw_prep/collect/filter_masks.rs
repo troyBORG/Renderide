@@ -8,7 +8,7 @@ use crate::scene::RenderSpaceId;
 use super::DrawCollectionContext;
 
 /// Render-space count at which per-space filter mask construction uses Rayon.
-const FILTER_MASK_PARALLEL_MIN_SPACES: usize = 4;
+const FILTER_MASK_PARALLEL_MIN_SPACES: usize = 2;
 
 /// Builds per-space `Vec<bool>` masks from [`DrawCollectionContext::transform_filter`].
 ///

@@ -53,10 +53,10 @@ pub(in crate::runtime) fn await_buffer_map(
     }
 }
 
-/// Buffers at or above this size are zero-filled through rayon.
-const PAR_FILL_THRESHOLD: usize = 128 * 1024;
 /// Per-thread fill chunk for large shared-memory result buffers.
 const PAR_FILL_CHUNK: usize = 64 * 1024;
+/// Buffers at or above this size are zero-filled through rayon.
+const PAR_FILL_THRESHOLD: usize = PAR_FILL_CHUNK * 2;
 
 /// Zero-fills `bytes` using a parallel chunked path for large buffers and a single-threaded
 /// `fill` for small ones.

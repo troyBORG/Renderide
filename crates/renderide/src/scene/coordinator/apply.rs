@@ -57,8 +57,8 @@ use super::super::transforms::{
 /// Minimum independent render-space slots before Phase B may use rayon workers.
 const MIN_SPACES_FOR_PARALLEL_APPLY: usize = 2;
 
-/// Minimum extracted row count before Phase B may pay rayon dispatch overhead.
-const MIN_APPLY_PARALLEL_WORK_UNITS: usize = 192;
+/// Minimum extracted row count before Phase B may fan out across render-space slots.
+const MIN_APPLY_PARALLEL_WORK_UNITS: usize = MIN_SPACES_FOR_PARALLEL_APPLY;
 
 /// Returns `true` when [`ExtractedRenderSpaceUpdate`] carries no body work for this tick (every
 /// per-update payload is `None`).

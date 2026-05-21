@@ -6,11 +6,13 @@ use rayon::prelude::*;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::RenderingContext;
 
+/// Bone count assigned to one palette construction worker chunk.
+const SKINNING_PALETTE_PARALLEL_CHUNK_BONES: usize = 64;
 /// Bone count above which palette construction fans out across rayon.
 ///
-/// Per-bone work is one world lookup plus a Mat4 multiply, so medium skinned meshes can amortize
-/// worker dispatch once the palette reaches a few hundred bones.
-const SKINNING_PALETTE_PARALLEL_MIN: usize = 128;
+/// Per-bone work is one world lookup plus a Mat4 multiply, so two chunks are enough to amortize
+/// worker dispatch once the palette reaches medium sizes.
+const SKINNING_PALETTE_PARALLEL_MIN: usize = SKINNING_PALETTE_PARALLEL_CHUNK_BONES * 2;
 
 /// Bytes per column-major `mat4<f32>` slot in the GPU-facing palette buffer.
 const PALETTE_BONE_BYTES: usize = 64;
@@ -104,6 +106,7 @@ pub fn build_skinning_palette(params: SkinningPaletteParams<'_>) -> Option<Vec<M
         params
             .skinning_bind_matrices
             .par_iter()
+            .with_min_len(SKINNING_PALETTE_PARALLEL_CHUNK_BONES)
             .enumerate()
             .map(|(bi, bind_mat)| resolver.matrix(bi, bind_mat))
             .collect()
@@ -146,7 +149,14 @@ pub fn write_skinning_palette_bytes(
             out.set_len(total_bytes);
         }
         out.par_chunks_exact_mut(PALETTE_BONE_BYTES)
-            .zip(params.skinning_bind_matrices.par_iter().enumerate())
+            .with_min_len(SKINNING_PALETTE_PARALLEL_CHUNK_BONES)
+            .zip(
+                params
+                    .skinning_bind_matrices
+                    .par_iter()
+                    .with_min_len(SKINNING_PALETTE_PARALLEL_CHUNK_BONES)
+                    .enumerate(),
+            )
             .for_each(|(slot, (bi, bind_mat))| {
                 let pal = resolver.matrix(bi, bind_mat);
                 slot.copy_from_slice(bytemuck::cast_slice(&pal.to_cols_array()));

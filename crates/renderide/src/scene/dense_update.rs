@@ -1,5 +1,8 @@
 //! Helpers for negative-terminated dense renderable update slabs.
 
+/// Row count assigned to one dense fixup worker chunk.
+const FIXUP_PARALLEL_CHUNK_ROWS: usize = 64;
+
 /// Minimum slab length required before transform-removal fixups switch from a
 /// serial loop to a rayon parallel iterator.
 ///
@@ -7,7 +10,7 @@
 /// render-transform/material overrides) share this threshold so the choice
 /// remains consistent and easy to retune in one place. Below this length the
 /// thread-pool dispatch overhead outweighs the per-element work.
-pub(crate) const FIXUP_PARALLEL_MIN: usize = 128;
+pub(crate) const FIXUP_PARALLEL_MIN: usize = FIXUP_PARALLEL_CHUNK_ROWS * 2;
 
 /// Iterates non-negative entries until the host terminator.
 pub(crate) fn non_negative_i32s(values: &[i32]) -> impl Iterator<Item = i32> + '_ {
@@ -73,7 +76,9 @@ where
 {
     if rows.len() >= FIXUP_PARALLEL_MIN {
         use rayon::prelude::*;
-        rows.par_iter_mut().for_each(update_row);
+        rows.par_iter_mut()
+            .with_min_len(FIXUP_PARALLEL_CHUNK_ROWS)
+            .for_each(update_row);
     } else {
         for row in rows.iter_mut() {
             update_row(row);

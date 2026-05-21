@@ -11,11 +11,17 @@ use super::super::mip_write_common::{
     mip_src_to_upload_pixels as shared_mip_src_to_upload_pixels,
 };
 
-const DOWNSAMPLE_PARALLEL_MIN_TEXELS: usize = 8_192;
+/// Destination texels assigned to one downsample worker chunk.
+const DOWNSAMPLE_PARALLEL_CHUNK_TEXELS: usize = 4_096;
+/// Destination texel count above which downsampling may use Rayon.
+const DOWNSAMPLE_PARALLEL_MIN_TEXELS: usize = DOWNSAMPLE_PARALLEL_CHUNK_TEXELS * 2;
+/// Destination rows required before row-parallel downsampling can produce multiple chunks.
+const DOWNSAMPLE_PARALLEL_MIN_ROWS: usize = 2;
 
 #[inline]
 fn should_parallelize_downsample(dst_w: usize, dst_h: usize) -> bool {
-    dst_w.saturating_mul(dst_h) >= DOWNSAMPLE_PARALLEL_MIN_TEXELS
+    dst_h >= DOWNSAMPLE_PARALLEL_MIN_ROWS
+        && dst_w.saturating_mul(dst_h) >= DOWNSAMPLE_PARALLEL_MIN_TEXELS
 }
 
 /// Converts host mip bytes into a buffer suitable for [`write_one_mip`] (decode, optional row flip).

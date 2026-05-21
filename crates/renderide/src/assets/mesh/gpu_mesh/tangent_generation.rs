@@ -22,11 +22,14 @@ const DEFAULT_TANGENT: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const DEFAULT_TANGENT_VEC: Vec4 = Vec4::new(1.0, 0.0, 0.0, 1.0);
 const DEFAULT_RAW_TANGENT_PAYLOAD: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const TANGENT_EPSILON_SQUARED: f32 = 1.0e-20;
+/// Vertices assigned to one tangent extraction or encoding worker chunk.
+const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 512;
+
 /// Vertex count above which vertex-stream extraction and tangent encoding fan out across rayon.
 ///
-/// Production meshes cluster around 1k-8k vertices, so a threshold of 2048 lets medium avatar and
-/// prop meshes use the worker pool while tiny meshes stay serial.
-const VERTEX_STREAM_PARALLEL_MIN: usize = 1_024;
+/// Production meshes cluster around 1k-8k vertices, so a two-chunk threshold lets medium avatar
+/// and prop meshes use the worker pool while tiny meshes stay serial.
+const VERTEX_STREAM_PARALLEL_MIN: usize = VERTEX_STREAM_PARALLEL_CHUNK_VERTICES * 2;
 
 /// CPU-side mesh source used to extract or generate tangent streams.
 #[derive(Copy, Clone)]
@@ -134,6 +137,7 @@ fn host_tangent_stream_bytes(
     };
     if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
         out.par_chunks_exact_mut(16)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
             .enumerate()
             .for_each(|(vertex, slot)| copy_one(slot, vertex));
     } else {
@@ -231,7 +235,11 @@ fn read_vertex_stream3(
             .unwrap_or(Vec3::ZERO)
     };
     let out: Vec<Vec3> = if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
-        (0..vertex_count).into_par_iter().map(read_one).collect()
+        (0..vertex_count)
+            .into_par_iter()
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .map(read_one)
+            .collect()
     } else {
         (0..vertex_count).map(read_one).collect()
     };
@@ -255,7 +263,11 @@ fn read_vertex_stream2(
             .unwrap_or(Vec2::ZERO)
     };
     let out: Vec<Vec2> = if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
-        (0..vertex_count).into_par_iter().map(read_one).collect()
+        (0..vertex_count)
+            .into_par_iter()
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .map(read_one)
+            .collect()
     } else {
         (0..vertex_count).map(read_one).collect()
     };
@@ -337,7 +349,12 @@ fn encode_tangents(tangents: &[Vec4]) -> Vec<u8> {
     };
     if tangents.len() >= VERTEX_STREAM_PARALLEL_MIN {
         out.par_chunks_exact_mut(16)
-            .zip(tangents.par_iter())
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .zip(
+                tangents
+                    .par_iter()
+                    .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES),
+            )
             .for_each(|(slot, tangent)| write_one(slot, tangent));
     } else {
         for (slot, tangent) in out.chunks_exact_mut(16).zip(tangents.iter()) {

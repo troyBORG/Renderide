@@ -7,8 +7,10 @@ use crate::shared::{VertexAttributeDescriptor, VertexAttributeFormat, VertexAttr
 use super::super::gpu_mesh::attribute_reader::AttributeReader;
 use super::buffer_layout::vertex_format_size;
 
+/// Vertices assigned to one stream expansion worker chunk.
+const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 512;
 /// Vertex count above which stream expansion fans out across Rayon workers.
-const VERTEX_STREAM_PARALLEL_MIN: usize = 1_024;
+const VERTEX_STREAM_PARALLEL_MIN: usize = VERTEX_STREAM_PARALLEL_CHUNK_VERTICES * 2;
 
 /// Host UV channels exposed through the mesh-forward vertex path.
 pub const UV_VERTEX_ATTRIBUTE_TYPES: [VertexAttributeType; 8] = [
@@ -98,7 +100,12 @@ pub fn extract_float3_position_normal_as_vec4_streams(
     if should_parallelize_vertex_stream(vertex_count) {
         pos_out
             .par_chunks_exact_mut(16)
-            .zip(nrm_out.par_chunks_exact_mut(16))
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .zip(
+                nrm_out
+                    .par_chunks_exact_mut(16)
+                    .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES),
+            )
             .enumerate()
             .try_for_each(|(i, (pos_slot, nrm_slot))| {
                 write_position_normal_vertex(
@@ -163,7 +170,9 @@ fn fill_normal_stream_with_forward_z(out: &mut [u8]) {
         chunk[12..16].copy_from_slice(&zero);
     };
     if should_parallelize_vertex_stream(out.len() / 16) {
-        out.par_chunks_exact_mut(16).for_each(write_chunk);
+        out.par_chunks_exact_mut(16)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .for_each(write_chunk);
     } else {
         out.chunks_exact_mut(16).for_each(write_chunk);
     }
@@ -220,6 +229,7 @@ pub fn vertex_float2_stream_bytes(
     };
     if should_parallelize_vertex_stream(vertex_count) {
         out.par_chunks_exact_mut(8)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
             .enumerate()
             .try_for_each(|(i, slot)| write_vertex_float2(&reader, i, slot))?;
     } else {
@@ -269,6 +279,7 @@ pub fn wide_uv_stream_bytes(
 
     if should_parallelize_vertex_stream(vertex_count) {
         out.par_chunks_exact_mut(WIDE_UV_VERTEX_STRIDE_BYTES)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
             .enumerate()
             .try_for_each(|(vertex, slot)| write_wide_uv_vertex(&readers, vertex, slot))?;
     } else {
@@ -327,6 +338,7 @@ fn vertex_float4_stream_bytes_with_kind(
     };
     if should_parallelize_vertex_stream(vertex_count) {
         out.par_chunks_exact_mut(16)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
             .enumerate()
             .try_for_each(|(i, slot)| write_vertex_float4(&reader, i, slot, default))?;
     } else {
@@ -428,6 +440,7 @@ pub fn color_float4_stream_bytes(
 
     if should_parallelize_vertex_stream(vertex_count) {
         out.par_chunks_exact_mut(16)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
             .enumerate()
             .try_for_each(|(i, slot)| write_vertex_float4(&reader, i, slot, [1.0; 4]))?;
     } else {
@@ -448,7 +461,9 @@ fn fill_float4_stream_with_default(out: &mut [u8], default: [f32; 4]) {
         }
     };
     if should_parallelize_vertex_stream(out.len() / 16) {
-        out.par_chunks_exact_mut(16).for_each(write_chunk);
+        out.par_chunks_exact_mut(16)
+            .with_min_len(VERTEX_STREAM_PARALLEL_CHUNK_VERTICES)
+            .for_each(write_chunk);
     } else {
         out.chunks_exact_mut(16).for_each(write_chunk);
     }

@@ -139,13 +139,21 @@ fn run_suite_with(
         .map_err(|e| HarnessError::QueueOptions(format!("build suite thread pool: {e}")))?;
 
     let runner = &config.runner;
-    let case_reports = pool.install(|| {
+    let case_reports = if jobs >= 2 && config.cases.len() >= 2 {
+        pool.install(|| {
+            config
+                .cases
+                .par_iter()
+                .map(|case| run_case(case, runner))
+                .collect::<Vec<_>>()
+        })
+    } else {
         config
             .cases
-            .par_iter()
+            .iter()
             .map(|case| run_case(case, runner))
             .collect::<Vec<_>>()
-    });
+    };
 
     let report = SuiteReport::from_cases(case_reports);
     let report_path = write_suite_report(&config.runner.output_root, &report)?;

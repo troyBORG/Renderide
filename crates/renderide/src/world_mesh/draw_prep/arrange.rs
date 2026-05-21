@@ -12,11 +12,14 @@ use crate::world_mesh::phase_classification::classify_world_mesh_batch;
 use super::item::{WorldMeshDrawArrangementStats, WorldMeshDrawItem};
 use super::sort::sort_order_sensitive_draws;
 
+/// Draws assigned to one phase-partition worker chunk.
+const ARRANGE_PARALLEL_CHUNK_DRAWS: usize = 256;
+
 /// Draw count at which phase partitioning uses Rayon workers.
 ///
 /// Partitioning builds worker-local maps and then merges them, so this remains more conservative
 /// than simple per-renderer fan-out while still covering medium draw lists.
-const ARRANGE_PARALLEL_MIN_DRAWS: usize = 512;
+const ARRANGE_PARALLEL_MIN_DRAWS: usize = ARRANGE_PARALLEL_CHUNK_DRAWS * 2;
 
 /// Key for one nontransparent bin.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -131,6 +134,7 @@ fn partition_draws_parallel(
 ) {
     input
         .into_par_iter()
+        .with_min_len(ARRANGE_PARALLEL_CHUNK_DRAWS)
         .fold(
             || {
                 (

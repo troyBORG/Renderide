@@ -17,13 +17,18 @@ use crate::shared::{
     SkinnedMeshRenderablesUpdate,
 };
 
-/// Touched-renderer count above which blendshape weight apply fans out across rayon.
+/// Accepted blendshape batches assigned to one grouping threshold grain.
 ///
 /// Batch count above which the grouping + worker dispatch cost is likely to pay off.
-const BLENDSHAPE_APPLY_PARALLEL_MIN: usize = 64;
+const BLENDSHAPE_APPLY_PARALLEL_CHUNK_BATCHES: usize = 32;
+/// Touched-renderer count above which blendshape weight apply fans out across rayon.
+const BLENDSHAPE_APPLY_PARALLEL_MIN: usize = BLENDSHAPE_APPLY_PARALLEL_CHUNK_BATCHES * 2;
 
+/// Skinned renderers assigned to one blendshape apply worker chunk.
+const BLENDSHAPE_APPLY_PARALLEL_CHUNK_RENDERERS: usize = 16;
 /// Renderer count above which grouped blendshape apply has enough worker slots to fan out.
-const BLENDSHAPE_APPLY_PARALLEL_MIN_RENDERERS: usize = 32;
+const BLENDSHAPE_APPLY_PARALLEL_MIN_RENDERERS: usize =
+    BLENDSHAPE_APPLY_PARALLEL_CHUNK_RENDERERS * 2;
 
 #[inline]
 fn should_parallelize_blendshape_apply(accepted_count: usize, renderer_count: usize) -> bool {
@@ -334,6 +339,7 @@ fn apply_skinned_blendshape_weight_batches_extracted(
         let groups = &*by_renderable;
         renderers
             .par_iter_mut()
+            .with_min_len(BLENDSHAPE_APPLY_PARALLEL_CHUNK_RENDERERS)
             .enumerate()
             .for_each(|(idx, renderer)| {
                 let Some(ranges) = groups.get(&idx) else {

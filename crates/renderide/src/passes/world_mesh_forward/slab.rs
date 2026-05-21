@@ -16,12 +16,10 @@ use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 use super::vp::compute_per_draw_vp_matrices;
 
-/// Minimum draws before parallelizing per-draw VP / model uniform packing (rayon overhead).
-///
-/// Each draw performs scene lookups and matrix packing, so medium draw lists can amortize worker
-/// dispatch earlier than the raw slab copy path.
-const PER_DRAW_VP_PARALLEL_MIN_DRAWS: usize = 128;
+/// Draws assigned to one per-draw VP / model uniform packing worker chunk.
 const PER_DRAW_VP_PARALLEL_CHUNK_DRAWS: usize = 64;
+/// Minimum draws before parallelizing per-draw VP / model uniform packing.
+const PER_DRAW_VP_PARALLEL_MIN_DRAWS: usize = PER_DRAW_VP_PARALLEL_CHUNK_DRAWS * 2;
 
 /// Per-frame inputs to [`pack_and_upload_per_draw_slab`].
 ///

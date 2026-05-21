@@ -9,12 +9,10 @@ use crate::scene::{
 
 use super::super::prepared_renderables::{FramePreparedDraw, FramePreparedRenderables};
 
-/// Renderer count at which reverse-index rebuilds use worker-local indexes.
-///
-/// Reverse-index rebuilds merge worker-local maps, so they start at two 64-renderer chunks.
-const REVERSE_INDEX_PARALLEL_MIN_RENDERERS: usize = 128;
 /// Renderer count assigned to one reverse-index worker chunk.
 const REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS: usize = 64;
+/// Renderer count at which reverse-index rebuilds use worker-local indexes.
+const REVERSE_INDEX_PARALLEL_MIN_RENDERERS: usize = REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS * 2;
 
 /// Retained draw-template storage for one render space.
 #[derive(Default)]
@@ -97,11 +95,9 @@ impl RenderWorldSpace {
     /// Rebuilds reverse indexes after one or more renderer records changed identity.
     pub(super) fn rebuild_reverse_indexes(&mut self) {
         profiling::scope!("mesh::render_world::rebuild_reverse_indexes");
-        let renderer_count = self
-            .static_renderers
-            .len()
-            .saturating_add(self.skinned_renderers.len());
-        if renderer_count >= REVERSE_INDEX_PARALLEL_MIN_RENDERERS {
+        if self.static_renderers.len() >= REVERSE_INDEX_PARALLEL_MIN_RENDERERS
+            || self.skinned_renderers.len() >= REVERSE_INDEX_PARALLEL_MIN_RENDERERS
+        {
             self.rebuild_reverse_indexes_parallel();
             return;
         }
@@ -233,28 +229,45 @@ fn build_reverse_index_chunks(
     renderers: &[RenderWorldRendererTemplate],
     kind: RenderWorldRendererKind,
 ) -> Vec<ReverseIndexChunk> {
-    renderers
-        .par_chunks(REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS)
-        .enumerate()
-        .map(|(chunk_index, chunk)| {
-            profiling::scope!("mesh::render_world::rebuild_reverse_indexes_parallel::chunk");
-            let start_index = chunk_index * REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS;
-            let mut mesh_asset_index = HashMap::new();
-            let mut node_index = HashMap::new();
-            for (offset, renderer) in chunk.iter().enumerate() {
-                push_reverse_indexes(
-                    &mut mesh_asset_index,
-                    &mut node_index,
-                    RenderWorldRendererRef {
-                        kind,
-                        index: start_index + offset,
-                    },
-                    renderer.index_keys(),
-                );
-            }
-            (mesh_asset_index, node_index)
-        })
-        .collect()
+    if renderers.len() >= REVERSE_INDEX_PARALLEL_MIN_RENDERERS {
+        renderers
+            .par_chunks(REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS)
+            .enumerate()
+            .map(|(chunk_index, chunk)| {
+                profiling::scope!("mesh::render_world::rebuild_reverse_indexes_parallel::chunk");
+                build_reverse_index_chunk(chunk, kind, chunk_index)
+            })
+            .collect()
+    } else {
+        renderers
+            .chunks(REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS)
+            .enumerate()
+            .map(|(chunk_index, chunk)| build_reverse_index_chunk(chunk, kind, chunk_index))
+            .collect()
+    }
+}
+
+/// Builds one worker-local reverse-index map pair for a renderer-table chunk.
+fn build_reverse_index_chunk(
+    chunk: &[RenderWorldRendererTemplate],
+    kind: RenderWorldRendererKind,
+    chunk_index: usize,
+) -> ReverseIndexChunk {
+    let start_index = chunk_index * REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS;
+    let mut mesh_asset_index = HashMap::new();
+    let mut node_index = HashMap::new();
+    for (offset, renderer) in chunk.iter().enumerate() {
+        push_reverse_indexes(
+            &mut mesh_asset_index,
+            &mut node_index,
+            RenderWorldRendererRef {
+                kind,
+                index: start_index + offset,
+            },
+            renderer.index_keys(),
+        );
+    }
+    (mesh_asset_index, node_index)
 }
 
 /// Merges all worker-local reverse indexes into the destination maps.

@@ -8,11 +8,21 @@ use crate::materials::render_queue_is_transparent;
 
 use super::item::WorldMeshDrawItem;
 
+/// Draws assigned to one secondary structural resort worker chunk.
+const INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRAWS: usize = 512;
+
 /// Equal-prefix run length above which the secondary structural resort uses Rayon.
 ///
 /// The primary prefix sort already used the worker pool. This gate is for large transparent
 /// buckets and opaque hash-prefix buckets where the tie-breaker comparator can still dominate.
-const INTRA_PREFIX_RUN_PARALLEL_MIN: usize = 1_024;
+const INTRA_PREFIX_RUN_PARALLEL_MIN: usize = INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRAWS * 2;
+
+/// Draws assigned to one test-only primary sort worker chunk.
+#[cfg(test)]
+const PRIMARY_SORT_PARALLEL_CHUNK_DRAWS: usize = 512;
+/// Draw count above which the test-only primary sort uses Rayon.
+#[cfg(test)]
+const PRIMARY_SORT_PARALLEL_MIN_DRAWS: usize = PRIMARY_SORT_PARALLEL_CHUNK_DRAWS * 2;
 
 /// Bit width of the render-queue field inside [`WorldMeshDrawItem::sort_prefix`].
 const SORT_PREFIX_RENDER_QUEUE_BITS: u32 = 18;
@@ -213,7 +223,11 @@ pub(super) fn sort_order_sensitive_draws(items: &mut [WorldMeshDrawItem], allow_
 #[cfg(test)]
 pub fn sort_draws(items: &mut [WorldMeshDrawItem]) {
     profiling::scope!("mesh::sort_draws");
-    items.par_sort_unstable_by_key(|item| item.sort_prefix);
+    if items.len() >= PRIMARY_SORT_PARALLEL_MIN_DRAWS {
+        items.par_sort_unstable_by_key(|item| item.sort_prefix);
+    } else {
+        items.sort_unstable_by_key(|item| item.sort_prefix);
+    }
     resort_intra_prefix_runs(items, true);
 }
 

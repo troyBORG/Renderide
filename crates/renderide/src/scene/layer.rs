@@ -90,12 +90,15 @@ pub(crate) fn apply_layer_update_extracted(
     }
 }
 
-/// Combined renderer count above which the per-renderer layer resolve fans out to the rayon pool.
+/// Renderer count assigned to one layer-resolve worker chunk.
+const LAYER_RESOLVE_PARALLEL_CHUNK_RENDERERS: usize = 64;
+
+/// Renderer count above which one renderer table's layer resolve fans out to the rayon pool.
 ///
 /// Each call to [`resolve_layer_for_node`] walks the parent chain and scans `layer_assignments`,
 /// so per-renderer cost scales with scene depth x assignment count. Above this threshold the
 /// parallel dispatch pays for itself; below it the serial path avoids rayon overhead.
-const LAYER_RESOLVE_PARALLEL_MIN: usize = 128;
+const LAYER_RESOLVE_PARALLEL_MIN: usize = LAYER_RESOLVE_PARALLEL_CHUNK_RENDERERS * 2;
 
 pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState) {
     profiling::scope!("scene::apply::layer_resolve");
@@ -164,31 +167,40 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
         }
     }
 
-    let total = space.static_mesh_renderers.len() + space.skinned_mesh_renderers.len();
     let resolved_cache = &space.resolved_layer_cache;
 
-    // Phase 2 (parallel above the threshold): walk renderers and consume the cache. Reads are
-    // safe to share across rayon workers because `hashbrown::HashMap` is `Sync` for `&` access.
-    if total >= LAYER_RESOLVE_PARALLEL_MIN {
-        profiling::scope!("scene::apply::layer_resolve::apply_cached_parallel");
+    // Phase 2: walk renderers and consume the cache. Reads are safe to share across rayon workers
+    // because `hashbrown::HashMap` is `Sync` for `&` access.
+    if space.static_mesh_renderers.len() >= LAYER_RESOLVE_PARALLEL_MIN {
+        profiling::scope!("scene::apply::layer_resolve::apply_cached_static_parallel");
         use rayon::prelude::*;
-        space.static_mesh_renderers.par_iter_mut().for_each(|r| {
-            apply_cached_layer(resolved_cache, &mut r.layer, r.node_id);
-        });
-        space.skinned_mesh_renderers.par_iter_mut().for_each(|r| {
-            apply_cached_layer(resolved_cache, &mut r.base.layer, r.base.node_id);
-        });
+        space
+            .static_mesh_renderers
+            .par_iter_mut()
+            .with_min_len(LAYER_RESOLVE_PARALLEL_CHUNK_RENDERERS)
+            .for_each(|r| {
+                apply_cached_layer(resolved_cache, &mut r.layer, r.node_id);
+            });
     } else {
-        profiling::scope!("scene::apply::layer_resolve::apply_cached_serial");
-        for renderer in &mut space.static_mesh_renderers {
-            apply_cached_layer(resolved_cache, &mut renderer.layer, renderer.node_id);
+        profiling::scope!("scene::apply::layer_resolve::apply_cached_static_serial");
+        for r in &mut space.static_mesh_renderers {
+            apply_cached_layer(resolved_cache, &mut r.layer, r.node_id);
         }
-        for renderer in &mut space.skinned_mesh_renderers {
-            apply_cached_layer(
-                resolved_cache,
-                &mut renderer.base.layer,
-                renderer.base.node_id,
-            );
+    }
+    if space.skinned_mesh_renderers.len() >= LAYER_RESOLVE_PARALLEL_MIN {
+        profiling::scope!("scene::apply::layer_resolve::apply_cached_skinned_parallel");
+        use rayon::prelude::*;
+        space
+            .skinned_mesh_renderers
+            .par_iter_mut()
+            .with_min_len(LAYER_RESOLVE_PARALLEL_CHUNK_RENDERERS)
+            .for_each(|r| {
+                apply_cached_layer(resolved_cache, &mut r.base.layer, r.base.node_id);
+            });
+    } else {
+        profiling::scope!("scene::apply::layer_resolve::apply_cached_skinned_serial");
+        for r in &mut space.skinned_mesh_renderers {
+            apply_cached_layer(resolved_cache, &mut r.base.layer, r.base.node_id);
         }
     }
 }
@@ -256,11 +268,14 @@ fn resolve_layer_for_node(
     None
 }
 
+/// Layer assignments assigned to one fixup worker chunk.
+const LAYER_FIXUP_PARALLEL_CHUNK_ASSIGNMENTS: usize = 64;
+
 /// Layer-assignment count above which the per-removal fixup sweep fans out to the rayon pool.
 ///
 /// Each entry's `fixup_transform_id` is a trivial branch, but removals x assignments can grow
 /// into the tens of thousands during bulky scene teardowns.
-const LAYER_FIXUP_PARALLEL_MIN: usize = 128;
+const LAYER_FIXUP_PARALLEL_MIN: usize = LAYER_FIXUP_PARALLEL_CHUNK_ASSIGNMENTS * 2;
 
 pub(crate) fn fixup_layer_assignments_for_transform_removals(
     space: &mut RenderSpaceState,
@@ -272,13 +287,17 @@ pub(crate) fn fixup_layer_assignments_for_transform_removals(
     for removal in removals {
         if space.layer_assignments.len() >= LAYER_FIXUP_PARALLEL_MIN {
             use rayon::prelude::*;
-            space.layer_assignments.par_iter_mut().for_each(|entry| {
-                entry.node_id = fixup_transform_id(
-                    entry.node_id,
-                    removal.removed_index,
-                    removal.last_index_before_swap,
-                );
-            });
+            space
+                .layer_assignments
+                .par_iter_mut()
+                .with_min_len(LAYER_FIXUP_PARALLEL_CHUNK_ASSIGNMENTS)
+                .for_each(|entry| {
+                    entry.node_id = fixup_transform_id(
+                        entry.node_id,
+                        removal.removed_index,
+                        removal.last_index_before_swap,
+                    );
+                });
         } else {
             for entry in &mut space.layer_assignments {
                 entry.node_id = fixup_transform_id(

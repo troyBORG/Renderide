@@ -12,9 +12,11 @@ use crate::shared::{RenderTransform, TransformPoseUpdate};
 
 use super::NodeDirtyMask;
 
+/// Pose rows assigned to one collection worker chunk.
+const POSE_UPDATE_PARALLEL_CHUNK_ROWS: usize = 64;
 /// Minimum pose-update count before [`collect_pose_rows`] fans out collection across rayon
 /// workers. Below this threshold the scalar loop is faster than rayon dispatch overhead.
-const POSE_UPDATE_PARALLEL_MIN_ROWS: usize = 128;
+const POSE_UPDATE_PARALLEL_MIN_ROWS: usize = POSE_UPDATE_PARALLEL_CHUNK_ROWS * 2;
 
 /// In-bounds pose row ready for serial repair and commit into [`RenderSpaceState::nodes`].
 struct PoseRow {
@@ -51,7 +53,11 @@ fn collect_pose_rows(poses: &[TransformPoseUpdate], node_count: usize) -> Vec<Po
 
     if active.len() >= POSE_UPDATE_PARALLEL_MIN_ROWS {
         use rayon::prelude::*;
-        active.par_iter().filter_map(row_for).collect()
+        active
+            .par_iter()
+            .with_min_len(POSE_UPDATE_PARALLEL_CHUNK_ROWS)
+            .filter_map(row_for)
+            .collect()
     } else {
         active.iter().filter_map(row_for).collect()
     }

@@ -11,10 +11,9 @@ use super::math::{
     render_transform_to_matrix,
 };
 
-/// Node count above which a fully dirty cache routes through the bulk rebuild path.
-const WORLD_BULK_REBUILD_PARALLEL_MIN: usize = 128;
-
 const WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE: usize = 64;
+/// Node count above which a fully dirty cache routes through the bulk rebuild path.
+const WORLD_BULK_REBUILD_PARALLEL_MIN: usize = WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE * 2;
 /// Node count in one hierarchy depth level above which that level fans out across rayon.
 const WORLD_BULK_REBUILD_PARALLEL_LEVEL_MIN: usize = WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE * 2;
 

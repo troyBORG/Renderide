@@ -33,10 +33,12 @@ const LOCAL_LIGHT_PROPAGATION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
 /// Sentinel marking an entry whose transform was removed outright -- dropped during the retain
 /// pass at the end of [`LightCache::fixup_for_transform_removals`].
 const DEAD_TRANSFORM_ID: usize = usize::MAX;
-/// Cached light count at which world-space light resolution uses Rayon.
+/// Cached lights assigned to one world-space resolution worker chunk.
 ///
 /// Light resolution is math-heavy enough that two 32-light grains are a useful lower bound.
-const LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS: usize = 64;
+const LIGHT_RESOLVE_PARALLEL_CHUNK_LIGHTS: usize = 32;
+/// Cached light count at which world-space light resolution uses Rayon.
+const LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS: usize = LIGHT_RESOLVE_PARALLEL_CHUNK_LIGHTS * 2;
 
 /// Dense buffer-renderer entry. Position in the per-space [`Vec`] equals the host's
 /// `RenderableIndex`; the pointed-to [`LightData`] rows live in [`LightCache::buffers`] keyed by
@@ -218,6 +220,7 @@ impl LightCache {
         if lights.len() >= LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS {
             let resolved = lights
                 .par_iter()
+                .with_min_len(LIGHT_RESOLVE_PARALLEL_CHUNK_LIGHTS)
                 .map(|cached| resolve_cached_light(cached, &get_world_matrix))
                 .collect::<Vec<_>>();
             out.extend(resolved);

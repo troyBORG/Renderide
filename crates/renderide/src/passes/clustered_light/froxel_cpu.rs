@@ -16,14 +16,14 @@ use crate::world_mesh::cluster::{
 
 /// Light count at which `Auto` mode starts considering CPU froxel assignment.
 pub(super) const AUTO_CPU_FROXEL_LIGHT_THRESHOLD: u32 = 64;
-/// Light count at which CPU froxel assignment fans out across worker chunks.
-const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = 64;
 /// Lights assigned to one CPU froxel worker chunk.
 const CPU_FROXEL_LIGHT_CHUNK_SIZE: usize = 32;
-/// Froxel count at which count merge, offset, and prefix work uses Rayon.
-const CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS: usize = 512;
+/// Light count at which CPU froxel assignment fans out across worker chunks.
+const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = CPU_FROXEL_LIGHT_CHUNK_SIZE * 2;
 /// Cluster-count stride for local prefix-sum chunks.
-const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 512;
+const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 256;
+/// Froxel count at which count merge, offset, and prefix work uses Rayon.
+const CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS: usize = CPU_FROXEL_PREFIX_CHUNK_SIZE * 2;
 
 /// Point light tag in [`GpuLight::light_type`].
 const LIGHT_TYPE_POINT: u32 = 0;
@@ -298,6 +298,7 @@ fn merge_parallel_chunk_counts(
     let counts = if should_parallelize_cpu_froxel_prefix(total_clusters) {
         (0..total_clusters)
             .into_par_iter()
+            .with_min_len(CPU_FROXEL_PREFIX_CHUNK_SIZE)
             .map(|cluster_id| {
                 chunks.iter().fold(0u32, |total, chunk| {
                     total.saturating_add(chunk.counts[cluster_id])
@@ -329,6 +330,7 @@ fn build_parallel_chunk_offsets(
     if should_parallelize_cpu_froxel_prefix(total_clusters) && chunk_count >= 2 {
         let per_cluster_offsets = (0..total_clusters)
             .into_par_iter()
+            .with_min_len(CPU_FROXEL_PREFIX_CHUNK_SIZE)
             .map(|cluster_id| {
                 let mut next = ranges[cluster_id][0];
                 chunks
@@ -841,7 +843,7 @@ mod tests {
     fn cpu_froxel_prefix_parallel_gate_starts_at_prefix_chunk() {
         assert_eq!(
             CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS,
-            CPU_FROXEL_PREFIX_CHUNK_SIZE
+            CPU_FROXEL_PREFIX_CHUNK_SIZE * 2
         );
         assert!(!should_parallelize_cpu_froxel_prefix(
             CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS - 1

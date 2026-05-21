@@ -23,15 +23,13 @@ use refresh::{DirtyRendererSet, RefreshOutcome, refresh_render_world_space, refr
 use state::RenderWorldSpace;
 
 /// Dirty input count at which dirty-root expansion uses Rayon.
-const DIRTY_EXPANSION_PARALLEL_MIN_ITEMS: usize = 4;
+const DIRTY_EXPANSION_PARALLEL_MIN_ITEMS: usize = 2;
 /// Dirty render-space count at which retained cache refresh uses Rayon.
 const DIRTY_SPACE_REFRESH_PARALLEL_MIN_SPACES: usize = 2;
 /// Active render-space count required before snapshot rebuild fan-out is considered.
 const SNAPSHOT_REBUILD_PARALLEL_MIN_SPACES: usize = 2;
 /// Retained draw-template count required before snapshot rebuild fan-out is considered.
-///
-/// Snapshot rebuild fans out by render space, so the draw gate only filters tiny two-space cases.
-const SNAPSHOT_REBUILD_PARALLEL_MIN_DRAWS: usize = 256;
+const SNAPSHOT_REBUILD_PARALLEL_MIN_DRAWS: usize = SNAPSHOT_REBUILD_PARALLEL_MIN_SPACES;
 
 /// Maintenance counters for backend-owned retained render-world caches.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

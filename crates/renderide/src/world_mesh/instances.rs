@@ -28,13 +28,10 @@ use super::draw_prep::WorldMeshDrawItem;
 use batch_window::{BatchWindow, build_group, next_batch_window};
 use scratch::InstancePlanScratch;
 
-/// Draw count above which [`build_plan`] may split batch windows across worker threads.
-///
-/// Window collection is still serial, so this stays above simple draw-copy thresholds while
-/// letting medium scenes reach the two-worker-window fan-out below.
-const INSTANCE_PLAN_PARALLEL_MIN_DRAWS: usize = 512;
 /// Minimum independent batch windows needed to amortize Rayon scheduling and merge overhead.
 const INSTANCE_PLAN_PARALLEL_MIN_WINDOWS: usize = 2;
+/// Draw count above which [`build_plan`] may split batch windows across worker threads.
+const INSTANCE_PLAN_PARALLEL_MIN_DRAWS: usize = INSTANCE_PLAN_PARALLEL_MIN_WINDOWS;
 /// Maximum batch windows processed by one parallel worker task.
 const INSTANCE_PLAN_PARALLEL_MAX_WINDOWS_PER_TASK: usize = 8;
 
