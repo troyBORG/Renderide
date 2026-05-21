@@ -376,6 +376,10 @@ const EXPECTED_SHADER_DEFAULT_DIRECTIVES: &[(&str, &[&str])] = &[
             "//#mat_default _NormalScale1 float 1.0",
             "//#mat_default _NormalScale2 float 1.0",
             "//#mat_default _NormalScale3 float 1.0",
+            "//#mat_default _Glossiness float 0.5",
+            "//#mat_default _Glossiness1 float 0.5",
+            "//#mat_default _Glossiness2 float 0.5",
+            "//#mat_default _Glossiness3 float 0.5",
         ],
     ),
     (

@@ -233,6 +233,77 @@ fn pbs_transparent_roots_keep_authored_pass_directives() -> io::Result<()> {
 }
 
 #[test]
+fn pbs_displace_alpha_clip_matches_unity_threshold_equality() -> io::Result<()> {
+    for material in [
+        "pbsdisplace.wgsl",
+        "pbsdisplacespecular.wgsl",
+        "pbsdisplacetransparent.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+    ] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("&& c.a < mat._AlphaClip"),
+            "{material} must match Unity `clip(c.a - _AlphaClip)` equality behavior"
+        );
+        assert!(
+            !src.contains("&& c.a <= mat._AlphaClip"),
+            "{material} must not reject alpha exactly equal to `_AlphaClip`"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn pbs_displace_roots_keep_source_authored_one_sided_normals() -> io::Result<()> {
+    for material in [
+        "pbsdisplacespecular.wgsl",
+        "pbsdisplacetransparent.wgsl",
+        "pbsdisplacespeculartransparent.wgsl",
+    ] {
+        let src = material_source(material)?;
+        for forbidden in [
+            "@builtin(front_facing)",
+            "ts_n.z = -ts_n.z",
+            "psamp::two_sided_geometric_normal",
+        ] {
+            assert!(
+                !src.contains(forbidden),
+                "{material} must not apply dual-sided normal handling through `{forbidden}`"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn pbs_distance_lerp_roots_keep_source_zero_uv_and_raw_displacement_direction() -> io::Result<()> {
+    for material in ["pbsdistancelerp.wgsl", "pbsdistancelerpspecular.wgsl"] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("let uv_main = vec2<f32>(0.0);"),
+            "{material} must sample material textures at the source-authored zero UV"
+        );
+        for forbidden in [
+            "_MainTex_ST: vec4<f32>",
+            "uvu::apply_st(uv0, mat._MainTex_ST)",
+            "@location(2) uv0",
+            "normalize(n.xyz)",
+            "normalize(mat._DisplacementDirection.xyz)",
+        ] {
+            assert!(
+                !src.contains(forbidden),
+                "{material} must not use `{forbidden}`"
+            );
+        }
+        assert!(
+            src.contains("select(\n        n.xyz,\n        mat._DisplacementDirection.xyz,"),
+            "{material} must preserve raw displacement direction magnitude"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn pbs_material_roots_use_shared_sampling_and_mask_helpers() -> io::Result<()> {
     for material in ["pbscolorsplat.wgsl", "pbscolorsplatspecular.wgsl"] {
         let src = material_source(material)?;
