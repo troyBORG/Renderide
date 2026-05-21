@@ -116,7 +116,9 @@ struct MeshDeformDispatchCtx<'a> {
     head_output_transform: glam::Mat4,
 }
 
-const DEFORM_COLLECT_PARALLEL_MIN_RENDERERS: usize = 256;
+/// Renderer count above which deform work collection fans out across two 64-renderer chunks.
+const DEFORM_COLLECT_PARALLEL_MIN_RENDERERS: usize = 128;
+/// Renderer count assigned to one deform collection worker chunk.
 const DEFORM_COLLECT_RENDERER_CHUNK_SIZE: usize = 64;
 
 #[derive(Clone, Copy)]

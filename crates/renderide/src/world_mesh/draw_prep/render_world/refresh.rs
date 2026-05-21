@@ -13,7 +13,9 @@ use super::super::prepared_renderables::{
 use super::state::{RenderWorldRendererRef, RenderWorldRendererTemplate, RenderWorldSpace};
 
 /// Renderer count above which retained-template refresh uses Rayon.
-const RENDER_WORLD_PARALLEL_MIN_RENDERERS: usize = 256;
+///
+/// Two 64-renderer chunks are enough independent retained-table work to cover dispatch overhead.
+const RENDER_WORLD_PARALLEL_MIN_RENDERERS: usize = 128;
 
 /// Records per worker chunk when refreshing dense retained renderer tables.
 const RENDER_WORLD_REFRESH_CHUNK_SIZE: usize = 64;

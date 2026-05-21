@@ -143,7 +143,7 @@ impl ClusteredLightPass {
 
     /// Returns whether this pass should use CPU froxel assignment for the current view.
     fn should_use_cpu_froxel(&self, view_idx: usize, _stereo: bool, light_count: u32) -> bool {
-        view_idx == 0 && light_count >= AUTO_CPU_FROXEL_LIGHT_THRESHOLD
+        should_use_cpu_froxel_for_view(view_idx, light_count)
     }
 
     /// Selects and prepares the clustered-light work for the current graph view.
@@ -282,6 +282,11 @@ impl ClusteredLightPass {
     }
 }
 
+/// Returns whether a graph view should use CPU froxel assignment for clustered lights.
+fn should_use_cpu_froxel_for_view(view_idx: usize, light_count: u32) -> bool {
+    view_idx == 0 && light_count >= AUTO_CPU_FROXEL_LIGHT_THRESHOLD
+}
+
 impl ComputePass for ClusteredLightPass {
     fn name(&self) -> &str {
         "ClusteredLight"
@@ -350,5 +355,26 @@ impl ComputePass for ClusteredLightPass {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_froxel_auto_gate_uses_first_view_and_light_threshold() {
+        assert!(!should_use_cpu_froxel_for_view(
+            0,
+            AUTO_CPU_FROXEL_LIGHT_THRESHOLD - 1
+        ));
+        assert!(should_use_cpu_froxel_for_view(
+            0,
+            AUTO_CPU_FROXEL_LIGHT_THRESHOLD
+        ));
+        assert!(!should_use_cpu_froxel_for_view(
+            1,
+            AUTO_CPU_FROXEL_LIGHT_THRESHOLD
+        ));
     }
 }

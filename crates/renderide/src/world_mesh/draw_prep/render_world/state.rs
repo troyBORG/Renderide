@@ -10,9 +10,11 @@ use crate::scene::{
 use super::super::prepared_renderables::{FramePreparedDraw, FramePreparedRenderables};
 
 /// Renderer count at which reverse-index rebuilds use worker-local indexes.
-const REVERSE_INDEX_PARALLEL_MIN_RENDERERS: usize = 256;
+///
+/// Reverse-index rebuilds merge worker-local maps, so they start at two 64-renderer chunks.
+const REVERSE_INDEX_PARALLEL_MIN_RENDERERS: usize = 128;
 /// Renderer count assigned to one reverse-index worker chunk.
-const REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS: usize = 128;
+const REVERSE_INDEX_PARALLEL_CHUNK_RENDERERS: usize = 64;
 
 /// Retained draw-template storage for one render space.
 #[derive(Default)]

@@ -529,14 +529,36 @@ fn depth_prepass_rejects_unsafe_embedded_stems() {
 }
 
 #[test]
-fn parallel_instance_plan_requires_at_least_two_window_chunks() {
-    assert!(!should_parallelize_instance_plan(
-        INSTANCE_PLAN_PARALLEL_MIN_DRAWS,
-        INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK
+fn parallel_instance_plan_uses_adaptive_window_chunks() {
+    assert_eq!(parallel_window_chunk_size_with_workers(2, 8), 1);
+    assert_eq!(parallel_window_chunk_count_with_workers(2, 8), 2);
+    assert_eq!(
+        parallel_window_chunk_size_with_workers(128, 8),
+        INSTANCE_PLAN_PARALLEL_MAX_WINDOWS_PER_TASK
+    );
+}
+
+#[test]
+fn parallel_instance_plan_requires_draws_windows_and_workers() {
+    assert!(!should_parallelize_instance_plan_with_workers(
+        INSTANCE_PLAN_PARALLEL_MIN_DRAWS - 1,
+        INSTANCE_PLAN_PARALLEL_MIN_WINDOWS,
+        8,
     ));
-    assert!(should_parallelize_instance_plan(
+    assert!(!should_parallelize_instance_plan_with_workers(
         INSTANCE_PLAN_PARALLEL_MIN_DRAWS,
-        INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK + 1
+        INSTANCE_PLAN_PARALLEL_MIN_WINDOWS - 1,
+        8,
+    ));
+    assert!(!should_parallelize_instance_plan_with_workers(
+        INSTANCE_PLAN_PARALLEL_MIN_DRAWS,
+        INSTANCE_PLAN_PARALLEL_MIN_WINDOWS,
+        1,
+    ));
+    assert!(should_parallelize_instance_plan_with_workers(
+        INSTANCE_PLAN_PARALLEL_MIN_DRAWS,
+        INSTANCE_PLAN_PARALLEL_MIN_WINDOWS,
+        8,
     ));
 }
 

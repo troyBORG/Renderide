@@ -15,13 +15,15 @@ use crate::world_mesh::cluster::{
 };
 
 /// Light count at which `Auto` mode starts considering CPU froxel assignment.
-pub(super) const AUTO_CPU_FROXEL_LIGHT_THRESHOLD: u32 = 128;
-const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = 128;
-const CPU_FROXEL_LIGHT_CHUNK_SIZE: usize = 64;
+pub(super) const AUTO_CPU_FROXEL_LIGHT_THRESHOLD: u32 = 64;
+/// Light count at which CPU froxel assignment fans out across worker chunks.
+const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = 64;
+/// Lights assigned to one CPU froxel worker chunk.
+const CPU_FROXEL_LIGHT_CHUNK_SIZE: usize = 32;
 /// Froxel count at which count merge, offset, and prefix work uses Rayon.
-const CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS: usize = 1_024;
+const CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS: usize = 512;
 /// Cluster-count stride for local prefix-sum chunks.
-const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 1_024;
+const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 512;
 
 /// Point light tag in [`GpuLight::light_type`].
 const LIGHT_TYPE_POINT: u32 = 0;
@@ -122,12 +124,24 @@ impl FroxelLightPlanner {
             return Some(CpuClusterAssignments::default());
         }
         let layouts = validated_eye_layouts(eye_params, clusters_per_eye)?;
-        if lights.len() >= CPU_FROXEL_PARALLEL_MIN_LIGHTS {
+        if should_parallelize_cpu_froxel_lights(lights.len()) {
             build_parallel(lights, eye_params, &layouts, clusters_per_eye)
         } else {
             build_serial(lights, eye_params, &layouts, clusters_per_eye)
         }
     }
+}
+
+/// Returns whether CPU froxel assignment should split light ranges over Rayon.
+#[inline]
+fn should_parallelize_cpu_froxel_lights(light_count: usize) -> bool {
+    light_count >= CPU_FROXEL_PARALLEL_MIN_LIGHTS
+}
+
+/// Returns whether CPU froxel prefix and merge helpers should use Rayon.
+#[inline]
+fn should_parallelize_cpu_froxel_prefix(cluster_count: usize) -> bool {
+    cluster_count >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS
 }
 
 fn validated_eye_layouts(
@@ -281,7 +295,7 @@ fn merge_parallel_chunk_counts(
     chunks: &[CpuFroxelCountChunk],
     total_clusters: usize,
 ) -> (Vec<u32>, CpuFroxelStats) {
-    let counts = if total_clusters >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS {
+    let counts = if should_parallelize_cpu_froxel_prefix(total_clusters) {
         (0..total_clusters)
             .into_par_iter()
             .map(|cluster_id| {
@@ -312,7 +326,7 @@ fn build_parallel_chunk_offsets(
     total_clusters: usize,
 ) -> Vec<Vec<u32>> {
     let chunk_count = chunks.len();
-    if total_clusters >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS && chunk_count >= 2 {
+    if should_parallelize_cpu_froxel_prefix(total_clusters) && chunk_count >= 2 {
         let per_cluster_offsets = (0..total_clusters)
             .into_par_iter()
             .map(|cluster_id| {
@@ -639,7 +653,7 @@ fn assign_bounded_light(
 
 /// Converts per-froxel counts into compact `[offset, count]` rows.
 fn prefix_counts_to_ranges(counts: &[u32]) -> Option<(Vec<[u32; 2]>, usize)> {
-    if counts.len() >= CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS {
+    if should_parallelize_cpu_froxel_prefix(counts.len()) {
         return prefix_counts_to_ranges_parallel(counts);
     }
     prefix_counts_to_ranges_serial(counts)
@@ -807,6 +821,34 @@ mod tests {
         let start = offset as usize;
         let end = start + count as usize;
         &assignments.indices[start..end]
+    }
+
+    #[test]
+    fn cpu_froxel_light_parallel_gate_starts_at_two_chunks() {
+        assert_eq!(
+            CPU_FROXEL_PARALLEL_MIN_LIGHTS,
+            CPU_FROXEL_LIGHT_CHUNK_SIZE * 2
+        );
+        assert!(!should_parallelize_cpu_froxel_lights(
+            CPU_FROXEL_PARALLEL_MIN_LIGHTS - 1
+        ));
+        assert!(should_parallelize_cpu_froxel_lights(
+            CPU_FROXEL_PARALLEL_MIN_LIGHTS
+        ));
+    }
+
+    #[test]
+    fn cpu_froxel_prefix_parallel_gate_starts_at_prefix_chunk() {
+        assert_eq!(
+            CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS,
+            CPU_FROXEL_PREFIX_CHUNK_SIZE
+        );
+        assert!(!should_parallelize_cpu_froxel_prefix(
+            CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS - 1
+        ));
+        assert!(should_parallelize_cpu_froxel_prefix(
+            CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS
+        ));
     }
 
     #[test]

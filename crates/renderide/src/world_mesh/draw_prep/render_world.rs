@@ -29,7 +29,9 @@ const DIRTY_SPACE_REFRESH_PARALLEL_MIN_SPACES: usize = 2;
 /// Active render-space count required before snapshot rebuild fan-out is considered.
 const SNAPSHOT_REBUILD_PARALLEL_MIN_SPACES: usize = 2;
 /// Retained draw-template count required before snapshot rebuild fan-out is considered.
-const SNAPSHOT_REBUILD_PARALLEL_MIN_DRAWS: usize = 512;
+///
+/// Snapshot rebuild fans out by render space, so the draw gate only filters tiny two-space cases.
+const SNAPSHOT_REBUILD_PARALLEL_MIN_DRAWS: usize = 256;
 
 /// Maintenance counters for backend-owned retained render-world caches.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

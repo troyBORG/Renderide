@@ -13,7 +13,10 @@ use super::item::{WorldMeshDrawArrangementStats, WorldMeshDrawItem};
 use super::sort::sort_order_sensitive_draws;
 
 /// Draw count at which phase partitioning uses Rayon workers.
-const ARRANGE_PARALLEL_MIN_DRAWS: usize = 2_048;
+///
+/// Partitioning builds worker-local maps and then merges them, so this remains more conservative
+/// than simple per-renderer fan-out while still covering medium draw lists.
+const ARRANGE_PARALLEL_MIN_DRAWS: usize = 512;
 
 /// Key for one nontransparent bin.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

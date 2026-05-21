@@ -29,11 +29,14 @@ use batch_window::{BatchWindow, build_group, next_batch_window};
 use scratch::InstancePlanScratch;
 
 /// Draw count above which [`build_plan`] may split batch windows across worker threads.
-const INSTANCE_PLAN_PARALLEL_MIN_DRAWS: usize = 1_024;
+///
+/// Window collection is still serial, so this stays above simple draw-copy thresholds while
+/// letting medium scenes reach the two-worker-window fan-out below.
+const INSTANCE_PLAN_PARALLEL_MIN_DRAWS: usize = 512;
 /// Minimum independent batch windows needed to amortize Rayon scheduling and merge overhead.
-const INSTANCE_PLAN_PARALLEL_MIN_WINDOWS: usize = 4;
-/// Batch windows processed by one parallel worker task.
-const INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK: usize = 8;
+const INSTANCE_PLAN_PARALLEL_MIN_WINDOWS: usize = 2;
+/// Maximum batch windows processed by one parallel worker task.
+const INSTANCE_PLAN_PARALLEL_MAX_WINDOWS_PER_TASK: usize = 8;
 
 /// One emitted indexed draw covering a contiguous slab range of identical instances.
 ///
@@ -274,15 +277,46 @@ pub fn build_plan_for_shader(
     }
 }
 
+/// Returns whether instance planning should use its active Rayon pool.
 fn should_parallelize_instance_plan(draw_count: usize, window_count: usize) -> bool {
-    draw_count >= INSTANCE_PLAN_PARALLEL_MIN_DRAWS
-        && window_count >= INSTANCE_PLAN_PARALLEL_MIN_WINDOWS
-        && parallel_window_chunk_count(window_count) >= 2
+    should_parallelize_instance_plan_with_workers(
+        draw_count,
+        window_count,
+        rayon::current_num_threads(),
+    )
 }
 
-/// Returns how many coarse worker chunks a batch-window list will produce.
-fn parallel_window_chunk_count(window_count: usize) -> usize {
-    window_count.div_ceil(INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK)
+/// Returns whether instance planning has enough work and workers to split batch windows.
+fn should_parallelize_instance_plan_with_workers(
+    draw_count: usize,
+    window_count: usize,
+    worker_count: usize,
+) -> bool {
+    draw_count >= INSTANCE_PLAN_PARALLEL_MIN_DRAWS
+        && window_count >= INSTANCE_PLAN_PARALLEL_MIN_WINDOWS
+        && worker_count > 1
+        && parallel_window_chunk_count_with_workers(window_count, worker_count) >= 2
+}
+
+/// Returns how many worker chunks `window_count` produces for a known worker count.
+fn parallel_window_chunk_count_with_workers(window_count: usize, worker_count: usize) -> usize {
+    window_count.div_ceil(parallel_window_chunk_size_with_workers(
+        window_count,
+        worker_count,
+    ))
+}
+
+/// Returns the batch-window chunk size to use with the active Rayon pool.
+fn parallel_window_chunk_size(window_count: usize) -> usize {
+    parallel_window_chunk_size_with_workers(window_count, rayon::current_num_threads())
+}
+
+/// Returns an adaptive batch-window chunk size capped to avoid over-coalescing work.
+fn parallel_window_chunk_size_with_workers(window_count: usize, worker_count: usize) -> usize {
+    let worker_count = worker_count.max(1);
+    window_count
+        .div_ceil(worker_count)
+        .clamp(1, INSTANCE_PLAN_PARALLEL_MAX_WINDOWS_PER_TASK)
 }
 
 fn build_plan_serial(
@@ -335,8 +369,9 @@ fn build_plan_parallel(
     profiling::scope!("mesh::build_plan_parallel_windows");
     let partials: Vec<_> = {
         profiling::scope!("mesh::build_plan_parallel_windows::worker_chunks");
+        let window_chunk_size = parallel_window_chunk_size(windows.len());
         windows
-            .par_chunks(INSTANCE_PLAN_PARALLEL_WINDOWS_PER_TASK)
+            .par_chunks(window_chunk_size)
             .map(|chunk| {
                 profiling::scope!("mesh::build_plan_window_chunk_worker");
                 let draw_count = chunk.iter().map(|window| window.range.len()).sum::<usize>();

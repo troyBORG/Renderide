@@ -31,8 +31,10 @@ const MATERIAL_KEY_SIGNATURE_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const MATERIAL_KEY_SIGNATURE_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 /// Renderer count in one render space above which expansion fans out across Rayon chunks.
+///
+/// Two 64-renderer chunks provide real worker fan-out without waiting for very large spaces.
 #[cfg(test)]
-pub(in crate::world_mesh::draw_prep) const PREPARED_EXPAND_PARALLEL_MIN_RENDERERS: usize = 256;
+pub(in crate::world_mesh::draw_prep) const PREPARED_EXPAND_PARALLEL_MIN_RENDERERS: usize = 128;
 /// Renderer slice width used by aggressive prepared-renderable expansion.
 #[cfg(test)]
 pub(in crate::world_mesh::draw_prep) const PREPARED_EXPAND_RENDERER_CHUNK_SIZE: usize = 64;

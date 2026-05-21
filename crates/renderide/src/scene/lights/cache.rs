@@ -34,7 +34,9 @@ const LOCAL_LIGHT_PROPAGATION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
 /// pass at the end of [`LightCache::fixup_for_transform_removals`].
 const DEAD_TRANSFORM_ID: usize = usize::MAX;
 /// Cached light count at which world-space light resolution uses Rayon.
-const LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS: usize = 128;
+///
+/// Light resolution is math-heavy enough that two 32-light grains are a useful lower bound.
+const LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS: usize = 64;
 
 /// Dense buffer-renderer entry. Position in the per-space [`Vec`] equals the host's
 /// `RenderableIndex`; the pointed-to [`LightData`] rows live in [`LightCache::buffers`] keyed by
