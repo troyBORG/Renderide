@@ -46,7 +46,8 @@ fn vs_main(
 //#pass type=forward blend=off zwrite=off ztest=main
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let ndc = skybox::ndc_from_clip(in.clip_pos);
+    let viewport_extent = vec2<f32>(f32(rg::frame.viewport_width), f32(rg::frame.viewport_height));
+    let ndc = skybox::ndc_from_fragment_position(in.clip_pos, view, viewport_extent);
     let proj_params = select(rg::frame.proj_params_left, rg::frame.proj_params_right, in.view_layer != 0u);
     let view_ray = skybox::view_ray_from_ndc(
         ndc,

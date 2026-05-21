@@ -2,11 +2,13 @@
 
 #define_import_path renderide::skybox::common
 
-#import renderide::frame::globals as rg
-
 struct SkyboxView {
-    view_left: mat4x4<f32>,
-    view_right: mat4x4<f32>,
+    view_x_left: vec4<f32>,
+    view_y_left: vec4<f32>,
+    view_z_left: vec4<f32>,
+    view_x_right: vec4<f32>,
+    view_y_right: vec4<f32>,
+    view_z_right: vec4<f32>,
     clear_color: vec4<f32>,
     /// `.x`: ndc Y sign passed to the fragment shader (1.0 normal, -1.0 for offscreen-RT views).
     /// Offscreen-RT views pre-multiply a clip-space Y flip into the world view-projection so the
@@ -18,18 +20,20 @@ struct SkyboxView {
     ndc_y_sign_pad: vec4<f32>,
 }
 
-fn select_view_proj(view: SkyboxView, view_idx: u32) -> mat4x4<f32> {
-    if (view_idx == 0u) {
-        return view.view_left;
-    }
-    return view.view_right;
-}
-
-fn ndc_from_clip(clip_pos: vec4<f32>) -> vec2<f32> {
-    return vec2<f32>(
-        clip_pos.x / f32(rg::frame.viewport_width),
-        1 - clip_pos.y / f32(rg::frame.viewport_height),
+fn ndc_from_fragment_position(
+    fragment_position: vec4<f32>,
+    sky: SkyboxView,
+    viewport_extent: vec2<f32>,
+) -> vec2<f32> {
+    let viewport_size = vec2<f32>(
+        max(viewport_extent.x, 1.0),
+        max(viewport_extent.y, 1.0),
+    );
+    let ndc = vec2<f32>(
+        fragment_position.x / viewport_size.x,
+        1.0 - fragment_position.y / viewport_size.y,
     ) * 2.0 - 1.0;
+    return vec2<f32>(ndc.x, ndc.y * sky.ndc_y_sign_pad.x);
 }
 
 fn view_is_orthographic(sky: SkyboxView, view_layer: u32) -> bool {
@@ -50,6 +54,16 @@ fn view_ray_from_ndc(ndc: vec2<f32>, proj_params: vec4<f32>, orthographic: bool)
 }
 
 fn world_ray_from_view_ray(view_ray: vec3<f32>, sky: SkyboxView, view_layer: u32) -> vec3<f32> {
-    let view_matrix = select_view_proj(sky, view_layer);
-    return normalize(view_matrix * vec4<f32>(view_ray, 0.0)).xyz;
+    if (view_layer == 0u) {
+        return normalize(
+            view_ray.x * sky.view_x_left.xyz +
+            view_ray.y * sky.view_y_left.xyz +
+            view_ray.z * sky.view_z_left.xyz
+        );
+    }
+    return normalize(
+        view_ray.x * sky.view_x_right.xyz +
+        view_ray.y * sky.view_y_right.xyz +
+        view_ray.z * sky.view_z_right.xyz
+    );
 }

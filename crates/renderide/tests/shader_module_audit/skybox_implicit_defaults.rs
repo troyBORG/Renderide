@@ -130,11 +130,37 @@ fn proceduralskybox_defaults_sun_disk_to_high_quality() -> io::Result<()> {
 }
 
 #[test]
-fn proceduralskybox_visible_paths_interpolate_unity_vertex_terms() -> io::Result<()> {
+fn proceduralskybox_material_path_interpolates_unity_vertex_terms() -> io::Result<()> {
+    let src = material_source("proceduralskybox.wgsl")?;
+    assert!(
+        src.contains("ps::visible_vertex_terms(") && src.contains("ps::visible_fragment_color("),
+        "materials/proceduralskybox.wgsl must split ProceduralSkybox into Unity-style \
+         vertex sky terms plus fragment horizon/sun mixing.",
+    );
+    assert!(
+        !src.contains("ps::sample("),
+        "materials/proceduralskybox.wgsl must not call ps::sample in the visible fragment path; \
+         that recomputes the discontinuous sky/ground scattering branch per pixel and can draw \
+         a bright horizon line.",
+    );
+    Ok(())
+}
+
+#[test]
+fn dedicated_skyboxes_reconstruct_rays_from_fragment_positions() -> io::Result<()> {
+    let common_src = module_source("skybox/common.wgsl")?;
+    assert!(
+        common_src.contains("fn ndc_from_fragment_position(")
+            && common_src.contains("viewport_extent: vec2<f32>")
+            && common_src.contains("ndc.y * sky.ndc_y_sign_pad.x"),
+        "skybox/common.wgsl must reconstruct NDC from fragment coordinates and apply the \
+         offscreen render-texture Y sign.",
+    );
+
     for (path_label, src) in [
         (
-            "materials/proceduralskybox.wgsl",
-            material_source("proceduralskybox.wgsl")?,
+            "passes/backend/skybox_gradientskybox.wgsl",
+            source_file(manifest_dir().join("shaders/passes/backend/skybox_gradientskybox.wgsl"))?,
         ),
         (
             "passes/backend/skybox_proceduralskybox.wgsl",
@@ -142,18 +168,46 @@ fn proceduralskybox_visible_paths_interpolate_unity_vertex_terms() -> io::Result
                 manifest_dir().join("shaders/passes/backend/skybox_proceduralskybox.wgsl"),
             )?,
         ),
+        (
+            "passes/backend/skybox_projection360.wgsl",
+            source_file(manifest_dir().join("shaders/passes/backend/skybox_projection360.wgsl"))?,
+        ),
     ] {
         assert!(
-            src.contains("ps::visible_vertex_terms(")
-                && src.contains("ps::visible_fragment_color("),
-            "{path_label} must split ProceduralSkybox into Unity-style vertex sky terms \
-             plus fragment horizon/sun mixing.",
+            src.contains("rg::frame.viewport_width")
+                && src.contains("rg::frame.viewport_height")
+                && src.contains(
+                    "skybox::ndc_from_fragment_position(in.clip_pos, view, viewport_extent)"
+                ),
+            "{path_label} must reconstruct sky rays from fragment coordinates instead of \
+             interpolated fullscreen vertex NDC.",
         );
+    }
+
+    let procedural_src =
+        source_file(manifest_dir().join("shaders/passes/backend/skybox_proceduralskybox.wgsl"))?;
+    assert!(
+        procedural_src.contains("ps::visible_vertex_terms(")
+            && procedural_src.contains("ps::visible_fragment_color("),
+        "passes/backend/skybox_proceduralskybox.wgsl must still use shared ProceduralSkybox \
+         scattering terms after reconstructing the per-fragment ray.",
+    );
+    assert!(
+        !procedural_src.contains("ps::sample("),
+        "passes/backend/skybox_proceduralskybox.wgsl must not call ps::sample in the visible \
+         fragment path; it bypasses the shared visible-term flow.",
+    );
+    Ok(())
+}
+
+#[test]
+fn projection360_skybox_has_no_clip_depth_nudge() -> io::Result<()> {
+    let src = source_file(manifest_dir().join("shaders/passes/backend/skybox_projection360.wgsl"))?;
+    for forbidden in ["MIN_FLOAT", "math::", "clip + vec4"] {
         assert!(
-            !src.contains("ps::sample("),
-            "{path_label} must not call ps::sample in the visible fragment path; that \
-             recomputes the discontinuous sky/ground scattering branch per pixel and \
-             can draw a bright horizon line.",
+            !src.contains(forbidden),
+            "passes/backend/skybox_projection360.wgsl must not use clip-space depth \
+             workaround `{forbidden}`; dedicated skyboxes use the fixed background depth state.",
         );
     }
     Ok(())

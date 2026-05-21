@@ -22,7 +22,6 @@
 
 #import renderide::frame::globals as rg
 #import renderide::core::fullscreen as fs
-#import renderide::core::math as math
 #import renderide::skybox::common as skybox
 #import renderide::skybox::projection360 as p360
 #import renderide::skybox::projection360_material as p360m
@@ -122,10 +121,7 @@ fn vs_main(
 ) -> VertexOutput {
     let clip = fs::fullscreen_clip_pos(vertex_index);
     var out: VertexOutput;
-    /// Add MIN_FLOAT to avoid Z-fighting with far plane
-    /// when using wgpu::CompareFunction::Greater
-    /// i.e. with FrooxEngine ZTest enum LessOrEqual
-    out.clip_pos = clip + vec4<f32>(0.0, 0.0, math::MIN_FLOAT, 0.0);
+    out.clip_pos = clip;
 #ifdef MULTIVIEW
     out.view_layer = view_idx;
 #else
@@ -134,11 +130,12 @@ fn vs_main(
     return out;
 }
 
-//#pass type=forward blend=off zwrite=off ztest=material(main)
+//#pass type=forward blend=off zwrite=off ztest=main
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let params = projection360_params();
-    let ndc = skybox::ndc_from_clip(in.clip_pos);
+    let viewport_extent = vec2<f32>(f32(rg::frame.viewport_width), f32(rg::frame.viewport_height));
+    let ndc = skybox::ndc_from_fragment_position(in.clip_pos, view, viewport_extent);
     let view_dir = p360m::apply_offset(
         base_view_dir(ndc, in.view_layer),
         params,
