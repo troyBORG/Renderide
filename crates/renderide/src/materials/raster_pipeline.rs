@@ -351,7 +351,10 @@ pub(crate) fn build_pipeline_from_pass(
                 primitive: wgpu::PrimitiveState {
                     topology: shared.primitive_topology.to_wgpu(),
                     front_face: shared.front_face.to_wgpu(),
-                    cull_mode: pass.resolved_cull_mode(render_state),
+                    cull_mode: cull_mode_for_topology(
+                        pass.resolved_cull_mode(render_state),
+                        shared.primitive_topology,
+                    ),
                     ..Default::default()
                 },
                 depth_stencil: shared.desc.depth_stencil_format.map(|format| {
@@ -364,7 +367,10 @@ pub(crate) fn build_pipeline_from_pass(
                         } else {
                             wgpu::StencilState::default()
                         },
-                        bias: pass.resolved_depth_bias(render_state),
+                        bias: depth_bias_for_topology(
+                            pass.resolved_depth_bias(render_state),
+                            shared.primitive_topology,
+                        ),
                     }
                 }),
                 multisample: wgpu::MultisampleState {
@@ -378,6 +384,28 @@ pub(crate) fn build_pipeline_from_pass(
             });
         crate::profiling::note_resource_churn!(RenderPipeline, "materials::raster_pipeline");
         pipeline
+    }
+}
+
+/// Returns depth bias compatible with the primitive topology accepted by wgpu.
+fn depth_bias_for_topology(
+    depth_bias: wgpu::DepthBiasState,
+    primitive_topology: RasterPrimitiveTopology,
+) -> wgpu::DepthBiasState {
+    match primitive_topology {
+        RasterPrimitiveTopology::TriangleList => depth_bias,
+        RasterPrimitiveTopology::PointList => wgpu::DepthBiasState::default(),
+    }
+}
+
+/// Returns culling compatible with the primitive topology accepted by wgpu.
+fn cull_mode_for_topology(
+    cull_mode: Option<wgpu::Face>,
+    primitive_topology: RasterPrimitiveTopology,
+) -> Option<wgpu::Face> {
+    match primitive_topology {
+        RasterPrimitiveTopology::TriangleList => cull_mode,
+        RasterPrimitiveTopology::PointList => None,
     }
 }
 
@@ -492,6 +520,62 @@ mod tests {
             .iter()
             .flat_map(|layout| layout.attributes.iter().map(|attr| attr.shader_location))
             .collect()
+    }
+
+    fn depth_offset_state() -> MaterialRenderState {
+        MaterialRenderState {
+            depth_offset: crate::materials::MaterialDepthOffsetState::new(2.0, 3),
+            ..MaterialRenderState::default()
+        }
+    }
+
+    #[test]
+    fn triangle_topology_preserves_nonzero_material_depth_bias() {
+        let pass = default_pass(DefaultPassParams {
+            use_alpha_blending: false,
+            depth_write: true,
+        });
+        let bias = depth_bias_for_topology(
+            pass.resolved_depth_bias(depth_offset_state()),
+            RasterPrimitiveTopology::TriangleList,
+        );
+
+        assert_eq!(bias.constant, -3);
+        assert_eq!(bias.slope_scale, -2.0);
+        assert_eq!(bias.clamp, 0.0);
+    }
+
+    #[test]
+    fn point_topology_drops_nonzero_material_depth_bias() {
+        let pass = default_pass(DefaultPassParams {
+            use_alpha_blending: false,
+            depth_write: true,
+        });
+        let bias = depth_bias_for_topology(
+            pass.resolved_depth_bias(depth_offset_state()),
+            RasterPrimitiveTopology::PointList,
+        );
+
+        assert_eq!(bias, wgpu::DepthBiasState::default());
+    }
+
+    #[test]
+    fn triangle_topology_preserves_cull_mode() {
+        assert_eq!(
+            cull_mode_for_topology(
+                Some(wgpu::Face::Back),
+                RasterPrimitiveTopology::TriangleList
+            ),
+            Some(wgpu::Face::Back)
+        );
+    }
+
+    #[test]
+    fn point_topology_drops_cull_mode() {
+        assert_eq!(
+            cull_mode_for_topology(Some(wgpu::Face::Back), RasterPrimitiveTopology::PointList),
+            None
+        );
     }
 
     #[test]
