@@ -41,6 +41,24 @@ pub trait BlackboardSlot: 'static {
     type Value: Send + 'static;
 }
 
+/// Defines a zero-sized blackboard slot marker and its [`BlackboardSlot`] value type.
+macro_rules! blackboard_slot {
+    (
+        $(#[$attr:meta])*
+        $vis:vis $name:ident => $value:ty $(,)?
+    ) => {
+        $(#[$attr])*
+        $vis struct $name;
+
+        $(#[$attr])*
+        impl $crate::render_graph::blackboard::BlackboardSlot for $name {
+            type Value = $value;
+        }
+    };
+}
+
+pub(crate) use blackboard_slot;
+
 /// Typed key-value store for one frame scope.
 ///
 /// Values are boxed as `dyn Any + Send` and retrieved by downcasting from the [`TypeId`] of the
@@ -136,27 +154,24 @@ impl GraphCommandStats {
     }
 }
 
-/// Blackboard slot for generic command-count diagnostics produced by pass families.
-pub struct GraphCommandStatsSlot;
-impl BlackboardSlot for GraphCommandStatsSlot {
-    type Value = GraphCommandStats;
+blackboard_slot! {
+    /// Blackboard slot for generic command-count diagnostics produced by pass families.
+    pub GraphCommandStatsSlot => GraphCommandStats,
 }
 
-/// Blackboard slot reserving the per-view screen-space motion-vector texture for temporal
-/// techniques (TAA, motion blur, temporal denoising).
-///
-/// **No pass produces this slot today.** The slot is declared so downstream work can land a
-/// velocity prepass without coordinating a new blackboard key across the codebase in the same
-/// change. `Value` is the [`ImportedTextureHandle`] of the `Rg16Float` velocity target; the
-/// consumer resolves the actual `wgpu::TextureView` via the graph-resources context at encode
-/// time.
-///
-/// Lives on the per-view blackboard because motion vectors are screen-space and view-specific.
-#[cfg(test)]
-pub struct FrameMotionVectorsSlot;
-#[cfg(test)]
-impl BlackboardSlot for FrameMotionVectorsSlot {
-    type Value = ImportedTextureHandle;
+blackboard_slot! {
+    #[cfg(test)]
+    /// Blackboard slot reserving the per-view screen-space motion-vector texture for temporal
+    /// techniques (TAA, motion blur, temporal denoising).
+    ///
+    /// **No pass produces this slot today.** The slot is declared so downstream work can land a
+    /// velocity prepass without coordinating a new blackboard key across the codebase in the same
+    /// change. `Value` is the [`ImportedTextureHandle`] of the `Rg16Float` velocity target; the
+    /// consumer resolves the actual `wgpu::TextureView` via the graph-resources context at encode
+    /// time.
+    ///
+    /// Lives on the per-view blackboard because motion vectors are screen-space and view-specific.
+    pub FrameMotionVectorsSlot => ImportedTextureHandle,
 }
 
 #[cfg(test)]
@@ -171,6 +186,11 @@ mod tests {
     struct BarSlot;
     impl BlackboardSlot for BarSlot {
         type Value = String;
+    }
+
+    blackboard_slot! {
+        /// Macro-defined slot used to test the declarative slot helper.
+        TestMacroSlot => u16,
     }
 
     #[test]
@@ -216,6 +236,16 @@ mod tests {
         bb.insert::<FooSlot>(1u32);
         bb.insert::<FooSlot>(99u32);
         assert_eq!(bb.get::<FooSlot>(), Some(&99u32));
+    }
+
+    #[test]
+    fn macro_defined_slot_uses_typed_insert_get_and_take() {
+        let mut bb = Blackboard::new();
+        bb.insert::<TestMacroSlot>(7);
+
+        assert_eq!(bb.get::<TestMacroSlot>(), Some(&7));
+        assert_eq!(bb.take::<TestMacroSlot>(), Some(7));
+        assert_eq!(bb.get::<TestMacroSlot>(), None);
     }
 
     #[test]

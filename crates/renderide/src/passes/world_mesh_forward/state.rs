@@ -1,7 +1,7 @@
 //! Forward-pass state and blackboard slots.
 
 use crate::materials::{MaterialPipelineDesc, ShaderPermutation};
-use crate::render_graph::blackboard::BlackboardSlot;
+use crate::render_graph::blackboard::blackboard_slot;
 use crate::skybox::PreparedSkybox;
 use crate::world_mesh::{InstancePlan, WorldMeshDrawItem, WorldMeshHelperNeeds};
 
@@ -51,8 +51,7 @@ pub(crate) struct PreparedWorldMeshForwardFrame {
     pub viewport_px: (u32, u32),
 }
 
-/// Blackboard slot key for the per-view world-mesh forward plan.
-pub(crate) struct WorldMeshForwardPlanSlot;
-impl BlackboardSlot for WorldMeshForwardPlanSlot {
-    type Value = PreparedWorldMeshForwardFrame;
+blackboard_slot! {
+    /// Blackboard slot key for the per-view world-mesh forward plan.
+    pub(crate) WorldMeshForwardPlanSlot => PreparedWorldMeshForwardFrame,
 }

@@ -1,11 +1,10 @@
 //! Per-view HUD outputs and capture configuration consumed by the diagnostics overlay.
 
-use crate::render_graph::blackboard::BlackboardSlot;
+use crate::render_graph::blackboard::blackboard_slot;
 
-/// Blackboard slot for per-view HUD data collected during recording and merged on the main thread.
-pub struct PerViewHudOutputsSlot;
-impl BlackboardSlot for PerViewHudOutputsSlot {
-    type Value = PerViewHudOutputs;
+blackboard_slot! {
+    /// Blackboard slot for per-view HUD data collected during recording and merged on the main thread.
+    pub PerViewHudOutputsSlot => PerViewHudOutputs,
 }
 
 /// HUD payload produced by one view during recording.

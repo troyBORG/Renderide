@@ -166,3 +166,66 @@ impl FullscreenD2ArraySampledPipelineCache {
         })
     }
 }
+
+/// Defines a typed wrapper around [`FullscreenD2ArraySampledPipelineCache`].
+macro_rules! define_fullscreen_d2_array_pipeline_cache {
+    (
+        $(#[$attr:meta])*
+        $vis:vis $name:ident {
+            base: $base:literal,
+            sampled_view: $sampled_view:literal,
+            mono: $mono:literal,
+            multiview: $multiview:literal,
+            max_bind_groups: $max_bind_groups:expr,
+            churn_site: $churn_site:literal $(,)?
+        }
+    ) => {
+        $(#[$attr])*
+        $vis struct $name($crate::passes::helpers::FullscreenD2ArraySampledPipelineCache);
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self($crate::passes::helpers::FullscreenD2ArraySampledPipelineCache::new(
+                    $crate::passes::helpers::FullscreenD2ArrayPipelineLabels {
+                        base: $base,
+                        sampled_view: $sampled_view,
+                    },
+                    $crate::passes::helpers::FullscreenD2ArrayShaders {
+                        mono_label: $mono,
+                        mono_source: $crate::embedded_shaders::embedded_wgsl!($mono),
+                        multiview_label: $multiview,
+                        multiview_source: $crate::embedded_shaders::embedded_wgsl!($multiview),
+                    },
+                    $max_bind_groups,
+                ))
+            }
+        }
+
+        impl $name {
+            /// Returns or builds a render pipeline for `output_format` and multiview stereo.
+            $vis fn pipeline(
+                &self,
+                device: &wgpu::Device,
+                output_format: wgpu::TextureFormat,
+                multiview_stereo: bool,
+            ) -> std::sync::Arc<wgpu::RenderPipeline> {
+                self.0.pipeline(device, output_format, multiview_stereo)
+            }
+
+            /// Bind group for one frame's scene-color texture, cached by `(Texture, multiview_stereo)`.
+            $vis fn bind_group(
+                &self,
+                device: &wgpu::Device,
+                scene_color_texture: &wgpu::Texture,
+                multiview_stereo: bool,
+            ) -> wgpu::BindGroup {
+                self.0
+                    .bind_group(device, scene_color_texture, multiview_stereo, || {
+                        $crate::profiling::note_resource_churn!(BindGroup, $churn_site);
+                    })
+            }
+        }
+    };
+}
+
+pub(in crate::passes) use define_fullscreen_d2_array_pipeline_cache;
