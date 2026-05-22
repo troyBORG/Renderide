@@ -63,7 +63,7 @@ pub struct XrStereoSwapchain {
 
 /// Per-frame wgpu wrapper for an acquired OpenXR swapchain image.
 ///
-/// The wrapper owns the imported wgpu texture and its two-layer array view. It must stay alive
+/// The wrapper owns the imported wgpu texture and its single-layer eye views. It must stay alive
 /// until all command buffers referencing the acquired image have been submitted to the GPU queue.
 /// The OpenXR runtime owns the underlying `VkImage`; dropping this value only releases wgpu's
 /// tracking wrapper.
@@ -72,12 +72,19 @@ pub struct XrAcquiredSwapchainImage {
     texture: wgpu::Texture,
     /// Single-layer color target views for the left and right OpenXR swapchain layers.
     eye_views: [wgpu::TextureView; 2],
+    /// OpenXR swapchain image index acquired for this frame.
+    image_index: u32,
 }
 
 impl XrAcquiredSwapchainImage {
     /// Single-layer color target views used by the final per-eye OpenXR copy.
     pub fn eye_views(&self) -> [&wgpu::TextureView; 2] {
         [&self.eye_views[0], &self.eye_views[1]]
+    }
+
+    /// OpenXR swapchain image index acquired for this frame.
+    pub fn image_index(&self) -> u32 {
+        self.image_index
     }
 
     /// Consumes the acquired-image wrapper, leaving the imported wgpu texture alive.
@@ -167,6 +174,7 @@ impl XrStereoSwapchain {
             &hal_device,
             vk_image,
             self.resolution,
+            u32_saturating_from_usize(image_index),
         ))
     }
 }
@@ -176,6 +184,7 @@ fn import_openxr_swapchain_image(
     hal_device: &<HalVulkan as hal::Api>::Device,
     vk_image: vk::Image,
     resolution: (u32, u32),
+    image_index: u32,
 ) -> XrAcquiredSwapchainImage {
     let hal_desc = xr_swapchain_hal_descriptor(resolution);
     // Hand wgpu a no-op drop callback so its `destroy_texture` sees
@@ -209,7 +218,11 @@ fn import_openxr_swapchain_image(
         texture.create_view(&xr_swapchain_eye_view_descriptor(1)),
     ];
     crate::profiling::note_resource_churn!(TextureView, "xr::swapchain_eye_views");
-    XrAcquiredSwapchainImage { texture, eye_views }
+    XrAcquiredSwapchainImage {
+        texture,
+        eye_views,
+        image_index,
+    }
 }
 
 fn xr_swapchain_usage_flags() -> xr::SwapchainUsageFlags {

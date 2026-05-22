@@ -69,7 +69,8 @@ impl GraphicsApiSetting {
         }
     }
 
-    /// Whether startup should retry automatic backend selection if this choice finds no adapter.
+    /// Whether startup should retry automatic backend selection when this choice cannot produce a
+    /// usable adapter for the active target.
     pub fn should_retry_auto_on_adapter_failure(self) -> bool {
         self != Self::Auto
     }
