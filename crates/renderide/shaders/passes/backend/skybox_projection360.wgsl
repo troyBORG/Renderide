@@ -3,7 +3,25 @@
 //! The shared Projection360 module owns shader-specific keyword decoding and projection
 //! sampling for both this pass-side sky draw and the material root.
 
+//#texture_default _MainTex black
+//#texture_default _SecondTex black
+//#texture_default _TintTex white
+//#texture_default _OffsetTex black
+//#texture_default _OffsetMask white
+//#texture_default _MainCube black
+//#texture_default _SecondCube black
+//#mat_default _Exposure float 1.0
+//#mat_default _FOV vec4 6.283185 3.141593 0.0 0.0
+//#mat_default _Gamma float 1.0
+//#mat_default _MaxIntensity float 4.0
+//#mat_default _OffsetMagnitude vec4 0.1 0.1 0.0 0.0
+//#mat_default _PerspectiveFOV vec4 0.785398 0.785398 0.0 0.0
+//#mat_default _Tint vec4 1.0 1.0 1.0 1.0
+//#mat_default _Tint0 vec4 1.0 0.0 0.0 1.0
+//#mat_default _Tint1 vec4 0.0 1.0 0.0 1.0
+
 #import renderide::frame::globals as rg
+#import renderide::core::fullscreen as fs
 #import renderide::skybox::common as skybox
 #import renderide::skybox::projection360 as p360
 #import renderide::skybox::projection360_material as p360m
@@ -51,8 +69,7 @@ struct Projection360Material {
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
-    @location(0) ndc: vec2<f32>,
-    @location(1) @interpolate(flat) view_layer: u32,
+    @location(0) @interpolate(flat) view_layer: u32,
 }
 
 fn projection360_params() -> p360m::Projection360Params {
@@ -81,6 +98,10 @@ fn projection360_params() -> p360m::Projection360Params {
 }
 
 fn base_view_dir(ndc: vec2<f32>, view_layer: u32) -> vec3<f32> {
+    if (p360m::kw_PERSPECTIVE(mat._RenderideVariantBits)) {
+        return p360::perspective_view_dir_from_ndc(ndc.xy, mat._PerspectiveFOV);
+    }
+
     let proj_params = select(rg::frame.proj_params_left, rg::frame.proj_params_right, view_layer != 0u);
     let camera_ray_view = skybox::view_ray_from_ndc(
         ndc,
@@ -88,10 +109,6 @@ fn base_view_dir(ndc: vec2<f32>, view_layer: u32) -> vec3<f32> {
         skybox::view_is_orthographic(view, view_layer),
     );
     let camera_ray_world = skybox::world_ray_from_view_ray(camera_ray_view, view, view_layer);
-
-    if (p360m::kw_PERSPECTIVE(mat._RenderideVariantBits)) {
-        return p360::perspective_view_dir_from_ndc(ndc, mat._PerspectiveFOV);
-    }
     return normalize(-camera_ray_world);
 }
 
@@ -102,10 +119,9 @@ fn vs_main(
     @builtin(view_index) view_idx: u32,
 #endif
 ) -> VertexOutput {
-    let clip = skybox::fullscreen_clip_pos(vertex_index);
+    let clip = fs::fullscreen_clip_pos(vertex_index);
     var out: VertexOutput;
     out.clip_pos = clip;
-    out.ndc = vec2<f32>(clip.x, clip.y * view.ndc_y_sign_pad.x);
 #ifdef MULTIVIEW
     out.view_layer = view_idx;
 #else
@@ -114,11 +130,14 @@ fn vs_main(
     return out;
 }
 
+//#pass type=forward blend=off zwrite=off ztest=main
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let params = projection360_params();
+    let viewport_extent = vec2<f32>(f32(rg::frame.viewport_width), f32(rg::frame.viewport_height));
+    let ndc = skybox::ndc_from_fragment_position(in.clip_pos, view, viewport_extent);
     let view_dir = p360m::apply_offset(
-        base_view_dir(in.ndc, in.view_layer),
+        base_view_dir(ndc, in.view_layer),
         params,
         _OffsetTex,
         _OffsetTex_sampler,
