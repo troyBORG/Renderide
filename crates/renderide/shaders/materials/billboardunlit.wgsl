@@ -231,7 +231,7 @@ fn vertex_color(color: vec4<f32>) -> vec4<f32> {
     return color;
 }
 
-//#pass type=forward name=forward_billboard blend=material_filter
+//#pass type=forward name=forward_billboard blend=material_filter offset=0,0
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let use_texture = kw_TEXTURE();
