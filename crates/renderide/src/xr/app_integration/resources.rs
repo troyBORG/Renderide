@@ -1,6 +1,6 @@
 //! Lazy OpenXR stereo swapchain and renderer-owned HMD target allocation.
 
-use crate::gpu::{GpuContext, VR_MIRROR_EYE_LAYER};
+use crate::gpu::GpuContext;
 use crate::xr::{XR_COLOR_FORMAT, XR_VIEW_COUNT, XrStereoSwapchain, create_stereo_depth_texture};
 
 use super::types::{XrOwnedHmdTargets, XrSessionBundle};
@@ -75,12 +75,15 @@ fn create_owned_hmd_targets(
     let color_texture = device.create_texture(&owned_hmd_color_texture_descriptor((w, h)));
     let color_array_view = color_texture.create_view(&owned_hmd_color_array_view_descriptor());
     crate::profiling::note_resource_churn!(TextureView, "xr::owned_hmd_color_array_view");
-    let mirror_eye_view = color_texture.create_view(&owned_hmd_mirror_eye_view_descriptor());
-    crate::profiling::note_resource_churn!(TextureView, "xr::owned_hmd_mirror_eye_view");
+    let eye_views = [
+        color_texture.create_view(&owned_hmd_eye_view_descriptor(0)),
+        color_texture.create_view(&owned_hmd_eye_view_descriptor(1)),
+    ];
+    crate::profiling::note_resource_churn!(TextureView, "xr::owned_hmd_eye_views");
     Some(XrOwnedHmdTargets::new(
         color_texture,
         color_array_view,
-        mirror_eye_view,
+        eye_views,
         depth_texture,
         depth_view,
         (w, h),
@@ -120,12 +123,16 @@ fn owned_hmd_color_array_view_descriptor() -> wgpu::TextureViewDescriptor<'stati
     }
 }
 
-/// Descriptor for the left-eye color view used by the desktop mirror staging pass.
-fn owned_hmd_mirror_eye_view_descriptor() -> wgpu::TextureViewDescriptor<'static> {
+/// Descriptor for one single-layer HMD color view used by final blit passes.
+fn owned_hmd_eye_view_descriptor(layer: u32) -> wgpu::TextureViewDescriptor<'static> {
     wgpu::TextureViewDescriptor {
-        label: Some("xr_owned_hmd_mirror_eye"),
+        label: Some(match layer {
+            0 => "xr_owned_hmd_left_eye",
+            1 => "xr_owned_hmd_right_eye",
+            _ => "xr_owned_hmd_eye",
+        }),
         dimension: Some(wgpu::TextureViewDimension::D2),
-        base_array_layer: VR_MIRROR_EYE_LAYER,
+        base_array_layer: layer,
         array_layer_count: Some(1),
         ..Default::default()
     }
@@ -134,6 +141,7 @@ fn owned_hmd_mirror_eye_view_descriptor() -> wgpu::TextureViewDescriptor<'static
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gpu::VR_MIRROR_EYE_LAYER;
 
     #[test]
     fn owned_hmd_color_texture_has_stereo_render_and_sample_usage() {
@@ -150,14 +158,24 @@ mod tests {
     }
 
     #[test]
-    fn owned_hmd_color_views_select_array_and_left_eye() {
+    fn owned_hmd_color_views_select_array_and_eye_layers() {
         let array = owned_hmd_color_array_view_descriptor();
         assert_eq!(array.dimension, Some(wgpu::TextureViewDimension::D2Array));
         assert_eq!(array.array_layer_count, Some(XR_VIEW_COUNT));
 
-        let mirror = owned_hmd_mirror_eye_view_descriptor();
-        assert_eq!(mirror.dimension, Some(wgpu::TextureViewDimension::D2));
-        assert_eq!(mirror.base_array_layer, VR_MIRROR_EYE_LAYER);
-        assert_eq!(mirror.array_layer_count, Some(1));
+        let left = owned_hmd_eye_view_descriptor(0);
+        assert_eq!(left.dimension, Some(wgpu::TextureViewDimension::D2));
+        assert_eq!(left.base_array_layer, 0);
+        assert_eq!(left.array_layer_count, Some(1));
+
+        let right = owned_hmd_eye_view_descriptor(1);
+        assert_eq!(right.dimension, Some(wgpu::TextureViewDimension::D2));
+        assert_eq!(right.base_array_layer, 1);
+        assert_eq!(right.array_layer_count, Some(1));
+
+        assert_eq!(
+            owned_hmd_eye_view_descriptor(VR_MIRROR_EYE_LAYER).base_array_layer,
+            0
+        );
     }
 }

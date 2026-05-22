@@ -272,6 +272,9 @@ impl AppDriver {
                 .gpu()
                 .dump_gpu_flight_recorder_once("gpu-device-lost");
         }
+        if let Some(target) = self.target.as_mut() {
+            target.gpu_mut().abandon_surface_after_device_loss();
+        }
         self.runtime.log_compact_renderer_summary("gpu-device-lost");
         self.request_exit(ExitReason::GpuDeviceLost, event_loop);
         true

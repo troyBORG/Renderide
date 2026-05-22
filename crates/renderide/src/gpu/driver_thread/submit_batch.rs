@@ -98,3 +98,15 @@ pub(super) enum DriverMessage {
     /// dropped (their surface textures are dropped without presenting).
     Shutdown,
 }
+
+impl DriverMessage {
+    /// Marks a carried surface texture as presented before the message is dropped after device loss.
+    pub(super) fn present_surface_texture_after_device_loss(self) {
+        let Self::Submit(mut batch) = self else {
+            return;
+        };
+        if let Some(surface_texture) = batch.surface_texture.take() {
+            surface_texture.present();
+        }
+    }
+}

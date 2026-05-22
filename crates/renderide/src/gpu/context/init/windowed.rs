@@ -217,6 +217,7 @@ fn assemble_window_context(
         Arc::clone(&prepared.device),
         Arc::new(prepared.queue),
         Arc::clone(&prepared.mapped_buffer_health),
+        Arc::clone(&prepared.device_health),
         Arc::clone(&prepared.flight_recorder),
     )?;
     let submission = GpuSubmissionState::new(

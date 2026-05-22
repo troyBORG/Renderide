@@ -43,12 +43,14 @@ impl GpuRuntimeHandles {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+        device_health: Arc<GpuDeviceHealth>,
         flight_recorder: Arc<GpuFlightRecorder>,
     ) -> Result<Self, GpuError> {
         let gpu_queue_access_gate = super::super::super::GpuQueueAccessGate::new();
         let driver_thread = super::super::super::driver_thread::DriverThread::new(
             Arc::clone(&queue),
             gpu_queue_access_gate.clone(),
+            device_health,
             Arc::clone(&flight_recorder),
         )
         .map_err(GpuError::DriverThreadSpawn)?;

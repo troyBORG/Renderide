@@ -106,6 +106,7 @@ impl GpuContext {
             Arc::clone(&device),
             queue,
             Arc::clone(&mapped_buffer_health),
+            Arc::clone(&device_health),
             Arc::clone(&flight_recorder),
         )?;
         let submission = GpuSubmissionState::new(

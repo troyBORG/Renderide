@@ -189,9 +189,8 @@ pub fn try_openxr_hmd_multiview_submit(
         bundle.mirror_blit.encode_owned_hmd_to_openxr_and_staging(
             gpu,
             extent,
-            targets.color_array_view(),
-            targets.mirror_eye_view(),
-            acquired_image.array_view(),
+            targets.eye_views(),
+            acquired_image.eye_views(),
         )
     };
     let handles = &mut bundle.handles;

@@ -39,6 +39,7 @@ use crate::diagnostics::gpu_flight_recorder::{
     GpuFlightCallResult, GpuFlightDriverStage, GpuFlightEventKind, GpuFlightRecorder,
 };
 use crate::diagnostics::log_throttle::LogThrottle;
+use crate::gpu::sync::device_health::GpuDeviceHealth;
 pub use error::DriverError;
 pub use submit_batch::{SubmitBatch, SubmitWait};
 pub use submit_counters::SubmitToken;
@@ -70,6 +71,7 @@ pub struct DriverThread {
     errors: Arc<DriverErrorState>,
     surface_counters: Arc<SurfaceCounters>,
     submit_counters: Arc<SubmitCounters>,
+    device_health: Arc<GpuDeviceHealth>,
     flight_recorder: Arc<GpuFlightRecorder>,
     handle: Option<thread::JoinHandle<()>>,
 }
@@ -86,6 +88,7 @@ impl DriverThread {
     pub fn new(
         queue: Arc<wgpu::Queue>,
         gpu_queue_access_gate: crate::gpu::GpuQueueAccessGate,
+        device_health: Arc<GpuDeviceHealth>,
         flight_recorder: Arc<GpuFlightRecorder>,
     ) -> std::io::Result<Self> {
         let ring = Arc::new(BoundedRing::<DriverMessage>::new(RING_CAPACITY));
@@ -117,6 +120,7 @@ impl DriverThread {
             errors,
             surface_counters,
             submit_counters,
+            device_health,
             flight_recorder,
             handle: Some(handle),
         })
@@ -144,6 +148,12 @@ impl DriverThread {
         let token = self.submit_counters.note_pushed();
         let enqueue_start = Instant::now();
         if let Err(_dropped) = self.ring.push(DriverMessage::Submit(Box::new(batch))) {
+            if has_surface && self.device_health.is_lost() {
+                logger::warn!(
+                    "driver thread exited after device loss; presenting abandoned surface texture before dropping submit batch"
+                );
+                _dropped.present_surface_texture_after_device_loss();
+            }
             if has_surface {
                 // Roll back the submitted counter so `wait_for_previous_present` does not
                 // wait on a present that will never happen.

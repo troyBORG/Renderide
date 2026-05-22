@@ -213,6 +213,28 @@ impl GpuContext {
         self.device_health.is_lost()
     }
 
+    /// Abandons the configured window surface after device loss so wgpu does not unconfigure it.
+    ///
+    /// wgpu's Vulkan backend validates that every swapchain semaphore has been released when
+    /// `Surface::drop` unconfigures the swapchain. If the device is already lost,
+    /// `SurfaceTexture::present` can fail before wgpu clears the acquired texture record, leaving
+    /// the surface impossible to tear down cleanly inside wgpu. The process is exiting on this
+    /// path, so leaking the surface is preferable to a secondary panic that hides the device loss.
+    pub(crate) fn abandon_surface_after_device_loss(&mut self) {
+        if !self.device_lost() {
+            return;
+        }
+        let Some(surface) = self.surface.take() else {
+            self.surface_configured = false;
+            return;
+        };
+        self.surface_configured = false;
+        logger::warn!(
+            "GPU device lost; abandoning configured wgpu surface during shutdown to avoid Vulkan swapchain unconfigure with a possibly outstanding SurfaceTexture"
+        );
+        let _surface = std::mem::ManuallyDrop::new(surface);
+    }
+
     /// Records one GPU/XR diagnostic event in the in-memory flight recorder.
     pub(crate) fn record_gpu_flight_event(&self, kind: GpuFlightEventKind) {
         self.flight_recorder.record(kind);
@@ -245,5 +267,11 @@ impl GpuContext {
         }
         self.seen_device_lost_generation = generation;
         Some(generation)
+    }
+}
+
+impl Drop for GpuContext {
+    fn drop(&mut self) {
+        self.abandon_surface_after_device_loss();
     }
 }
