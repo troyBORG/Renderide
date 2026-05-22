@@ -1,17 +1,16 @@
 //! Per-view blackboard slots that propagate live post-processing settings into the chain.
 
-use crate::render_graph::blackboard::BlackboardSlot;
+use crate::render_graph::blackboard::blackboard_slot;
 
-/// Blackboard slot for the live [`crate::config::GtaoSettings`] snapshot.
-///
-/// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so
-/// the GTAO chain ([`crate::passes::post_processing::GtaoEffect`]) reads the current slider
-/// values without rebuilding the compiled render graph. Non-topology slider changes don't
-/// flip [`crate::render_graph::post_process_chain::chain::PostProcessChainSignature`] -- this
-/// slot is the path that propagates those edits into the per-stage UBO writes.
-pub struct GtaoSettingsSlot;
-impl BlackboardSlot for GtaoSettingsSlot {
-    type Value = GtaoSettingsValue;
+blackboard_slot! {
+    /// Blackboard slot for the live [`crate::config::GtaoSettings`] snapshot.
+    ///
+    /// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so
+    /// the GTAO chain ([`crate::passes::post_processing::GtaoEffect`]) reads the current slider
+    /// values without rebuilding the compiled render graph. Non-topology slider changes don't
+    /// flip [`crate::render_graph::post_process_chain::chain::PostProcessChainSignature`] -- this
+    /// slot is the path that propagates those edits into the per-stage UBO writes.
+    pub GtaoSettingsSlot => GtaoSettingsValue,
 }
 
 /// Live [`crate::config::GtaoSettings`] carried on the per-view blackboard.
@@ -21,45 +20,42 @@ impl BlackboardSlot for GtaoSettingsSlot {
 #[derive(Clone, Copy, Debug)]
 pub struct GtaoSettingsValue(pub crate::config::GtaoSettings);
 
-/// Blackboard slot for the live [`crate::config::BloomSettings`] snapshot.
-///
-/// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so the
-/// bloom passes read the current slider values without rebuilding the compiled render graph.
-/// Non-topology edits (intensity, low-frequency boost, threshold, composite mode, ...) flow in via
-/// this slot; only the effective `max_mip_dimension` changes force a rebuild because it resizes
-/// the mip-chain transient textures -- the chain signature tracks that value explicitly.
-pub struct BloomSettingsSlot;
-impl BlackboardSlot for BloomSettingsSlot {
-    type Value = BloomSettingsValue;
+blackboard_slot! {
+    /// Blackboard slot for the live [`crate::config::BloomSettings`] snapshot.
+    ///
+    /// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so the
+    /// bloom passes read the current slider values without rebuilding the compiled render graph.
+    /// Non-topology edits (intensity, low-frequency boost, threshold, composite mode, ...) flow in via
+    /// this slot; only the effective `max_mip_dimension` changes force a rebuild because it resizes
+    /// the mip-chain transient textures -- the chain signature tracks that value explicitly.
+    pub BloomSettingsSlot => BloomSettingsValue,
 }
 
 /// Live [`crate::config::BloomSettings`] carried on the per-view blackboard.
 #[derive(Clone, Copy, Debug)]
 pub struct BloomSettingsValue(pub crate::config::BloomSettings);
 
-/// Blackboard slot for the live [`crate::config::MotionBlurSettings`] snapshot.
-///
-/// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so
-/// motion blur sample counts, shutter scale, and pixel clamp updates take effect without
-/// rebuilding the compiled render graph. Topology fields still rebuild the graph when they
-/// add or remove the velocity and resolve passes.
-pub struct MotionBlurSettingsSlot;
-impl BlackboardSlot for MotionBlurSettingsSlot {
-    type Value = MotionBlurSettingsValue;
+blackboard_slot! {
+    /// Blackboard slot for the live [`crate::config::MotionBlurSettings`] snapshot.
+    ///
+    /// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so
+    /// motion blur sample counts, shutter scale, and pixel clamp updates take effect without
+    /// rebuilding the compiled render graph. Topology fields still rebuild the graph when they
+    /// add or remove the velocity and resolve passes.
+    pub MotionBlurSettingsSlot => MotionBlurSettingsValue,
 }
 
 /// Live [`crate::config::MotionBlurSettings`] carried on the per-view blackboard.
 #[derive(Clone, Copy, Debug)]
 pub struct MotionBlurSettingsValue(pub crate::config::MotionBlurSettings);
 
-/// Blackboard slot for the live [`crate::config::AutoExposureSettings`] snapshot.
-///
-/// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so the
-/// auto-exposure histogram pass can update its GPU settings buffer without rebuilding the graph.
-/// The frame delta is carried alongside the settings because exposure adaptation is temporal.
-pub struct AutoExposureSettingsSlot;
-impl BlackboardSlot for AutoExposureSettingsSlot {
-    type Value = AutoExposureSettingsValue;
+blackboard_slot! {
+    /// Blackboard slot for the live [`crate::config::AutoExposureSettings`] snapshot.
+    ///
+    /// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so the
+    /// auto-exposure histogram pass can update its GPU settings buffer without rebuilding the graph.
+    /// The frame delta is carried alongside the settings because exposure adaptation is temporal.
+    pub AutoExposureSettingsSlot => AutoExposureSettingsValue,
 }
 
 /// Live auto-exposure settings, frame delta, and adaptation policy carried on the per-view blackboard.

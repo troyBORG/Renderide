@@ -10,15 +10,14 @@ use crate::passes::{
     prepare_world_mesh_forward_frame,
 };
 use crate::render_graph::blackboard::{
-    Blackboard, BlackboardSlot, GraphCommandStats, GraphCommandStatsSlot,
+    Blackboard, GraphCommandStats, GraphCommandStatsSlot, blackboard_slot,
 };
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan};
 
-/// Blackboard slot carrying the world-mesh draw plan into backend graph preparation.
-pub struct WorldMeshDrawPlanSlot;
-impl BlackboardSlot for WorldMeshDrawPlanSlot {
-    type Value = WorldMeshDrawPlan;
+blackboard_slot! {
+    /// Blackboard slot carrying the world-mesh draw plan into backend graph preparation.
+    pub WorldMeshDrawPlanSlot => WorldMeshDrawPlan,
 }
 
 /// Backend-owned world-mesh forward preparation caches.

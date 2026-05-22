@@ -18,6 +18,6 @@ pub(in crate::passes) use attachments::{
 };
 pub(in crate::passes) use fullscreen_d2_array_pipeline::{
     FullscreenD2ArrayPipelineLabels, FullscreenD2ArraySampledPipelineCache,
-    FullscreenD2ArrayShaders,
+    FullscreenD2ArrayShaders, define_fullscreen_d2_array_pipeline_cache,
 };
 pub(in crate::passes) use output_format::transient_output_format_or;

@@ -19,7 +19,7 @@ use crate::materials::MaterialSystem;
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
 use crate::occlusion::OcclusionGraphHook;
 use crate::occlusion::gpu::HiZGpuState;
-use crate::render_graph::blackboard::BlackboardSlot;
+use crate::render_graph::blackboard::blackboard_slot;
 use crate::render_graph::compiled::ViewPostProcessing;
 use crate::render_graph::execution_backend::{GraphAssetResources, GraphFrameResources};
 use crate::scene::SceneCoordinator;
@@ -79,14 +79,13 @@ impl Default for FrameViewClear {
     }
 }
 
-/// Blackboard slot for per-view MSAA attachment views resolved from transient graph resources.
-///
-/// Populated by the executor (before per-view passes run) from
-/// [`crate::render_graph::compiled::helpers::populate_forward_msaa_from_graph_resources`] output.
-/// Replaces the six `msaa_*` fields that previously lived on [`GraphPassFrame`].
-pub struct MsaaViewsSlot;
-impl BlackboardSlot for MsaaViewsSlot {
-    type Value = MsaaViews;
+blackboard_slot! {
+    /// Blackboard slot for per-view MSAA attachment views resolved from transient graph resources.
+    ///
+    /// Populated by the executor (before per-view passes run) from
+    /// [`crate::render_graph::compiled::helpers::populate_forward_msaa_from_graph_resources`] output.
+    /// Replaces the six `msaa_*` fields that previously lived on [`GraphPassFrame`].
+    pub MsaaViewsSlot => MsaaViews,
 }
 
 /// MSAA attachment views for the forward pass (resolved from graph transient textures).
@@ -108,14 +107,13 @@ pub struct MsaaViews {
     pub msaa_stereo_r32_layer_views: Option<[wgpu::TextureView; 2]>,
 }
 
-/// Blackboard slot for per-view frame bind group and uniform buffer.
-///
-/// Seeded into the per-view blackboard by the executor before running per-view passes.
-/// Backend world-mesh frame planning writes frame uniforms to the buffer backing
-/// [`PerViewFramePlan::frame_bind_group`].
-pub struct PerViewFramePlanSlot;
-impl BlackboardSlot for PerViewFramePlanSlot {
-    type Value = PerViewFramePlan;
+blackboard_slot! {
+    /// Blackboard slot for per-view frame bind group and uniform buffer.
+    ///
+    /// Seeded into the per-view blackboard by the executor before running per-view passes.
+    /// Backend world-mesh frame planning writes frame uniforms to the buffer backing
+    /// [`PerViewFramePlan::frame_bind_group`].
+    pub PerViewFramePlanSlot => PerViewFramePlan,
 }
 
 /// Per-view frame bind group and uniform buffer for multi-view rendering.
