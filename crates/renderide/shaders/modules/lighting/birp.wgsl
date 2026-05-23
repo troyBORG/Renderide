@@ -15,15 +15,16 @@ fn direct_light_intensity(intensity: f32) -> f32 {
     return intensity * INTENSITY_BOOST;
 }
 
-fn quartic_edge_fade_from_t4(t4: f32) -> f32 {
-    let fade = clamp(1.0 - t4, 0.0, 1.0);
+/// Squared edge fade for a precomputed attenuation curve input.
+fn squared_edge_fade(t: f32) -> f32 {
+    let fade = clamp(1.0 - t, 0.0, 1.0);
     return fade * fade;
 }
 
 /// Quartic window that smoothly fades normalized attenuation to zero at the boundary.
 fn range_fade(t: f32) -> f32 {
     let t2 = t * t;
-    return quartic_edge_fade_from_t4(t2 * t2);
+    return squared_edge_fade(t2 * t2);
 }
 
 /// Unity BiRP-style distance attenuation for punctual lights.
@@ -54,7 +55,7 @@ fn normalized_spot_direction(direction: vec3<f32>) -> vec3<f32> {
     return direction * inverseSqrt(len_sq);
 }
 
-/// Projected radial quartic spotlight cone attenuation.
+/// Projected radial quadratic spotlight cone attenuation.
 ///
 /// `l` is the normalized direction from the shaded surface toward the light. The packed light
 /// stores the outer half-angle cosine plus the reciprocal squared tangent of that angle.
@@ -69,5 +70,5 @@ fn spot_angle_attenuation(light: ft::GpuLight, l: vec3<f32>) -> f32 {
     let rho2 = max(rho * rho, 1e-6);
     let tan2_theta = max(1.0 - rho2, 0.0) / rho2;
     let r2 = clamp(tan2_theta * light.spot_angle_scale, 0.0, 1.0);
-    return quartic_edge_fade_from_t4(r2 * r2);
+    return squared_edge_fade(r2);
 }
