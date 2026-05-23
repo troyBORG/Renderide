@@ -232,6 +232,28 @@ fn shipped_manifest_loads() {
         manifest.actions.has_haptic(),
         "shipped actions.toml should declare a haptic action"
     );
+    let palm_bindings = manifest
+        .profiles
+        .iter()
+        .flat_map(|p| p.bindings.iter())
+        .filter(|b| b.path.contains("/input/palm_ext/pose"))
+        .count();
+    assert_eq!(
+        palm_bindings, 28,
+        "expected left/right palm_ext bindings on every shipped profile"
+    );
+    for binding in manifest
+        .profiles
+        .iter()
+        .flat_map(|p| p.bindings.iter())
+        .filter(|b| b.path.contains("/input/palm_ext/pose"))
+    {
+        assert_eq!(
+            binding.extension_gate,
+            Some(ExtensionGate::PalmPose),
+            "palm_ext binding must be gated by XR_EXT_palm_pose"
+        );
+    }
 
     let profile_paths: hashbrown::HashSet<&str> = manifest
         .profiles
@@ -275,5 +297,22 @@ path = "/user/hand/left/input/trigger/value"
     assert_eq!(
         m.profiles[0].extension_gate,
         Some(ExtensionGate::ExtHpMixedRealityController)
+    );
+}
+
+#[test]
+fn accepts_binding_level_extension_gate() {
+    let src = r#"
+profile = "/interaction_profiles/oculus/touch_controller"
+
+[[binding]]
+action = "left_grip_pose"
+path = "/user/hand/left/input/palm_ext/pose"
+extension_gate = "palm_pose"
+"#;
+    let m = build_manifest(ACTIONS_OK, &[("p.toml", src)]).expect("manifest");
+    assert_eq!(
+        m.profiles[0].bindings[0].extension_gate,
+        Some(ExtensionGate::PalmPose)
     );
 }

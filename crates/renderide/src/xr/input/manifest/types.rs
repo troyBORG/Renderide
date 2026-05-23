@@ -200,6 +200,8 @@ pub enum ExtensionGate {
     FbTouchControllerPro,
     /// `XR_META_touch_controller_plus`.
     MetaTouchControllerPlus,
+    /// `XR_EXT_palm_pose`.
+    PalmPose,
 }
 
 impl ExtensionGate {
@@ -214,6 +216,7 @@ impl ExtensionGate {
             "htc_vive_focus3_controller_interaction" => Self::HtcViveFocus3ControllerInteraction,
             "fb_touch_controller_pro" => Self::FbTouchControllerPro,
             "meta_touch_controller_plus" => Self::MetaTouchControllerPlus,
+            "palm_pose" => Self::PalmPose,
             _ => return None,
         };
         Some(gate)
@@ -221,12 +224,14 @@ impl ExtensionGate {
 }
 
 /// One `[[binding]]` entry from a profile file.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BindingEntry {
     /// Action id the binding targets; must exist in [`ActionManifest`].
     pub action: String,
     /// Full OpenXR path (e.g. `/user/hand/left/input/trigger/value`).
     pub path: String,
+    /// Optional extension required for the runtime to accept this individual binding path.
+    pub extension_gate: Option<ExtensionGate>,
 }
 
 /// Validated per-profile binding table.

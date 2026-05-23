@@ -53,13 +53,29 @@ fn resolve_user_paths(instance: &xr::Instance) -> Result<UserPaths, xr::sys::Res
 fn create_pose_spaces(
     session: &xr::Session<xr::Vulkan>,
     actions: &OpenxrInputActions,
-) -> Result<(xr::Space, xr::Space, xr::Space, xr::Space), xr::sys::Result> {
+) -> Result<
+    (
+        xr::Space,
+        xr::Space,
+        xr::Space,
+        xr::Space,
+        xr::Space,
+        xr::Space,
+    ),
+    xr::sys::Result,
+> {
     Ok((
         actions
             .left_grip_pose
             .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
         actions
             .right_grip_pose
+            .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
+        actions
+            .left_aim_pose
+            .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
+        actions
+            .right_aim_pose
             .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
         actions
             .left_palm_ext_pose
@@ -89,6 +105,10 @@ pub(super) struct OpenxrInputParts {
     pub(super) left_space: xr::Space,
     /// Right grip pose space.
     pub(super) right_space: xr::Space,
+    /// Left aim pose space.
+    pub(super) left_aim_space: xr::Space,
+    /// Right aim pose space.
+    pub(super) right_aim_space: xr::Space,
     /// Left palm pose space.
     pub(super) left_palm_ext_space: xr::Space,
     /// Right palm pose space.
@@ -130,8 +150,14 @@ pub(super) fn create_openxr_input_parts(
 
     session.attach_action_sets(&[&action_set])?;
 
-    let (left_space, right_space, left_palm_space, right_palm_space) =
-        create_pose_spaces(session, &actions)?;
+    let (
+        left_space,
+        right_space,
+        left_aim_space,
+        right_aim_space,
+        left_palm_space,
+        right_palm_space,
+    ) = create_pose_spaces(session, &actions)?;
 
     Ok(OpenxrInputParts {
         action_set,
@@ -143,6 +169,8 @@ pub(super) fn create_openxr_input_parts(
         right_profile_cache: AtomicU8::new(0),
         left_space,
         right_space,
+        left_aim_space,
+        right_aim_space,
         left_palm_ext_space: left_palm_space,
         right_palm_ext_space: right_palm_space,
     })

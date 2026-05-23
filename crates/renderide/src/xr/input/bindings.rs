@@ -55,6 +55,7 @@ impl ProfileExtensionGates {
             }
             ExtensionGate::FbTouchControllerPro => self.fb_touch_controller_pro,
             ExtensionGate::MetaTouchControllerPlus => self.meta_touch_controller_plus,
+            ExtensionGate::PalmPose => self.palm_pose,
         }
     }
 }
@@ -115,17 +116,15 @@ pub(super) fn apply_suggested_interaction_bindings(
             continue;
         }
 
-        // do not suggest palm_ext bindings if the extension is not available, doing so will make the
-        // runtime reject our bindings.
-        let profile_bindings = profile
-            .bindings
-            .iter()
-            .filter(|b| gates.palm_pose || !b.path.contains("palm_ext"));
-
         let profile_path = instance.string_to_path(&profile.profile)?;
 
         let mut bindings: Vec<xr::Binding<'_>> = Vec::with_capacity(profile.bindings.len());
-        for entry in profile_bindings {
+        for entry in &profile.bindings {
+            if let Some(gate) = entry.extension_gate
+                && !gates.is_enabled(gate)
+            {
+                continue;
+            }
             let Some(handle) = actions_by_id.get(entry.action.as_str()) else {
                 logger::error!(
                     "OpenXR manifest invariant: binding for '{}' in '{}' has no matching action handle",
@@ -164,7 +163,7 @@ pub(super) fn apply_suggested_interaction_bindings(
 pub(super) fn build_action_handle_map(
     actions: &OpenxrInputActions,
 ) -> HashMap<String, ActionHandleRef<'_>> {
-    let mut map = HashMap::with_capacity(44);
+    let mut map = HashMap::with_capacity(46);
     macro_rules! put {
         ($variant:ident, $field:ident) => {
             map.insert(
@@ -176,6 +175,8 @@ pub(super) fn build_action_handle_map(
 
     put!(Pose, left_grip_pose);
     put!(Pose, right_grip_pose);
+    put!(Pose, left_aim_pose);
+    put!(Pose, right_aim_pose);
     put!(Pose, left_palm_ext_pose);
     put!(Pose, right_palm_ext_pose);
 
@@ -262,6 +263,7 @@ mod tests {
         assert!(!gates.is_enabled(ExtensionGate::HtcViveFocus3ControllerInteraction));
         assert!(!gates.is_enabled(ExtensionGate::FbTouchControllerPro));
         assert!(!gates.is_enabled(ExtensionGate::MetaTouchControllerPlus));
+        assert!(!gates.is_enabled(ExtensionGate::PalmPose));
     }
 
     #[test]
@@ -276,5 +278,6 @@ mod tests {
         assert!(gates.is_enabled(ExtensionGate::HtcViveFocus3ControllerInteraction));
         assert!(gates.is_enabled(ExtensionGate::FbTouchControllerPro));
         assert!(gates.is_enabled(ExtensionGate::MetaTouchControllerPlus));
+        assert!(gates.is_enabled(ExtensionGate::PalmPose));
     }
 }

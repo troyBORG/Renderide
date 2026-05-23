@@ -88,7 +88,7 @@ const OPTIONAL_EXTENSIONS: &[OpenxrExtensionEntry] = &[
         feeds_profile_gate: Some(|gates, v| gates.meta_touch_controller_plus = v),
     },
     OpenxrExtensionEntry {
-        log_name: "XR_EXT_palm_pose",
+        log_name: "EXT_palm_pose",
         is_available: |set| set.ext_palm_pose,
         enable: |set, v| set.ext_palm_pose = v,
         feeds_profile_gate: Some(|gates, v| gates.palm_pose = v),
@@ -161,6 +161,7 @@ mod tests {
         set.htc_vive_focus3_controller_interaction = true;
         set.fb_touch_controller_pro = true;
         set.meta_touch_controller_plus = true;
+        set.ext_palm_pose = true;
         set
     }
 
@@ -179,6 +180,7 @@ mod tests {
         assert!(enabled.htc_vive_focus3_controller_interaction);
         assert!(enabled.fb_touch_controller_pro);
         assert!(enabled.meta_touch_controller_plus);
+        assert!(enabled.ext_palm_pose);
     }
 
     #[test]
@@ -195,6 +197,7 @@ mod tests {
         assert!(gates.htc_vive_focus3_controller_interaction);
         assert!(gates.fb_touch_controller_pro);
         assert!(gates.meta_touch_controller_plus);
+        assert!(gates.palm_pose);
     }
 
     #[test]
@@ -207,6 +210,7 @@ mod tests {
         assert!(!enabled.khr_generic_controller);
         assert!(!gates.khr_generic_controller);
         assert!(!gates.bd_controller);
+        assert!(!gates.palm_pose);
     }
 
     #[test]
@@ -232,7 +236,7 @@ mod tests {
              BD_controller_interaction,EXT_hp_mixed_reality_controller,\
              EXT_samsung_odyssey_controller,HTC_vive_cosmos_controller_interaction,\
              HTC_vive_focus3_controller_interaction,FB_touch_controller_pro,\
-             META_touch_controller_plus"
+             META_touch_controller_plus,EXT_palm_pose"
         );
     }
 

@@ -19,7 +19,33 @@ struct BindingProfileRaw {
     #[serde(default)]
     extension_gate: Option<String>,
     #[serde(default)]
-    binding: Vec<BindingEntry>,
+    binding: Vec<BindingEntryRaw>,
+}
+
+/// Raw `[[binding]]` entry with stringly typed extension metadata.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+struct BindingEntryRaw {
+    action: String,
+    path: String,
+    #[serde(default)]
+    extension_gate: Option<String>,
+}
+
+/// Resolves a TOML `extension_gate` string for either profile-level or binding-level metadata.
+fn parse_extension_gate(
+    profile: &str,
+    name: Option<String>,
+) -> Result<Option<ExtensionGate>, ManifestError> {
+    let Some(name) = name else {
+        return Ok(None);
+    };
+    match ExtensionGate::from_str(&name) {
+        Some(gate) => Ok(Some(gate)),
+        None => Err(ManifestError::UnknownExtensionGate {
+            profile: profile.to_string(),
+            gate: name,
+        }),
+    }
 }
 
 /// Parses a single profile file, without validating against an action manifest.
@@ -32,22 +58,19 @@ fn parse_binding_profile(
             file: file_label.to_string(),
             source: e,
         })?;
-    let extension_gate = match raw.extension_gate {
-        None => None,
-        Some(ref name) => match ExtensionGate::from_str(name) {
-            Some(g) => Some(g),
-            None => {
-                return Err(ManifestError::UnknownExtensionGate {
-                    profile: raw.profile.clone(),
-                    gate: name.clone(),
-                });
-            }
-        },
-    };
+    let extension_gate = parse_extension_gate(&raw.profile, raw.extension_gate)?;
+    let mut bindings = Vec::with_capacity(raw.binding.len());
+    for binding in raw.binding {
+        bindings.push(BindingEntry {
+            action: binding.action,
+            path: binding.path,
+            extension_gate: parse_extension_gate(&raw.profile, binding.extension_gate)?,
+        });
+    }
     Ok(BindingProfile {
         profile: raw.profile,
         extension_gate,
-        bindings: raw.binding,
+        bindings,
     })
 }
 
