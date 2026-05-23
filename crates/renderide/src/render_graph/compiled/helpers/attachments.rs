@@ -1,5 +1,6 @@
 //! Raster pass attachment resolution and the wgpu render-pass lifecycle for graph passes.
 
+use crate::render_graph::blackboard::{GraphCommandStats, GraphCommandStatsSlot};
 use crate::render_graph::context::{GraphResolvedResources, RasterPassCtx};
 use crate::render_graph::error::GraphExecuteError;
 use crate::render_graph::pass::{PassNode, RenderPassTemplate};
@@ -8,6 +9,19 @@ use crate::render_graph::resources::{
 };
 
 use super::super::CompiledPassInfo;
+
+fn update_command_stats(
+    ctx: &mut RasterPassCtx<'_, '_>,
+    update: impl FnOnce(&mut GraphCommandStats),
+) {
+    if ctx.blackboard.get::<GraphCommandStatsSlot>().is_none() {
+        ctx.blackboard
+            .insert::<GraphCommandStatsSlot>(GraphCommandStats::default());
+    }
+    if let Some(stats) = ctx.blackboard.get_mut::<GraphCommandStatsSlot>() {
+        update(stats);
+    }
+}
 
 pub(in crate::render_graph::compiled) fn pass_info_raster_template(
     pass_info: &[CompiledPassInfo],
@@ -94,7 +108,7 @@ pub(in crate::render_graph::compiled) fn resolve_color_attachments<'a>(
             resolve_target,
             ops: wgpu::Operations {
                 load: color.load,
-                store: color.store,
+                store: color.store.resolve(sample_count),
             },
             depth_slice: None,
         }));
@@ -123,7 +137,7 @@ pub(in crate::render_graph::compiled) fn resolve_depth_attachment_with_stencil<'
     })?;
     Ok(Some(wgpu::RenderPassDepthStencilAttachment {
         view,
-        depth_ops: Some(depth.depth),
+        depth_ops: Some(depth.depth.resolve(sample_count)),
         stencil_ops,
     }))
 }
@@ -178,7 +192,7 @@ pub(in crate::render_graph::compiled) fn coalesce_render_pass_template(
         template
             .color_attachments
             .iter()
-            .all(|color| matches!(color.store, wgpu::StoreOp::Store))
+            .all(|color| color.store.stores_for_all_targets())
     }) {
         return None;
     }
@@ -225,7 +239,7 @@ fn depth_ops_can_be_coalesced(templates: &[RenderPassTemplate]) -> bool {
         template
             .depth_stencil_attachment
             .as_ref()
-            .is_none_or(|depth| matches!(depth.depth.store, wgpu::StoreOp::Store))
+            .is_none_or(|depth| depth.depth.store.stores_for_all_targets())
     })
 }
 
@@ -248,6 +262,7 @@ pub(in crate::render_graph::compiled) fn execute_graph_raster_pass_node(
             .map_err(GraphExecuteError::Pass)?
     };
     if !should_record {
+        update_command_stats(ctx, GraphCommandStats::record_skipped_pass);
         return Ok(());
     }
 
@@ -279,6 +294,10 @@ pub(in crate::render_graph::compiled) fn execute_graph_raster_pass_node(
         pass.record_raster(ctx, &mut rpass)
             .map_err(GraphExecuteError::Pass)?;
     }
+    update_command_stats(ctx, |stats| {
+        stats.record_raster_pass();
+        stats.record_opened_render_pass();
+    });
     {
         profiling::scope!("graph::raster::end_render_pass");
         drop(rpass);
