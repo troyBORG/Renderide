@@ -22,8 +22,9 @@ use glam::{Quat, Vec3};
 use crate::shared::{Chirality, HandState, VRControllerState};
 
 use presets::{
-    FIST_POS_LEFT, FIST_POS_RIGHT, FIST_ROT_LEFT, FIST_ROT_RIGHT, IDLE_POS_LEFT, IDLE_POS_RIGHT,
-    IDLE_ROT_LEFT, IDLE_ROT_RIGHT, LEFT_HAND_ID, RIGHT_HAND_ID, SEGMENT_COUNT,
+    FIST_POS_LEFT, FIST_POS_RIGHT, FIST_ROT_LEFT, FIST_ROT_RIGHT, HALF_FIST_ROT_LEFT,
+    HALF_FIST_ROT_RIGHT, IDLE_POS_LEFT, IDLE_POS_RIGHT, IDLE_ROT_LEFT, IDLE_ROT_RIGHT,
+    LEFT_HAND_ID, RIGHT_HAND_ID, SEGMENT_COUNT,
 };
 
 /// Which finger a [`HandState`] segment index (0..24) belongs to.
@@ -187,12 +188,13 @@ fn blend_factor_for_segment(index: usize, grip: f32, trigger: f32) -> f32 {
 /// `None` if the controller is untracked or not a variant we drive hands for.
 fn synthesize_one_hand(controller: &VRControllerState) -> Option<HandState> {
     let inputs = extract_curl_inputs(controller)?;
-    let (pos_idle, rot_idle, pos_fist, rot_fist, unique_id) = match inputs.side {
+    let (pos_idle, rot_idle, pos_fist, rot_fist, rot_half, unique_id) = match inputs.side {
         Chirality::Left => (
             &IDLE_POS_LEFT,
             &IDLE_ROT_LEFT,
             &FIST_POS_LEFT,
             &FIST_ROT_LEFT,
+            &HALF_FIST_ROT_LEFT,
             LEFT_HAND_ID,
         ),
         Chirality::Right => (
@@ -200,6 +202,7 @@ fn synthesize_one_hand(controller: &VRControllerState) -> Option<HandState> {
             &IDLE_ROT_RIGHT,
             &FIST_POS_RIGHT,
             &FIST_ROT_RIGHT,
+            &HALF_FIST_ROT_RIGHT,
             RIGHT_HAND_ID,
         ),
     };
@@ -209,10 +212,16 @@ fn synthesize_one_hand(controller: &VRControllerState) -> Option<HandState> {
         let t = blend_factor_for_segment(i, inputs.grip, inputs.trigger);
         let pi = Vec3::from_array(pos_idle[i]);
         let pf = Vec3::from_array(pos_fist[i]);
-        let ri = Quat::from_array(rot_idle[i]);
-        let rf = Quat::from_array(rot_fist[i]);
         segment_positions.push(pi.lerp(pf, t));
-        segment_rotations.push(ri.slerp(rf, t));
+
+        let (rot_start, rot_end, rt) = if t <= 0.5 {
+            (rot_idle, rot_half, 2.0 * t)
+        } else {
+            (rot_half, rot_fist, 2.0 * t - 1.0)
+        };
+        let ri = Quat::from_array(rot_start[i]);
+        let rf = Quat::from_array(rot_end[i]);
+        segment_rotations.push(ri.slerp(rf, rt));
     }
     Some(HandState {
         unique_id: Some(unique_id.to_string()),
