@@ -1,6 +1,5 @@
 //! Source-key types, projection parameter aliases, and shared constants.
 
-use glam::Vec4;
 use hashbrown::HashSet;
 
 use crate::scene::RenderSpaceId;
@@ -53,8 +52,6 @@ pub(in crate::reflection_probes) enum Sh2SourceKey {
         storage_v_inverted: bool,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
-        /// Clear color to use instead of the actual skybox, converted as bits for comparison
-        clear_color_key: Option<[u32; 4]>,
     },
     /// Renderer-captured dynamic cubemap source.
     RuntimeCubemap {
@@ -68,8 +65,6 @@ pub(in crate::reflection_probes) enum Sh2SourceKey {
         size: u32,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
-        /// Clear color to use instead of the actual skybox, converted as bits for comparison
-        clear_color_key: Option<[u32; 4]>,
     },
 }
 
@@ -80,7 +75,6 @@ impl Sh2SourceKey {
         material: CubemapSourceMaterialIdentity,
         asset_id: i32,
         residency: CubemapResidency,
-        clear_color: Option<Vec4>,
     ) -> Self {
         Self::Cubemap {
             render_space_id,
@@ -94,7 +88,6 @@ impl Sh2SourceKey {
             content_generation: residency.content_generation,
             storage_v_inverted: residency.storage_v_inverted,
             sample_size: DEFAULT_SAMPLE_SIZE,
-            clear_color_key: clear_color.map(|c| c.to_array().map(|f| f.to_bits())),
         }
     }
 

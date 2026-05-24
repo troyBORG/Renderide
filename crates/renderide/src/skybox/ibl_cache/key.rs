@@ -40,8 +40,6 @@ pub(crate) enum SkyboxIblKey {
         storage_v_inverted: bool,
         /// Destination cube face edge.
         face_size: u32,
-        /// Clear color to use instead of the actual skybox, converted as bits for comparison
-        clear_color_key: Option<[u32; 4]>,
     },
     /// Constant-color reflection-probe identity.
     SolidColor {
@@ -66,8 +64,6 @@ pub(crate) enum SkyboxIblKey {
         storage_v_inverted: bool,
         /// Destination cube face edge.
         face_size: u32,
-        /// Clear color to use instead of the actual skybox, converted as bits for comparison
-        clear_color_key: Option<[u32; 4]>,
     },
 }
 
@@ -95,7 +91,6 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
             content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
             face_size,
-            clear_color_key: src.clear_color.map(|c| c.to_array().map(|f| f.to_bits())),
         },
         SkyboxIblSource::SolidColor(src) => SkyboxIblKey::SolidColor {
             identity: src.identity,
@@ -109,7 +104,6 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
             mip_levels: src.mip_levels,
             storage_v_inverted: src.storage_v_inverted,
             face_size,
-            clear_color_key: src.clear_color.map(|c| c.to_array().map(|f| f.to_bits())),
         },
     }
 }
@@ -245,7 +239,6 @@ mod tests {
             content_generation,
             storage_v_inverted: false,
             face_size,
-            clear_color_key: None,
         }
     }
 
@@ -257,7 +250,6 @@ mod tests {
             mip_levels: 1,
             storage_v_inverted,
             face_size: 128,
-            clear_color_key: None,
         }
     }
 }

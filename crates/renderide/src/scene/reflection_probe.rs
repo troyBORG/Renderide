@@ -268,6 +268,40 @@ mod tests {
     }
 
     #[test]
+    fn solid_color_helper_requires_color_skybox_only_non_baked_probe() {
+        assert!(reflection_probe_solid_color(ReflectionProbeState {
+            clear_flags: ReflectionProbeClear::Color,
+            flags: 0b001,
+            r#type: ReflectionProbeType::OnChanges,
+            ..ReflectionProbeState::default()
+        }));
+        assert!(reflection_probe_solid_color(ReflectionProbeState {
+            clear_flags: ReflectionProbeClear::Color,
+            flags: 0b001,
+            r#type: ReflectionProbeType::Realtime,
+            ..ReflectionProbeState::default()
+        }));
+        assert!(!reflection_probe_solid_color(ReflectionProbeState {
+            clear_flags: ReflectionProbeClear::Color,
+            flags: 0,
+            r#type: ReflectionProbeType::OnChanges,
+            ..ReflectionProbeState::default()
+        }));
+        assert!(!reflection_probe_solid_color(ReflectionProbeState {
+            clear_flags: ReflectionProbeClear::Skybox,
+            flags: 0b001,
+            r#type: ReflectionProbeType::OnChanges,
+            ..ReflectionProbeState::default()
+        }));
+        assert!(!reflection_probe_solid_color(ReflectionProbeState {
+            clear_flags: ReflectionProbeClear::Color,
+            flags: 0b001,
+            r#type: ReflectionProbeType::Baked,
+            ..ReflectionProbeState::default()
+        }));
+    }
+
+    #[test]
     fn reflection_probe_update_linearizes_background_color() {
         let mut space = RenderSpaceState::default();
         space.reflection_probes.push(ReflectionProbeEntry {

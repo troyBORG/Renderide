@@ -15,7 +15,6 @@ use crate::skybox::specular::{
 };
 use crate::world_mesh::culling::world_aabb_from_local_bounds;
 
-use super::super::source_resolution::probe_clear_color;
 use super::captures::{RuntimeReflectionProbeCaptureKey, RuntimeReflectionProbeCaptureStore};
 use super::selection::{
     SpatialProbe, aabb_valid, aabb_volume, expanded_aabb, sanitized_blend_distance,
@@ -65,7 +64,6 @@ fn resolve_runtime_capture_source(
         face_size: capture.face_size,
         mip_levels: capture.mip_levels,
         storage_v_inverted: true,
-        clear_color: probe_clear_color(probe.state),
         texture: capture.texture.clone(),
         view: capture.view.clone(),
         array_view: capture.array_view.clone(),
@@ -93,7 +91,6 @@ pub(super) fn resolve_baked_probe_source(
         mip_levels_resident: cubemap.mip_levels_resident,
         content_generation: cubemap.content_generation,
         storage_v_inverted: cubemap.storage_v_inverted,
-        clear_color: probe_clear_color(state),
         view: cubemap.view.clone(),
         array_view: cubemap.array_view.clone(),
     }))
