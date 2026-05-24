@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use glam::Vec4;
+
 use super::super::projection_pipeline::{
     ProjectionBinding, ProjectionPipeline, ProjectionPipelineKind, encode_projection_job,
 };
@@ -13,6 +15,7 @@ use crate::backend::AssetTransferQueue;
 use crate::gpu::GpuContext;
 use crate::profiling;
 use crate::skybox::params::storage_v_inverted_flag;
+use crate::skybox::specular::solid_color_params;
 
 /// Maximum pending GPU jobs kept alive at once.
 const MAX_IN_FLIGHT_JOBS: usize = 6;
@@ -92,11 +95,23 @@ impl ReflectionProbeSh2System {
             GpuSh2Source::Cubemap {
                 asset_id,
                 storage_v_inverted,
+                clear_color,
             } => self
-                .schedule_cubemap_source(gpu, assets, key, asset_id, storage_v_inverted, pipeline)
+                .schedule_cubemap_source(
+                    gpu,
+                    assets,
+                    key,
+                    asset_id,
+                    &cubemap_projection_params(clear_color, storage_v_inverted),
+                    pipeline,
+                )
                 .map(ScheduleSourceOutcome::Submitted),
-            GpuSh2Source::RuntimeCubemap { texture, view } => self
-                .schedule_runtime_cubemap_source(gpu, key, texture, view, pipeline)
+            GpuSh2Source::RuntimeCubemap {
+                texture,
+                view,
+                clear_color,
+            } => self
+                .schedule_runtime_cubemap_source(gpu, key, texture, view, clear_color, pipeline)
                 .map(ScheduleSourceOutcome::Submitted),
         }
     }
@@ -107,7 +122,7 @@ impl ReflectionProbeSh2System {
         assets: &AssetTransferQueue,
         key: Sh2SourceKey,
         asset_id: i32,
-        storage_v_inverted: bool,
+        params: &Sh2ProjectParams,
         pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_cubemap");
@@ -119,7 +134,6 @@ impl ReflectionProbeSh2System {
         let sampler = sh2_cubemap_sampler(gpu.device(), "SH2 cubemap sampler");
         let view = tex.view.clone();
         let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let params = cubemap_projection_params(storage_v_inverted);
         encode_projection_job(
             gpu,
             key,
@@ -128,7 +142,7 @@ impl ReflectionProbeSh2System {
                 ProjectionBinding::TextureView(view.as_ref()),
                 ProjectionBinding::Sampler(&sampler),
             ],
-            &params,
+            params,
             &submit_done_tx,
             "reflection_probe_sh2::project_cubemap",
         )
@@ -140,6 +154,7 @@ impl ReflectionProbeSh2System {
         key: Sh2SourceKey,
         texture: Arc<wgpu::Texture>,
         view: Arc<wgpu::TextureView>,
+        clear_color: Option<Vec4>,
         pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_runtime_cubemap");
@@ -153,7 +168,7 @@ impl ReflectionProbeSh2System {
                 ProjectionBinding::TextureView(view.as_ref()),
                 ProjectionBinding::Sampler(&sampler),
             ],
-            &Sh2ProjectParams::empty(SkyParamMode::Procedural),
+            &projection_params(clear_color),
             &submit_done_tx,
             "reflection_probe_sh2::project_runtime_cubemap",
         )?;
@@ -183,8 +198,18 @@ fn sh2_cubemap_sampler(device: &wgpu::Device, label: &'static str) -> wgpu::Samp
     })
 }
 
-fn cubemap_projection_params(storage_v_inverted: bool) -> Sh2ProjectParams {
-    let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
+fn projection_params(clear_color: Option<Vec4>) -> Sh2ProjectParams {
+    match clear_color {
+        Some(color) => solid_color_params(color.to_array()),
+        None => Sh2ProjectParams::empty(SkyParamMode::Procedural),
+    }
+}
+
+fn cubemap_projection_params(
+    clear_color: Option<Vec4>,
+    storage_v_inverted: bool,
+) -> Sh2ProjectParams {
+    let mut params = projection_params(clear_color);
     params.scalars[0] = storage_v_inverted_flag(storage_v_inverted);
     params
 }

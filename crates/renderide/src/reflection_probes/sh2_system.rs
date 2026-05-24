@@ -23,7 +23,7 @@ use std::sync::Arc;
 use glam::Vec3;
 use hashbrown::{HashMap, HashSet};
 
-use super::sh2_math::{constant_color_sh2, f32x4_bits};
+use super::sh2_math::constant_color_sh2;
 use super::source_resolution::Sh2ResolvedSource;
 use crate::backend::AssetTransferQueue;
 use crate::gpu::GpuContext;
@@ -259,13 +259,14 @@ fn sh2_source_from_ibl_source(
                 Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
                     asset_id: src.asset_id,
                     storage_v_inverted: src.storage_v_inverted,
+                    clear_color: src.clear_color,
                 }),
             )
         }
         SkyboxIblSource::SolidColor(src) => (
             Sh2SourceKey::ConstantColor {
                 render_space_id,
-                color_bits: f32x4_bits(src.color),
+                color_bits: src.color.map(|f| f.to_bits()),
             },
             Sh2ResolvedSource::Cpu(Box::new(constant_color_sh2(Vec3::new(
                 src.color[0],
@@ -282,6 +283,7 @@ fn sh2_source_from_ibl_source(
                 sample_size: DEFAULT_SAMPLE_SIZE,
             },
             Sh2ResolvedSource::Gpu(GpuSh2Source::RuntimeCubemap {
+                clear_color: src.clear_color,
                 texture: src.texture.clone(),
                 view: src.view.clone(),
             }),

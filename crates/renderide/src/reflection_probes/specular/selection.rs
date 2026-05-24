@@ -146,14 +146,13 @@ impl ReflectionProbeSpatialIndex {
                         probe_volume: probe.volume,
                         center_distance_sq: (probe.center - object_center).length_squared(),
                         renderable_index: probe.renderable_index,
-                        skybox: probe.skybox,
                     };
-                    if probe.skybox {
-                        if aabb_contains(probe.aabb_min, probe.aabb_max, object_min, object_max) {
-                            fallback = fallback
-                                .filter(|&best| score_better(best, score))
-                                .or(Some(score));
-                        }
+                    if probe.skybox
+                        && aabb_contains(probe.aabb_min, probe.aabb_max, object_min, object_max)
+                    {
+                        fallback = fallback
+                            .filter(|&best| score_better(best, score))
+                            .or(Some(score));
                         continue;
                     }
                     insert_probe_score(&mut top, score);
@@ -219,7 +218,6 @@ struct ProbeScore {
     probe_volume: f32,
     center_distance_sq: f32,
     renderable_index: i32,
-    skybox: bool,
 }
 
 fn insert_probe_score(top: &mut Vec<ProbeScore>, score: ProbeScore) {
@@ -248,7 +246,6 @@ fn score_better(a: ProbeScore, b: ProbeScore) -> bool {
     a.importance
         .cmp(&b.importance)
         .reverse()
-        .then_with(|| a.skybox.cmp(&b.skybox))
         .then_with(|| {
             a.influence_intersection
                 .total_cmp(&b.influence_intersection)
@@ -615,7 +612,8 @@ mod tests {
 
         let selection = index.select((Vec3::new(1.25, -0.25, -0.25), Vec3::new(1.5, 0.25, 0.25)));
 
-        assert_eq!(selection, ReflectionProbeDrawSelection::default());
+        // Still used as local, considering it has a non zero intersection
+        assert_eq!(selection, expected_selection(0, [3, 0, 0, 0], 0b0000));
     }
 
     #[test]
@@ -673,7 +671,6 @@ mod tests {
                     probe_volume: probe.volume,
                     center_distance_sq: (probe.center - object_center).length_squared(),
                     renderable_index: probe.renderable_index,
-                    skybox: probe.skybox,
                 },
             );
         }

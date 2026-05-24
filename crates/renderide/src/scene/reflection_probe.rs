@@ -4,7 +4,7 @@ use crate::color_space::srgb_vec4_rgb_to_linear;
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{
     REFLECTION_PROBE_CHANGE_RENDER_TASK_HOST_ROW_BYTES, REFLECTION_PROBE_STATE_HOST_ROW_BYTES,
-    ReflectionProbeChangeRenderResult, ReflectionProbeChangeRenderTask,
+    ReflectionProbeChangeRenderResult, ReflectionProbeChangeRenderTask, ReflectionProbeClear,
     ReflectionProbeRenderablesUpdate, ReflectionProbeState, ReflectionProbeType,
 };
 
@@ -62,6 +62,14 @@ pub struct ReflectionProbeOnChangesRenderRequest {
 #[inline]
 pub fn reflection_probe_skybox_only(flags: u8) -> bool {
     flags & 0b001 != 0
+}
+
+/// Returns whether a probe state is a fixed solid color.
+#[inline]
+pub fn reflection_probe_solid_color(state: ReflectionProbeState) -> bool {
+    state.clear_flags == ReflectionProbeClear::Color
+        && reflection_probe_skybox_only(state.flags)
+        && state.r#type != ReflectionProbeType::Baked
 }
 
 /// Returns whether a probe state requests HDR rendering.
@@ -210,7 +218,7 @@ pub(crate) fn drain_reflection_probe_render_changes(
                 .push(changed_probe_completion(space.id.0, task.unique_id, true));
             continue;
         };
-        if entry.state.clear_flags == crate::shared::ReflectionProbeClear::Color {
+        if reflection_probe_solid_color(entry.state) {
             out.completed
                 .push(changed_probe_completion(space.id.0, task.unique_id, false));
         } else if entry.state.r#type == ReflectionProbeType::OnChanges {
@@ -368,8 +376,9 @@ mod tests {
             transform_id: 1,
             state: ReflectionProbeState {
                 renderable_index: 0,
-                clear_flags: crate::shared::ReflectionProbeClear::Color,
+                clear_flags: ReflectionProbeClear::Color,
                 r#type: ReflectionProbeType::OnChanges,
+                flags: 0x1,
                 ..ReflectionProbeState::default()
             },
         });

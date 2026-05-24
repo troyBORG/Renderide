@@ -7,14 +7,15 @@ use crate::backend::frame_gpu::{
 };
 use crate::scene::{
     ReflectionProbeEntry, RenderSpaceId, SceneCoordinator, reflection_probe_skybox_only,
-    reflection_probe_use_box_projection,
+    reflection_probe_solid_color, reflection_probe_use_box_projection,
 };
-use crate::shared::{ReflectionProbeClear, ReflectionProbeState, ReflectionProbeType, RenderSH2};
+use crate::shared::{ReflectionProbeState, ReflectionProbeType, RenderSH2};
 use crate::skybox::specular::{
     CubemapIblSource, RuntimeCubemapIblSource, SkyboxIblSource, solid_color_ibl_source,
 };
 use crate::world_mesh::culling::world_aabb_from_local_bounds;
 
+use super::super::source_resolution::probe_clear_color;
 use super::captures::{RuntimeReflectionProbeCaptureKey, RuntimeReflectionProbeCaptureStore};
 use super::selection::{
     SpatialProbe, aabb_valid, aabb_volume, expanded_aabb, sanitized_blend_distance,
@@ -30,7 +31,7 @@ pub(super) fn resolve_probe_source(
     if state.intensity <= 0.0 {
         return None;
     }
-    if state.clear_flags == ReflectionProbeClear::Color {
+    if reflection_probe_solid_color(probe.state) {
         let color = state.background_color;
         return Some(solid_color_ibl_source(
             color_probe_identity(probe.renderable_index, color),
@@ -64,6 +65,7 @@ fn resolve_runtime_capture_source(
         face_size: capture.face_size,
         mip_levels: capture.mip_levels,
         storage_v_inverted: true,
+        clear_color: probe_clear_color(probe.state),
         texture: capture.texture.clone(),
         view: capture.view.clone(),
         array_view: capture.array_view.clone(),
@@ -91,6 +93,7 @@ pub(super) fn resolve_baked_probe_source(
         mip_levels_resident: cubemap.mip_levels_resident,
         content_generation: cubemap.content_generation,
         storage_v_inverted: cubemap.storage_v_inverted,
+        clear_color: probe_clear_color(state),
         view: cubemap.view.clone(),
         array_view: cubemap.array_view.clone(),
     }))
@@ -202,6 +205,7 @@ fn pack_render_sh2_raw(sh: &RenderSH2) -> [[f32; 4]; 9] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::ReflectionProbeClear;
 
     fn probe(index: i32, atlas: u16, importance: i32, min: Vec3, max: Vec3) -> SpatialProbe {
         let (influence_aabb_min, influence_aabb_max) = expanded_aabb(min, max, 0.0);
