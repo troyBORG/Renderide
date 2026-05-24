@@ -35,16 +35,25 @@ pub(super) fn next_batch_window(
     }
 
     let classification = classify_world_mesh_batch(key);
-    let order_dependent = !key.transparent_class.allows_relaxed_batching();
 
     BatchWindow {
         range: start..end,
         phase: classification.phase,
-        singleton: !supports_base_instance
-            || draws[start].skinned
-            || (classification.strict_order && order_dependent)
-            || classification.grab_pass,
+        singleton: draw_requires_singleton(&draws[start], supports_base_instance),
     }
+}
+
+/// Returns whether a draw must remain a singleton under the instancing policy.
+pub(super) fn draw_requires_singleton(
+    item: &WorldMeshDrawItem,
+    supports_base_instance: bool,
+) -> bool {
+    let classification = classify_world_mesh_batch(&item.batch_key);
+    let order_dependent = !item.batch_key.transparent_class.allows_relaxed_batching();
+    !supports_base_instance
+        || item.skinned
+        || (classification.strict_order && order_dependent)
+        || classification.grab_pass
 }
 
 /// Appends `members` to `slab_layout` and returns a [`DrawGroup`] covering the new slab range.

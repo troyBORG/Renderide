@@ -103,16 +103,40 @@ fn build_material_bind_cache_key(
     offscreen_write_render_texture_asset_id: Option<i32>,
     uniform_binding: Option<&MaterialUniformArenaSlotBinding>,
 ) -> MaterialBindCacheKey {
-    MaterialBindCacheKey {
+    build_material_bind_cache_key_parts(
         stem_hash,
-        material_asset_id: lookup.material_asset_id,
-        property_block_slot0: lookup.mesh_property_block_slot0,
-        renderer_property_block_id: lookup.mesh_renderer_property_block_id,
+        lookup,
         texture_bind_signature,
         offscreen_write_render_texture_asset_id,
-        uniform_arena_generation: uniform_binding
-            .as_ref()
-            .map_or(0, |binding| binding.buffer_generation),
+        uniform_binding.map(|binding| binding.buffer_generation),
+    )
+}
+
+fn build_material_bind_cache_key_parts(
+    stem_hash: u64,
+    lookup: MaterialPropertyLookupIds,
+    texture_bind_signature: u64,
+    offscreen_write_render_texture_asset_id: Option<i32>,
+    uniform_arena_generation: Option<u64>,
+) -> MaterialBindCacheKey {
+    let (material_asset_id, property_block_slot0, renderer_property_block_id) =
+        if uniform_arena_generation.is_some() {
+            (
+                lookup.material_asset_id,
+                lookup.mesh_property_block_slot0,
+                lookup.mesh_renderer_property_block_id,
+            )
+        } else {
+            (-1, None, None)
+        };
+    MaterialBindCacheKey {
+        stem_hash,
+        material_asset_id,
+        property_block_slot0,
+        renderer_property_block_id,
+        texture_bind_signature,
+        offscreen_write_render_texture_asset_id,
+        uniform_arena_generation: uniform_arena_generation.unwrap_or(0),
     }
 }
 
@@ -466,5 +490,71 @@ impl EmbeddedMaterialBindResources {
     fn uniform_arena_shard(&self, key: &MaterialUniformCacheKey) -> &Mutex<MaterialUniformArena> {
         let idx = (self.uniform_arena_hasher.hash_one(key) as usize) & (EMBEDDED_CACHE_SHARDS - 1);
         &self.uniform_arena_shards[idx]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds lookup ids for cache-key canonicalization tests.
+    fn lookup_ids(
+        material_asset_id: i32,
+        mesh_property_block_slot0: Option<i32>,
+        mesh_renderer_property_block_id: Option<i32>,
+    ) -> MaterialPropertyLookupIds {
+        MaterialPropertyLookupIds {
+            material_asset_id,
+            mesh_property_block_slot0,
+            mesh_renderer_property_block_id,
+        }
+    }
+
+    #[test]
+    fn no_uniform_bind_cache_keys_share_across_material_ids() {
+        let a = build_material_bind_cache_key_parts(
+            11,
+            lookup_ids(1, Some(10), Some(20)),
+            42,
+            Some(5),
+            None,
+        );
+        let b = build_material_bind_cache_key_parts(
+            11,
+            lookup_ids(2, Some(30), Some(40)),
+            42,
+            Some(5),
+            None,
+        );
+
+        assert_eq!(a, b);
+        assert_eq!(a.material_asset_id, -1);
+        assert_eq!(a.property_block_slot0, None);
+        assert_eq!(a.renderer_property_block_id, None);
+        assert_eq!(a.uniform_arena_generation, 0);
+    }
+
+    #[test]
+    fn uniform_bind_cache_keys_keep_material_identity() {
+        let a = build_material_bind_cache_key_parts(
+            11,
+            lookup_ids(1, Some(10), Some(20)),
+            42,
+            Some(5),
+            Some(7),
+        );
+        let b = build_material_bind_cache_key_parts(
+            11,
+            lookup_ids(2, Some(30), Some(40)),
+            42,
+            Some(5),
+            Some(7),
+        );
+
+        assert_ne!(a, b);
+        assert_eq!(a.material_asset_id, 1);
+        assert_eq!(a.property_block_slot0, Some(10));
+        assert_eq!(a.renderer_property_block_id, Some(20));
+        assert_eq!(a.uniform_arena_generation, 7);
     }
 }

@@ -114,15 +114,13 @@ pub(super) struct TextureDebugCacheKey {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct MaterialBindCacheKey {
     pub(super) stem_hash: u64,
-    /// Host material asset id; two materials with identical resolved texture sets must not
-    /// share a cached bind group, since one carries the other's uniform dynamic offset.
+    /// Host material asset id when the reflected layout has a material uniform block.
+    /// No-uniform layouts canonicalize this field because the bind group only depends on
+    /// texture/sampler state.
     pub(super) material_asset_id: i32,
-    /// Optional per-slot `MaterialPropertyBlock` id; pairs with [`Self::material_asset_id`]
-    /// to keep MPB-distinct draws on separate cache entries.
+    /// Optional per-slot `MaterialPropertyBlock` id for uniform-backed layouts.
     pub(super) property_block_slot0: Option<i32>,
-    /// Optional renderer-level `MaterialPropertyBlock` id that applies to every material on
-    /// the same renderer; keyed separately so a renderer-PB override does not let one
-    /// renderer's draw collapse onto another renderer's cached entry.
+    /// Optional renderer-level `MaterialPropertyBlock` id for uniform-backed layouts.
     pub(super) renderer_property_block_id: Option<i32>,
     pub(super) texture_bind_signature: u64,
     /// Distinguishes main vs secondary-RT passes when self-sampling is masked.

@@ -289,6 +289,7 @@ fn bind_material_packet_if_changed(
         MaterialGroup1Binding::Embedded {
             bind_group,
             uniform_dynamic_offset,
+            ..
         } => {
             if let Some(offset) = uniform_dynamic_offset {
                 rpass.set_bind_group(1, bind_group.as_ref(), &[*offset]);

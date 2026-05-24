@@ -1,12 +1,13 @@
 //! Batch and draw counters for the debug HUD (aligned with sorted [`WorldMeshDrawItem`] order).
 
 use super::draw_prep::{WorldMeshDrawArrangementStats, WorldMeshDrawItem};
-use super::instances::DrawGroup;
+use super::instances::{DrawGroup, InstancePlan};
 use super::materials::{MaterialDrawBatchKey, TransparentMaterialClass};
 use crate::materials::{
     MaterialBlendMode, MaterialDepthCompareOverride, RasterPipelineKind, ShaderPermutation,
     embedded_stem_pipeline_pass_count,
 };
+use crate::world_mesh::phase_classification::classify_world_mesh_batch;
 
 /// Per-class transparent draw counts for diagnostics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -40,6 +41,21 @@ impl WorldMeshTransparentClassStats {
             }
         }
     }
+}
+
+/// Draw counts explaining why sorted draws were not eligible for GPU instancing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorldMeshInstancingBlockerStats {
+    /// Draws forced to singleton submission because the device lacks base-instance support.
+    pub base_instance_unsupported_draws: usize,
+    /// Skinned or deformed draws that use per-draw vertex streams.
+    pub skinned_stream_draws: usize,
+    /// Order-dependent transparent draws preserved as singleton submissions.
+    pub strict_order_draws: usize,
+    /// Scene-color snapshot or grab-pass draws preserved as singleton submissions.
+    pub grab_pass_draws: usize,
+    /// Draws still eligible for regular mesh/material submission grouping.
+    pub candidate_draws: usize,
 }
 
 /// Draw and batch counts for the debug HUD (aligned with sorted [`WorldMeshDrawItem`] order).
@@ -83,6 +99,8 @@ pub struct WorldMeshDrawStats {
     pub transparent_pass_batches: usize,
     /// Transparent draw counts by renderer-local material behavior class.
     pub transparent_class_stats: WorldMeshTransparentClassStats,
+    /// Counts explaining why draws were forced out of instance candidate grouping.
+    pub instancing_blocker_stats: WorldMeshInstancingBlockerStats,
     /// Opaque indexed batches mirrored by the generic depth prepass.
     pub depth_prepass_batches: usize,
     /// Opaque GPU instances mirrored by the generic depth prepass.
@@ -176,12 +194,34 @@ pub fn stats_from_sorted(
     supports_base_instance: bool,
     shader_perm: ShaderPermutation,
 ) -> WorldMeshDrawStats {
+    let plan = crate::world_mesh::build_plan_for_shader(draws, supports_base_instance, shader_perm);
+    stats_from_sorted_with_plan(
+        draws,
+        cull,
+        arrangement,
+        supports_base_instance,
+        shader_perm,
+        &plan,
+    )
+}
+
+/// Computes draw and submission diagnostics from the sorted draw list and a prepared plan.
+pub fn stats_from_sorted_with_plan(
+    draws: &[WorldMeshDrawItem],
+    cull: Option<(usize, usize, usize)>,
+    arrangement: WorldMeshDrawArrangementStats,
+    supports_base_instance: bool,
+    shader_perm: ShaderPermutation,
+    plan: &InstancePlan,
+) -> WorldMeshDrawStats {
     let draws_total = draws.len();
     let draws_main = draws.iter().filter(|d| !d.is_overlay).count();
     let draws_overlay = draws_total - draws_main;
     let rigid_draws = draws.iter().filter(|d| !d.skinned).count();
     let skinned_draws = draws_total - rigid_draws;
     let transparent_class_stats = transparent_class_stats_from_sorted(draws);
+    let instancing_blocker_stats =
+        instancing_blocker_stats_from_sorted(draws, supports_base_instance);
 
     let mut batch_total = 0usize;
     let mut batch_main = 0usize;
@@ -207,7 +247,6 @@ pub fn stats_from_sorted(
 
     // The forward pass drives both subpasses from this same `InstancePlan`, so the HUD
     // counts are exactly what `draw_subset` ends up submitting.
-    let plan = crate::world_mesh::build_plan_for_shader(draws, supports_base_instance, shader_perm);
     let intersect_pass_batches = plan.phase_len(crate::world_mesh::WorldMeshPhase::Intersection);
     let transparent_pass_batches = plan.phase_len(crate::world_mesh::WorldMeshPhase::Transparent)
         + plan.phase_len(crate::world_mesh::WorldMeshPhase::TransparentGrab);
@@ -248,6 +287,7 @@ pub fn stats_from_sorted(
         intersect_pass_batches,
         transparent_pass_batches,
         transparent_class_stats,
+        instancing_blocker_stats,
         depth_prepass_batches,
         depth_prepass_instances,
         gpu_instances_emitted,
@@ -256,6 +296,37 @@ pub fn stats_from_sorted(
         nontransparent_binned_draws: arrangement.nontransparent_binned_draws,
         strict_sorted_draws: arrangement.strict_sorted_draws,
     }
+}
+
+/// Counts singleton causes under the world-mesh instancing admission policy.
+fn instancing_blocker_stats_from_sorted(
+    draws: &[WorldMeshDrawItem],
+    supports_base_instance: bool,
+) -> WorldMeshInstancingBlockerStats {
+    let mut stats = WorldMeshInstancingBlockerStats::default();
+    for draw in draws {
+        if !supports_base_instance {
+            stats.base_instance_unsupported_draws += 1;
+            continue;
+        }
+        if draw.skinned {
+            stats.skinned_stream_draws += 1;
+            continue;
+        }
+
+        let classification = classify_world_mesh_batch(&draw.batch_key);
+        if classification.grab_pass {
+            stats.grab_pass_draws += 1;
+            continue;
+        }
+        let order_dependent = !draw.batch_key.transparent_class.allows_relaxed_batching();
+        if classification.strict_order && order_dependent {
+            stats.strict_order_draws += 1;
+            continue;
+        }
+        stats.candidate_draws += 1;
+    }
+    stats
 }
 
 /// Counts transparent draw classes in sorted draw order.
@@ -343,6 +414,7 @@ mod tests {
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 0);
         assert_eq!(s.transparent_class_stats, Default::default());
+        assert_eq!(s.instancing_blocker_stats, Default::default());
         assert_eq!(s.depth_prepass_batches, 0);
         assert_eq!(s.depth_prepass_instances, 0);
         assert_eq!(s.gpu_instances_emitted, 0);
@@ -387,6 +459,7 @@ mod tests {
         assert_eq!(s.instance_batch_total, 1);
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 0);
+        assert_eq!(s.instancing_blocker_stats.candidate_draws, 2);
         assert_eq!(s.depth_prepass_batches, 1);
         assert_eq!(s.depth_prepass_instances, 2);
         assert_eq!(s.gpu_instances_emitted, 2);
@@ -419,6 +492,7 @@ mod tests {
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 1);
         assert_eq!(s.transparent_class_stats.grab_pass_filter_draws, 1);
+        assert_eq!(s.instancing_blocker_stats.grab_pass_draws, 1);
         assert_eq!(s.depth_prepass_batches, 0);
         assert_eq!(s.depth_prepass_instances, 0);
         assert_eq!(s.gpu_instances_emitted, 1);

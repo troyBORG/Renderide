@@ -26,7 +26,7 @@ use crate::render_phase::{RenderPhaseKey, RenderPhaseSet};
 
 use super::draw_prep::WorldMeshDrawItem;
 
-use batch_window::{BatchWindow, build_group, next_batch_window};
+use batch_window::{BatchWindow, build_group, draw_requires_singleton, next_batch_window};
 use scratch::{InstancePlanScratch, MeshSubmeshKey, mesh_submesh_key};
 
 /// Minimum independent batch windows needed to amortize Rayon scheduling and merge overhead.
@@ -62,6 +62,29 @@ struct LocalGroupedWindowChunk {
 /// Merged members for one mesh/submesh group across a whole large batch window.
 struct MergedGroupedWindowGroup {
     /// First sorted draw index for this group.
+    representative_draw_idx: usize,
+    /// Sorted draw indexes belonging to the group.
+    members: Vec<usize>,
+}
+
+/// Compatibility key for grouping draws after material packet resolution.
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+struct SubmissionGroupKey {
+    /// Primary render phase for the group.
+    phase: WorldMeshPhase,
+    /// Conservative segment split by strict-order barriers inside a phase.
+    order_segment: u32,
+    /// Resolved material submission class assigned by forward frame preparation.
+    submission_class: u32,
+    /// Mesh/submesh identity submitted by the indexed draw call.
+    mesh: MeshSubmeshKey,
+}
+
+/// Pending group built from resolved submission compatibility rather than raw material ids.
+struct PendingSubmissionGroup {
+    /// Primary render phase for the group.
+    phase: WorldMeshPhase,
+    /// First sorted draw index in the group.
     representative_draw_idx: usize,
     /// Sorted draw indexes belonging to the group.
     members: Vec<usize>,
@@ -307,6 +330,91 @@ pub fn build_plan_for_shader(
     } else {
         build_plan_from_windows_serial(draws, &windows, shader_perm)
     }
+}
+
+/// Builds a per-view [`InstancePlan`] from pre-resolved material submission compatibility.
+///
+/// `submission_classes[i]` must identify the concrete pipeline and group-1 material binding that
+/// will be submitted for `draws[i]`. This lets equivalent materials share GPU instance batches even
+/// when their source material or property-block ids differ. Strict transparent/grab ordering,
+/// skinned draws, and devices without base-instance support still emit singleton groups.
+pub fn build_plan_for_shader_with_submission_classes(
+    draws: &[WorldMeshDrawItem],
+    submission_classes: &[u32],
+    supports_base_instance: bool,
+    shader_perm: ShaderPermutation,
+) -> InstancePlan {
+    profiling::scope!("mesh::build_plan_submission_classes");
+    debug_assert_eq!(
+        draws.len(),
+        submission_classes.len(),
+        "draw submission classes should align with sorted draws",
+    );
+    if draws.is_empty() {
+        return InstancePlan::default();
+    }
+    if draws.len() != submission_classes.len() {
+        return build_plan_for_shader(draws, supports_base_instance, shader_perm);
+    }
+
+    build_plan_from_submission_classes_serial(
+        draws,
+        submission_classes,
+        supports_base_instance,
+        shader_perm,
+    )
+}
+
+/// Builds a submission-class plan with deterministic first-seen group order.
+fn build_plan_from_submission_classes_serial(
+    draws: &[WorldMeshDrawItem],
+    submission_classes: &[u32],
+    supports_base_instance: bool,
+    shader_perm: ShaderPermutation,
+) -> InstancePlan {
+    let mut group_index: HashMap<SubmissionGroupKey, usize> = HashMap::new();
+    let mut pending_groups: Vec<PendingSubmissionGroup> = Vec::new();
+    let mut order_segments = [0u32; WorldMeshPhase::ALL.len()];
+
+    for (draw_idx, item) in draws.iter().enumerate() {
+        let classification =
+            crate::world_mesh::phase_classification::classify_world_mesh_batch(&item.batch_key);
+        let phase = classification.phase;
+        if draw_requires_singleton(item, supports_base_instance) {
+            pending_groups.push(PendingSubmissionGroup {
+                phase,
+                representative_draw_idx: draw_idx,
+                members: vec![draw_idx],
+            });
+            if classification.strict_order || classification.grab_pass {
+                let segment = &mut order_segments[phase.index()];
+                *segment = segment.saturating_add(1);
+            }
+            continue;
+        }
+
+        let key = SubmissionGroupKey {
+            phase,
+            order_segment: order_segments[phase.index()],
+            submission_class: submission_classes[draw_idx],
+            mesh: mesh_submesh_key(item),
+        };
+        if let Some(&group_idx) = group_index.get(&key) {
+            pending_groups[group_idx].members.push(draw_idx);
+        } else {
+            let group_idx = pending_groups.len();
+            group_index.insert(key, group_idx);
+            pending_groups.push(PendingSubmissionGroup {
+                phase,
+                representative_draw_idx: draw_idx,
+                members: vec![draw_idx],
+            });
+        }
+    }
+
+    let mut builder = InstancePlanBuilder::with_capacity(draws.len(), shader_perm);
+    builder.emit_submission_groups(draws, pending_groups);
+    builder.finish()
 }
 
 /// Returns whether instance planning should use its active Rayon pool.
@@ -704,6 +812,22 @@ impl InstancePlanBuilder {
                 &merged.members,
             );
             self.queue_group_to_phase(draws, phase, group);
+        }
+    }
+
+    /// Emits groups already merged by resolved material submission compatibility.
+    fn emit_submission_groups(
+        &mut self,
+        draws: &[WorldMeshDrawItem],
+        groups: Vec<PendingSubmissionGroup>,
+    ) {
+        for pending in groups {
+            let group = build_group(
+                &mut self.slab_layout,
+                pending.representative_draw_idx,
+                &pending.members,
+            );
+            self.queue_group_to_phase(draws, pending.phase, group);
         }
     }
 

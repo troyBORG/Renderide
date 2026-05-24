@@ -20,6 +20,7 @@ pub use culling::{
 };
 pub use diagnostics::{
     WorldMeshDrawStateRow, WorldMeshDrawStats, state_rows_from_sorted, stats_from_sorted,
+    stats_from_sorted_with_plan,
 };
 #[cfg(test)]
 pub(crate) use draw_prep::WorldMeshDrawCollection;
@@ -30,7 +31,10 @@ pub use draw_prep::{
 };
 pub(crate) use draw_prep::{QueuedWorldMeshDraws, queue_draws_with_parallelism};
 pub(crate) use instances::depth_prepass_group_eligible;
-pub use instances::{DrawGroup, InstancePlan, MeshPassKind, WorldMeshPhase, build_plan_for_shader};
+pub use instances::{
+    DrawGroup, InstancePlan, MeshPassKind, WorldMeshPhase, build_plan_for_shader,
+    build_plan_for_shader_with_submission_classes,
+};
 #[cfg(test)]
 pub(crate) use materials::compute_batch_key_hash;
 pub use materials::{FrameMaterialBatchCache, MaterialDrawBatchKey, TransparentMaterialClass};

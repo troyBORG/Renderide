@@ -373,6 +373,20 @@ fn draw_submission_rows(ui: &imgui::Ui, stats: &WorldMeshDrawStats) {
     );
     kv(
         ui,
+        "Instancing blockers",
+        &format!(
+            "base={}  skinned={}  order={}  grab={}  candidates={}",
+            stats
+                .instancing_blocker_stats
+                .base_instance_unsupported_draws,
+            stats.instancing_blocker_stats.skinned_stream_draws,
+            stats.instancing_blocker_stats.strict_order_draws,
+            stats.instancing_blocker_stats.grab_pass_draws,
+            stats.instancing_blocker_stats.candidate_draws
+        ),
+    );
+    kv(
+        ui,
         "Depth prepass",
         &format!(
             "{} batches  /  {} instances",

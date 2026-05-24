@@ -83,6 +83,141 @@ fn identical_opaque_draws_collapse_to_one_group() {
 }
 
 #[test]
+fn submission_classes_group_equivalent_material_ids() {
+    let mut draws = vec![opaque(7, 1, 0, 0), opaque(7, 2, 0, 1)];
+    sort_draws(&mut draws);
+    let submission_classes = vec![0; draws.len()];
+
+    let plan = build_plan_for_shader_with_submission_classes(
+        &draws,
+        &submission_classes,
+        true,
+        ShaderPermutation(0),
+    );
+
+    assert_eq!(groups(&plan, WorldMeshPhase::ForwardOpaque).len(), 1);
+    assert_eq!(
+        groups(&plan, WorldMeshPhase::ForwardOpaque)[0].instance_range,
+        0..2
+    );
+    assert_eq!(groups(&plan, WorldMeshPhase::ViewNormals).len(), 1);
+    assert_eq!(groups(&plan, WorldMeshPhase::DepthOnly).len(), 1);
+}
+
+#[test]
+fn submission_classes_split_distinct_uniform_offsets() {
+    let mut draws = vec![opaque(7, 1, 0, 0), opaque(7, 2, 0, 1)];
+    sort_draws(&mut draws);
+    let submission_classes = vec![0, 1];
+
+    let plan = build_plan_for_shader_with_submission_classes(
+        &draws,
+        &submission_classes,
+        true,
+        ShaderPermutation(0),
+    );
+
+    assert_eq!(groups(&plan, WorldMeshPhase::ForwardOpaque).len(), 2);
+    for group in groups(&plan, WorldMeshPhase::ForwardOpaque) {
+        assert_eq!(group.instance_range.end - group.instance_range.start, 1);
+    }
+    assert_eq!(groups(&plan, WorldMeshPhase::ViewNormals).len(), 2);
+    assert_eq!(groups(&plan, WorldMeshPhase::DepthOnly).len(), 2);
+}
+
+#[test]
+fn submission_classes_keep_skinned_draws_singleton() {
+    let mut draws: Vec<_> = (0..3)
+        .map(|n| {
+            dummy_world_mesh_draw_item(DummyDrawItemSpec {
+                material_asset_id: 1 + n,
+                property_block: None,
+                skinned: true,
+                sorting_order: 0,
+                mesh_asset_id: 7,
+                node_id: n,
+                slot_index: 0,
+                collect_order: n as usize,
+                alpha_blended: false,
+            })
+        })
+        .collect();
+    sort_draws(&mut draws);
+    let submission_classes = vec![0; draws.len()];
+
+    let plan = build_plan_for_shader_with_submission_classes(
+        &draws,
+        &submission_classes,
+        true,
+        ShaderPermutation(0),
+    );
+
+    assert_eq!(groups(&plan, WorldMeshPhase::ForwardOpaque).len(), 3);
+    for group in groups(&plan, WorldMeshPhase::ForwardOpaque) {
+        assert_eq!(group.instance_range.end - group.instance_range.start, 1);
+    }
+}
+
+#[test]
+fn submission_classes_keep_strict_transparent_draws_singleton() {
+    let mut draws: Vec<_> = (0..3)
+        .map(|n| {
+            dummy_world_mesh_draw_item(DummyDrawItemSpec {
+                material_asset_id: 1 + n,
+                property_block: None,
+                skinned: false,
+                sorting_order: 0,
+                mesh_asset_id: 7,
+                node_id: n,
+                slot_index: 0,
+                collect_order: n as usize,
+                alpha_blended: true,
+            })
+        })
+        .collect();
+    sort_draws(&mut draws);
+    let submission_classes = vec![0; draws.len()];
+
+    let plan = build_plan_for_shader_with_submission_classes(
+        &draws,
+        &submission_classes,
+        true,
+        ShaderPermutation(0),
+    );
+
+    assert_eq!(groups(&plan, WorldMeshPhase::Transparent).len(), 3);
+    for group in groups(&plan, WorldMeshPhase::Transparent) {
+        assert_eq!(group.instance_range.end - group.instance_range.start, 1);
+    }
+}
+
+#[test]
+fn submission_classes_keep_grab_draws_singleton() {
+    let mut draws: Vec<_> = (0..3)
+        .map(|n| {
+            let mut item = opaque(7, 1 + n, 0, n);
+            item.batch_key.embedded_uses_scene_color_snapshot = true;
+            item.batch_key.alpha_blended = true;
+            item
+        })
+        .collect();
+    sort_draws(&mut draws);
+    let submission_classes = vec![0; draws.len()];
+
+    let plan = build_plan_for_shader_with_submission_classes(
+        &draws,
+        &submission_classes,
+        true,
+        ShaderPermutation(0),
+    );
+
+    assert_eq!(groups(&plan, WorldMeshPhase::TransparentGrab).len(), 3);
+    for group in groups(&plan, WorldMeshPhase::TransparentGrab) {
+        assert_eq!(group.instance_range.end - group.instance_range.start, 1);
+    }
+}
+
+#[test]
 fn mirrored_opaque_draws_split_instance_groups() {
     let normal = opaque(7, 1, 0, 0);
     let mut mirrored = opaque(7, 1, 0, 1);

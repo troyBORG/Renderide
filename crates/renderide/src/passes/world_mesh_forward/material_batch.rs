@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 use crate::diagnostics::log_throttle::LogThrottle;
 use crate::materials::ShaderPermutation;
-use crate::materials::embedded::EmbeddedMaterialBindError;
+use crate::materials::embedded::{EmbeddedMaterialBindError, MaterialBindCacheKey};
 use crate::materials::{
     EmbeddedMaterialBindResources, EmbeddedMaterialBindShader, EmbeddedTexturePools,
 };
@@ -56,6 +56,8 @@ pub(crate) enum MaterialGroup1Binding {
     Empty,
     /// Bind an embedded material group and optional uniform dynamic offset.
     Embedded {
+        /// Cache key that describes the bind group's resolved texture/uniform identity.
+        bind_key: MaterialBindCacheKey,
         /// Reflected bind group matching the selected embedded pipeline layout.
         bind_group: Arc<wgpu::BindGroup>,
         /// Dynamic offset into the material uniform arena, when the material block is dynamic.
@@ -432,7 +434,7 @@ impl<'a> MaterialDrawResolver<'a> {
         };
 
         let shader_variant_bits = self.resolve_embedded_shader_variant_bits(item, stem);
-        let (_, bind_group) = bind.embedded_material_bind_group_with_cache_key(
+        let (bind_key, bind_group) = bind.embedded_material_bind_group_with_cache_key(
             EmbeddedMaterialBindShader {
                 stem,
                 shader_variant_bits,
@@ -444,6 +446,7 @@ impl<'a> MaterialDrawResolver<'a> {
             self.offscreen_write_render_texture_asset_id,
         )?;
         Ok(MaterialGroup1Binding::Embedded {
+            bind_key,
             bind_group: bind_group.bind_group,
             uniform_dynamic_offset: bind_group.uniform_dynamic_offset,
         })

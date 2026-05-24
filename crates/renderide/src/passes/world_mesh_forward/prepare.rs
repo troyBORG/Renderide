@@ -1,25 +1,32 @@
 //! Backend frame-plan helpers for world-mesh forward passes.
 
+use hashbrown::HashMap;
+
 use crate::camera::HostCameraFrame;
 use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs};
 use crate::gpu::GpuLimits;
 use crate::graph_inputs::{GraphPassFrame, PerViewFramePlan};
 use crate::materials::MaterialSystem;
 use crate::materials::ShaderPermutation;
+use crate::materials::embedded::MaterialBindCacheKey;
 use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::{WorldMeshDrawCollection, WorldMeshDrawItem};
 use crate::world_mesh::{
     DrawGroup, InstancePlan, PrefetchedWorldMeshViewDraws, WorldMeshCullProjParams, WorldMeshPhase,
-    state_rows_from_sorted, stats_from_sorted,
+    state_rows_from_sorted, stats_from_sorted, stats_from_sorted_with_plan,
 };
 
 use super::camera::{compute_view_projections, resolve_pass_config};
 use super::frame_uniforms::write_per_view_frame_uniforms;
+use super::material_batch::{MaterialGroup1Binding, PipelineVariantKey};
 use super::material_resolve::precompute_material_resolve_batches;
 use super::skybox::SkyboxRenderer;
 use super::slab::{SlabPackInputs, pack_and_upload_per_draw_slab};
-use super::{MaterialBatchBoundary, MaterialBatchPacket, PreparedWorldMeshForwardFrame};
+use super::{
+    MaterialBatchBoundary, MaterialBatchPacket, PreparedWorldMeshForwardFrame,
+    WorldMeshForwardPipelineState,
+};
 
 /// Prepared world-mesh forward state plus deferred per-view HUD output.
 pub(crate) struct PreparedWorldMeshForwardView {
@@ -48,8 +55,35 @@ pub(crate) struct WorldMeshForwardPrepareContext<'a, 'frame> {
 struct PackedForwardDraws {
     draws: Vec<WorldMeshDrawItem>,
     plan: InstancePlan,
-    offscreen_write_rt: Option<i32>,
     overlay_view_proj: glam::Mat4,
+    precomputed_batches: Vec<MaterialBatchPacket>,
+}
+
+/// Material binding state that affects the submitted group-1 bind command.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum MaterialGroup1SubmissionKey {
+    /// Shared empty material group used by the Null fallback.
+    Empty,
+    /// Embedded bind cache identity and optional material uniform dynamic offset.
+    Embedded {
+        /// Cache key that describes the resolved group-1 textures and uniform arena generation.
+        bind_key: MaterialBindCacheKey,
+        /// Dynamic uniform offset used when the embedded shader has a material uniform block.
+        uniform_dynamic_offset: Option<u32>,
+    },
+}
+
+/// Resolved material state that must match for two draws to share one instance group.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct MaterialPacketSubmissionKey {
+    /// Exact pipeline variant selected for recording.
+    pipeline_key: PipelineVariantKey,
+    /// Concrete raster pipeline kind selected after fallback handling.
+    resolved_pipeline_kind: Option<crate::materials::RasterPipelineKind>,
+    /// Concrete group-1 binding submitted for the material packet.
+    group1: MaterialGroup1SubmissionKey,
+    /// Whether all pipeline passes are ready for this packet.
+    pipelines_ready: bool,
 }
 
 /// Copies Hi-Z temporal state for the next frame when culling is active.
@@ -126,27 +160,27 @@ pub(crate) fn prepare_world_mesh_forward_frame(
     } = ctx;
     let supports_base_instance = gpu_limits.supports_base_instance;
     let hc = &frame.view.host_camera;
-    let pipeline = {
-        profiling::scope!("world_mesh::prepare_frame::resolve_pass_config");
-        resolve_pass_config(
-            hc,
-            frame.view.multiview_stereo,
-            frame.view.scene_color_format,
-            frame.view.depth_texture.format(),
-            gpu_limits,
-            frame.view.sample_count,
-        )
-    };
+    let pipeline = resolve_world_mesh_forward_pipeline(frame, gpu_limits, hc);
     let use_multiview = pipeline.use_multiview;
     let shader_perm = pipeline.shader_perm;
 
     let helper_needs = prefetched.helper_needs;
+    let cull_counts = (
+        prefetched.collection.draws_pre_cull,
+        prefetched.collection.draws_culled,
+        prefetched.collection.draws_hi_z_culled,
+    );
+    let arrangement = prefetched.collection.arrangement;
+    let encode_refs = {
+        profiling::scope!("world_mesh::prepare_frame::build_encode_refs");
+        WorldMeshForwardEncodeRefs::from_frame(frame)
+    };
     {
         profiling::scope!("world_mesh::prepare_frame::capture_hi_z_temporal");
         capture_hi_z_temporal_after_collect(frame, prefetched.cull_proj.as_ref(), hc);
     }
 
-    let hud_outputs = {
+    let mut hud_outputs = {
         profiling::scope!("world_mesh::prepare_frame::publish_hud_outputs");
         world_mesh_hud_outputs(
             frame,
@@ -158,16 +192,16 @@ pub(crate) fn prepare_world_mesh_forward_frame(
 
     let Some(PackedForwardDraws {
         draws,
-        mut plan,
-        offscreen_write_rt,
+        plan,
         overlay_view_proj,
+        precomputed_batches,
     }) = pack_forward_draws_for_view(
         device,
         uploads,
         frame,
+        &encode_refs,
+        &pipeline,
         supports_base_instance,
-        shader_perm,
-        hc,
         prefetched.collection.items,
     )
     else {
@@ -176,6 +210,15 @@ pub(crate) fn prepare_world_mesh_forward_frame(
             hud_outputs,
         };
     };
+    update_world_mesh_draw_stats_from_plan(
+        &mut hud_outputs,
+        &draws,
+        cull_counts,
+        arrangement,
+        supports_base_instance,
+        shader_perm,
+        &plan,
+    );
 
     {
         profiling::scope!("world_mesh::prepare_frame::write_frame_uniforms");
@@ -185,23 +228,6 @@ pub(crate) fn prepare_world_mesh_forward_frame(
         profiling::scope!("world_mesh::prepare_frame::prepare_skybox");
         skybox_renderer.prepare(device, uploads, frame, &pipeline)
     };
-
-    // Build a WorldMeshForwardEncodeRefs from the frame so precompute_material_resolve_batches
-    // can access both the material system and the asset transfer pools (texture pools).
-    let encode_refs = {
-        profiling::scope!("world_mesh::prepare_frame::build_encode_refs");
-        WorldMeshForwardEncodeRefs::from_frame(frame)
-    };
-
-    let precomputed_batches = precompute_and_assign_material_batches(
-        frame,
-        &encode_refs,
-        uploads,
-        &draws,
-        &pipeline,
-        offscreen_write_rt,
-        &mut plan,
-    );
 
     let viewport_px = frame.view.viewport_px;
     PreparedWorldMeshForwardView {
@@ -223,15 +249,60 @@ pub(crate) fn prepare_world_mesh_forward_frame(
     }
 }
 
+/// Resolves per-view world-mesh forward pipeline state from camera and attachment settings.
+fn resolve_world_mesh_forward_pipeline(
+    frame: &GraphPassFrame<'_>,
+    gpu_limits: &GpuLimits,
+    hc: &HostCameraFrame,
+) -> WorldMeshForwardPipelineState {
+    profiling::scope!("world_mesh::prepare_frame::resolve_pass_config");
+    resolve_pass_config(
+        hc,
+        frame.view.multiview_stereo,
+        frame.view.scene_color_format,
+        frame.view.depth_texture.format(),
+        gpu_limits,
+        frame.view.sample_count,
+    )
+}
+
+/// Replaces HUD draw stats with counts derived from the actual prepared instance plan.
+fn update_world_mesh_draw_stats_from_plan(
+    hud_outputs: &mut Option<PerViewHudOutputs>,
+    draws: &[WorldMeshDrawItem],
+    cull_counts: (usize, usize, usize),
+    arrangement: crate::world_mesh::draw_prep::WorldMeshDrawArrangementStats,
+    supports_base_instance: bool,
+    shader_perm: ShaderPermutation,
+    plan: &InstancePlan,
+) {
+    let Some(outputs) = hud_outputs.as_mut() else {
+        return;
+    };
+    if outputs.world_mesh_draw_stats.is_none() {
+        return;
+    }
+    outputs.world_mesh_draw_stats = Some(stats_from_sorted_with_plan(
+        draws,
+        Some(cull_counts),
+        arrangement,
+        supports_base_instance,
+        shader_perm,
+        plan,
+    ));
+}
+
 fn pack_forward_draws_for_view(
     device: &wgpu::Device,
     uploads: GraphUploadSink<'_>,
     frame: &GraphPassFrame<'_>,
+    encode_refs: &WorldMeshForwardEncodeRefs<'_>,
+    pipeline: &WorldMeshForwardPipelineState,
     supports_base_instance: bool,
-    shader_perm: ShaderPermutation,
-    hc: &HostCameraFrame,
     draws: Vec<WorldMeshDrawItem>,
 ) -> Option<PackedForwardDraws> {
+    let hc = &frame.view.host_camera;
+    let shader_perm = pipeline.shader_perm;
     let (render_context, world_proj, overlay_proj) = {
         profiling::scope!("world_mesh::prepare_frame::compute_view_projections");
         compute_view_projections(
@@ -245,10 +316,25 @@ fn pack_forward_draws_for_view(
     let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
     let (world_proj, overlay_proj) =
         apply_offscreen_projection_flip(world_proj, overlay_proj, offscreen_write_rt);
-    let plan = {
+    let precomputed_batches = precompute_material_batches(
+        frame,
+        encode_refs,
+        uploads,
+        &draws,
+        pipeline,
+        offscreen_write_rt,
+    );
+    let mut plan = {
         profiling::scope!("world_mesh::prepare_frame::build_instance_plan");
-        crate::world_mesh::build_plan_for_shader(&draws, supports_base_instance, shader_perm)
+        let submission_classes = draw_submission_classes(draws.len(), &precomputed_batches);
+        crate::world_mesh::build_plan_for_shader_with_submission_classes(
+            &draws,
+            &submission_classes,
+            supports_base_instance,
+            shader_perm,
+        )
     };
+    assign_material_packet_indices(&mut plan, &precomputed_batches);
     let slab_uploaded = {
         profiling::scope!("world_mesh::prepare_frame::pack_and_upload_slab");
         pack_and_upload_per_draw_slab(
@@ -268,19 +354,18 @@ fn pack_forward_draws_for_view(
     slab_uploaded.then_some(PackedForwardDraws {
         draws,
         plan,
-        offscreen_write_rt,
         overlay_view_proj,
+        precomputed_batches,
     })
 }
 
-fn precompute_and_assign_material_batches(
+fn precompute_material_batches(
     frame: &GraphPassFrame<'_>,
     encode_refs: &WorldMeshForwardEncodeRefs<'_>,
     uploads: GraphUploadSink<'_>,
     draws: &[WorldMeshDrawItem],
-    pipeline: &crate::passes::world_mesh_forward::WorldMeshForwardPipelineState,
+    pipeline: &WorldMeshForwardPipelineState,
     offscreen_write_rt: Option<i32>,
-    plan: &mut InstancePlan,
 ) -> Vec<MaterialBatchPacket> {
     // Resolve per-batch pipelines and @group(1) bind groups in parallel.
     // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
@@ -307,8 +392,55 @@ fn precompute_and_assign_material_batches(
         let mut fallback = Vec::new();
         resolve(&mut fallback);
     }
-    assign_material_packet_indices(plan, &precomputed_batches);
     precomputed_batches
+}
+
+/// Builds a per-draw submission compatibility class from resolved material packets.
+fn draw_submission_classes(draw_count: usize, packets: &[MaterialBatchPacket]) -> Vec<u32> {
+    let mut classes = vec![0u32; draw_count];
+    if draw_count == 0 {
+        return classes;
+    }
+
+    let mut class_by_key: HashMap<MaterialPacketSubmissionKey, u32> = HashMap::new();
+    for packet in packets {
+        if packet.first_draw_idx >= draw_count {
+            continue;
+        }
+        let key = material_packet_submission_key(packet);
+        let next_class = class_by_key.len() as u32;
+        let class = *class_by_key.entry(key).or_insert(next_class);
+        let last = packet.last_draw_idx.min(draw_count - 1);
+        for slot in &mut classes[packet.first_draw_idx..=last] {
+            *slot = class;
+        }
+    }
+    classes
+}
+
+/// Extracts the submission identity needed by instancing from a material packet.
+fn material_packet_submission_key(packet: &MaterialBatchPacket) -> MaterialPacketSubmissionKey {
+    MaterialPacketSubmissionKey {
+        pipeline_key: packet.pipeline_key,
+        resolved_pipeline_kind: packet.resolved_pipeline_kind.clone(),
+        group1: material_group1_submission_key(&packet.group1_binding),
+        pipelines_ready: packet.pipelines.is_some(),
+    }
+}
+
+/// Extracts the concrete group-1 bind command identity from a material packet.
+fn material_group1_submission_key(binding: &MaterialGroup1Binding) -> MaterialGroup1SubmissionKey {
+    match binding {
+        MaterialGroup1Binding::Empty => MaterialGroup1SubmissionKey::Empty,
+        MaterialGroup1Binding::Embedded {
+            bind_key,
+            uniform_dynamic_offset,
+            ..
+        } => MaterialGroup1SubmissionKey::Embedded {
+            bind_key: *bind_key,
+            uniform_dynamic_offset: *uniform_dynamic_offset,
+        },
+    }
 }
 
 /// Stamps each draw group with the material packet covering its representative draw.
@@ -418,6 +550,22 @@ mod tests {
         }
     }
 
+    /// Builds a test packet with a caller-supplied pipeline key.
+    fn test_packet_with_key(
+        first: usize,
+        last: usize,
+        pipeline_key: PipelineVariantKey,
+    ) -> MaterialBatchPacket {
+        MaterialBatchPacket {
+            first_draw_idx: first,
+            last_draw_idx: last,
+            pipeline_key,
+            resolved_pipeline_kind: Some(crate::materials::RasterPipelineKind::Null),
+            group1_binding: MaterialGroup1Binding::Empty,
+            pipelines: None,
+        }
+    }
+
     fn group(representative_draw_idx: usize) -> DrawGroup {
         DrawGroup {
             representative_draw_idx,
@@ -471,5 +619,30 @@ mod tests {
             plan.phase(WorldMeshPhase::TransparentGrab)[0].material_packet_idx,
             2
         );
+    }
+
+    #[test]
+    fn draw_submission_classes_share_equivalent_packets() {
+        let key = test_packet(0, 0).pipeline_key;
+        let packets = [
+            test_packet_with_key(0, 1, key),
+            test_packet_with_key(2, 3, key),
+        ];
+
+        assert_eq!(draw_submission_classes(4, &packets), vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn draw_submission_classes_split_distinct_pipeline_state() {
+        let mut depth_write_key = test_packet(0, 0).pipeline_key;
+        depth_write_key.render_state.depth_write = Some(true);
+        let mut depth_skip_key = depth_write_key;
+        depth_skip_key.render_state.depth_write = Some(false);
+        let packets = [
+            test_packet_with_key(0, 0, depth_write_key),
+            test_packet_with_key(1, 1, depth_skip_key),
+        ];
+
+        assert_eq!(draw_submission_classes(2, &packets), vec![0, 1]);
     }
 }
