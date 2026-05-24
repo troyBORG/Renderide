@@ -11,6 +11,7 @@ use crate::shared::{
 use super::super::AssetTransferQueue;
 use super::super::catalogs::GaussianSplatUploadKind;
 use super::super::integrator::{AssetTask, AssetTaskLane};
+use super::super::particle_task::{PointRenderBufferTask, TrailRenderBufferTask};
 
 fn send_desktop_texture_update(
     ipc: Option<&mut DualQueueIpc>,
@@ -96,8 +97,9 @@ pub fn on_point_render_buffer_upload(
 ) {
     let asset_id = upload.asset_id;
     let count = upload.count;
+    let generation = queue.begin_point_render_buffer_generation(asset_id);
     queue.integrator_mut().enqueue_lane(
-        AssetTask::PointRenderBuffer(upload),
+        AssetTask::PointRenderBuffer(PointRenderBufferTask::new(upload, generation)),
         AssetTaskLane::Particle,
     );
     logger::trace!("point render buffer {asset_id}: queued upload count={count}");
@@ -109,6 +111,7 @@ pub fn on_point_render_buffer_unload(
     unload: PointRenderBufferUnload,
 ) {
     let asset_id = unload.asset_id;
+    queue.cancel_point_render_buffer_generation(asset_id);
     queue.catalogs.point_render_buffers.remove(&asset_id);
     for mesh_id in crate::particles::point_render_buffer_generated_mesh_ids(asset_id) {
         queue.pools.mesh_pool.remove(mesh_id);
@@ -125,8 +128,9 @@ pub fn on_trail_render_buffer_upload(
     let asset_id = upload.asset_id;
     let trails_count = upload.trails_count;
     let trail_point_count = upload.trail_point_count;
+    let generation = queue.begin_trail_render_buffer_generation(asset_id);
     queue.integrator_mut().enqueue_lane(
-        AssetTask::TrailRenderBuffer(upload),
+        AssetTask::TrailRenderBuffer(TrailRenderBufferTask::new(upload, generation)),
         AssetTaskLane::Particle,
     );
     logger::trace!(
@@ -140,6 +144,7 @@ pub fn on_trail_render_buffer_unload(
     unload: TrailRenderBufferUnload,
 ) {
     let asset_id = unload.asset_id;
+    queue.cancel_trail_render_buffer_generation(asset_id);
     queue.catalogs.trail_render_buffers.remove(&asset_id);
     for mesh_id in crate::particles::trail_render_buffer_generated_mesh_ids(asset_id) {
         queue.pools.mesh_pool.remove(mesh_id);

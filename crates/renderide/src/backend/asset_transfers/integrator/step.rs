@@ -1,19 +1,14 @@
 //! Per-task cooperative step dispatch for asset uploads.
 
-use std::sync::Arc;
-
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::{MaterialSystem, RasterPipelineKind};
-use crate::particles::{build_point_render_buffer_upload, build_trail_render_buffer_upload};
-use crate::shared::{
-    MaterialsUpdateBatch, PointRenderBufferConsumed, PointRenderBufferUpload, RendererCommand,
-    ShaderUploadResult, TrailRenderBufferConsumed, TrailRenderBufferUpload,
-};
+use crate::shared::{MaterialsUpdateBatch, RendererCommand, ShaderUploadResult};
 
 use super::super::AssetTransferQueue;
 use super::super::cubemap_task::CubemapUploadTask;
 use super::super::mesh_task::MeshTaskGpu;
 use super::super::mesh_task::MeshUploadTask;
+use super::super::particle_task::{ParticleTaskGpu, PointRenderBufferTask, TrailRenderBufferTask};
 use super::super::texture_task::TextureUploadTask;
 use super::super::texture_task_common::TextureTaskGpu;
 use super::super::texture3d_task::Texture3dUploadTask;
@@ -39,10 +34,10 @@ pub enum AssetTask {
     MaterialUpdate(MaterialsUpdateBatch),
     /// Renderer-main-thread shader route registration.
     ShaderRoute(ShaderRouteTask),
-    /// Placeholder point render-buffer ingestion and acknowledgement.
-    PointRenderBuffer(PointRenderBufferUpload),
-    /// Placeholder trail render-buffer ingestion and acknowledgement.
-    TrailRenderBuffer(TrailRenderBufferUpload),
+    /// Point render-buffer ingestion, acknowledgement, and generated mesh build.
+    PointRenderBuffer(PointRenderBufferTask),
+    /// Trail render-buffer ingestion, acknowledgement, and generated mesh build.
+    TrailRenderBuffer(TrailRenderBufferTask),
     /// Host mesh payload integration.
     Mesh(MeshUploadTask),
     /// Host Texture2D mip integration.
@@ -95,12 +90,8 @@ pub(super) fn step_asset_task(
     match task {
         AssetTask::MaterialUpdate(batch) => step_material_update_task(materials, shm, ipc, batch),
         AssetTask::ShaderRoute(route) => step_shader_route_task(materials, ipc, route),
-        AssetTask::PointRenderBuffer(upload) => {
-            step_point_render_buffer_task(asset, gpu, shm, ipc, upload)
-        }
-        AssetTask::TrailRenderBuffer(upload) => {
-            step_trail_render_buffer_task(asset, gpu, shm, ipc, upload)
-        }
+        AssetTask::PointRenderBuffer(task) => task.step(asset, particle_task_gpu(gpu), shm, ipc),
+        AssetTask::TrailRenderBuffer(task) => task.step(asset, particle_task_gpu(gpu), shm, ipc),
         AssetTask::Mesh(task) => step_mesh_upload_task(asset, gpu, shm, ipc, task),
         AssetTask::Texture(task) => step_texture_upload_task(asset, gpu, shm, ipc, task),
         AssetTask::Texture3d(task) => step_texture3d_upload_task(asset, gpu, shm, ipc, task),
@@ -155,166 +146,16 @@ fn step_shader_route_task(
     StepResult::Done
 }
 
-fn step_point_render_buffer_task(
-    asset: &mut AssetTransferQueue,
-    gpu: Option<&AssetUploadGpuContext<'_>>,
-    shm: &mut SharedMemoryAccessor,
-    ipc: &mut Option<&mut DualQueueIpc>,
-    upload: &mut PointRenderBufferUpload,
-) -> StepResult {
-    let Some(gpu) = gpu else {
-        return StepResult::YieldBackground;
-    };
-    let upload = std::mem::take(upload);
-    let asset_id = upload.asset_id;
-    let raw_len = upload.buffer.length.max(0) as usize;
-    let raw = copy_render_buffer_payload(shm, upload.buffer, "point", asset_id, raw_len);
-    match raw.and_then(|raw| {
-        build_point_render_buffer_upload(
-            crate::assets::mesh::MeshGpuUploadContext {
-                device: gpu.device.as_ref(),
-                queue: gpu.queue.as_ref(),
-                gpu_limits: gpu.gpu_limits.as_ref(),
-                mapped_buffer_health: gpu.mapped_buffer_health.as_ref(),
-                mapped_buffer_generation: gpu.mapped_buffer_health.generation(),
-            },
-            raw,
-            &upload,
-        )
-        .map_err(|err| {
-            logger::warn!("{err}");
-            err
-        })
-        .ok()
-    }) {
-        Some(result) => {
-            let stored_asset_id = result.asset.asset_id;
-            let count = result.asset.count;
-            let frame_grid_size = result.asset.frame_grid_size;
-            asset
-                .catalogs
-                .point_render_buffers
-                .insert(asset_id, result.asset);
-            asset.pools.mesh_pool.insert(result.billboard_mesh);
-            logger::trace!(
-                "point render buffer {stored_asset_id}: uploaded billboard mesh for {count} particles frame_grid={frame_grid_size:?}"
-            );
-        }
-        None => {
-            asset.catalogs.point_render_buffers.remove(&asset_id);
-            for mesh_id in crate::particles::point_render_buffer_generated_mesh_ids(asset_id) {
-                asset.pools.mesh_pool.remove(mesh_id);
-            }
-        }
-    }
-    send_point_render_buffer_consumed(ipc, asset_id);
-    StepResult::Done
-}
-
-fn step_trail_render_buffer_task(
-    asset: &mut AssetTransferQueue,
-    gpu: Option<&AssetUploadGpuContext<'_>>,
-    shm: &mut SharedMemoryAccessor,
-    ipc: &mut Option<&mut DualQueueIpc>,
-    upload: &mut TrailRenderBufferUpload,
-) -> StepResult {
-    let Some(gpu) = gpu else {
-        return StepResult::YieldBackground;
-    };
-    let upload = std::mem::take(upload);
-    let asset_id = upload.asset_id;
-    let raw_len = upload.buffer.length.max(0) as usize;
-    let raw = copy_render_buffer_payload(shm, upload.buffer, "trail", asset_id, raw_len);
-    match raw.and_then(|raw| {
-        build_trail_render_buffer_upload(
-            crate::assets::mesh::MeshGpuUploadContext {
-                device: gpu.device.as_ref(),
-                queue: gpu.queue.as_ref(),
-                gpu_limits: gpu.gpu_limits.as_ref(),
-                mapped_buffer_health: gpu.mapped_buffer_health.as_ref(),
-                mapped_buffer_generation: gpu.mapped_buffer_health.generation(),
-            },
-            raw,
-            &upload,
-        )
-        .map_err(|err| {
-            logger::warn!("{err}");
-            err
-        })
-        .ok()
-    }) {
-        Some(result) => {
-            let stored_asset_id = result.asset.asset_id;
-            let trails_count = result.asset.trails_count;
-            let trail_point_count = result.asset.trail_point_count;
-            asset
-                .catalogs
-                .trail_render_buffers
-                .insert(asset_id, result.asset);
-            for mesh in result.meshes {
-                asset.pools.mesh_pool.insert(mesh);
-            }
-            logger::trace!(
-                "trail render buffer {stored_asset_id}: uploaded trail meshes trails={trails_count} points={trail_point_count}"
-            );
-        }
-        None => {
-            asset.catalogs.trail_render_buffers.remove(&asset_id);
-            for mesh_id in crate::particles::trail_render_buffer_generated_mesh_ids(asset_id) {
-                asset.pools.mesh_pool.remove(mesh_id);
-            }
-        }
-    }
-    send_trail_render_buffer_consumed(ipc, asset_id);
-    StepResult::Done
-}
-
-fn copy_render_buffer_payload(
-    shm: &mut SharedMemoryAccessor,
-    buffer: crate::shared::buffer::SharedMemoryBufferDescriptor,
-    kind: &'static str,
-    asset_id: i32,
-    raw_len: usize,
-) -> Option<Arc<[u8]>> {
-    if raw_len == 0 {
-        return Some(Arc::from([]));
-    }
-    shm.with_read_bytes(&buffer, |raw| {
-        if raw.len() < raw_len {
-            logger::warn!(
-                "{kind} render buffer {asset_id}: raw too short (need {raw_len}, got {})",
-                raw.len()
-            );
-            return None;
-        }
-        Some(Arc::from(&raw[..raw_len]))
+fn particle_task_gpu<'context, 'handles: 'context>(
+    gpu: Option<&'context AssetUploadGpuContext<'handles>>,
+) -> Option<ParticleTaskGpu<'context>> {
+    let gpu = gpu?;
+    Some(ParticleTaskGpu {
+        device: gpu.device,
+        gpu_limits: gpu.gpu_limits,
+        queue: gpu.queue,
+        mapped_buffer_health: gpu.mapped_buffer_health,
     })
-}
-
-fn send_point_render_buffer_consumed(ipc: &mut Option<&mut DualQueueIpc>, asset_id: i32) {
-    if let Some(ipc) = ipc.as_deref_mut() {
-        let ack_queued = ipc.send_background_reliable(RendererCommand::PointRenderBufferConsumed(
-            PointRenderBufferConsumed { asset_id },
-        ));
-        if !ack_queued {
-            logger::warn!(
-                "point render buffer {asset_id}: failed to enqueue reliable consumed ack"
-            );
-        }
-    }
-}
-
-fn send_trail_render_buffer_consumed(ipc: &mut Option<&mut DualQueueIpc>, asset_id: i32) {
-    if let Some(ipc) = ipc.as_deref_mut() {
-        let ack_queued = ipc.send_background_reliable(RendererCommand::TrailRenderBufferConsumed(
-            TrailRenderBufferConsumed { asset_id },
-        ));
-        if !ack_queued {
-            logger::warn!(
-                "trail render buffer {asset_id}: failed to enqueue reliable consumed ack"
-            );
-        }
-    }
 }
 
 fn step_mesh_upload_task(
