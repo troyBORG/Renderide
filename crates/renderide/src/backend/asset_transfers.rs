@@ -11,6 +11,7 @@ mod cubemap_upload_plan;
 mod gpu_runtime;
 mod integrator;
 mod mesh_task;
+mod particle_task;
 mod pending;
 mod pools;
 mod shared_memory_payload;
@@ -23,6 +24,8 @@ mod uploads;
 mod video_runtime;
 
 use std::sync::Arc;
+
+use hashbrown::HashMap;
 
 use crate::gpu::{GpuLimits, GpuMappedBufferHealth};
 use crate::gpu_pools::{
@@ -56,6 +59,9 @@ pub use uploads::{
 };
 use video_runtime::VideoAssetRuntime;
 
+/// Maximum active background particle mesh builds admitted at once.
+const PARTICLE_BACKGROUND_WORKER_LIMIT: usize = 16;
+
 /// Snapshot of queued and deferred asset-transfer work.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct AssetTransferDiagnosticSnapshot {
@@ -87,12 +93,74 @@ pub struct AssetTransferQueue {
     pub(crate) video: VideoAssetRuntime,
     /// Cooperative uploads drained by [`drain_asset_tasks`] / [`drain_asset_tasks_unbounded`].
     pub(crate) integrator: AssetIntegrator,
+    /// Latest accepted point render-buffer generation per asset.
+    point_render_buffer_generations: HashMap<i32, u64>,
+    /// Latest accepted trail render-buffer generation per asset.
+    trail_render_buffer_generations: HashMap<i32, u64>,
+    /// Active Rayon workers building particle-generated meshes.
+    active_particle_build_workers: usize,
 }
 
 impl AssetTransferQueue {
     /// Mutably borrows the cooperative asset integrator.
     pub(crate) fn integrator_mut(&mut self) -> &mut AssetIntegrator {
         &mut self.integrator
+    }
+
+    /// Starts a point render-buffer generation and returns its monotonic token.
+    pub(crate) fn begin_point_render_buffer_generation(&mut self, asset_id: i32) -> u64 {
+        next_particle_generation(&mut self.point_render_buffer_generations, asset_id)
+    }
+
+    /// Starts a trail render-buffer generation and returns its monotonic token.
+    pub(crate) fn begin_trail_render_buffer_generation(&mut self, asset_id: i32) -> u64 {
+        next_particle_generation(&mut self.trail_render_buffer_generations, asset_id)
+    }
+
+    /// Invalidates in-flight point render-buffer work for `asset_id`.
+    pub(crate) fn cancel_point_render_buffer_generation(&mut self, asset_id: i32) {
+        let _ = self.begin_point_render_buffer_generation(asset_id);
+    }
+
+    /// Invalidates in-flight trail render-buffer work for `asset_id`.
+    pub(crate) fn cancel_trail_render_buffer_generation(&mut self, asset_id: i32) {
+        let _ = self.begin_trail_render_buffer_generation(asset_id);
+    }
+
+    /// Returns whether `generation` is still the latest point render-buffer work for `asset_id`.
+    pub(crate) fn point_render_buffer_generation_is_current(
+        &self,
+        asset_id: i32,
+        generation: u64,
+    ) -> bool {
+        self.point_render_buffer_generations.get(&asset_id).copied() == Some(generation)
+    }
+
+    /// Returns whether `generation` is still the latest trail render-buffer work for `asset_id`.
+    pub(crate) fn trail_render_buffer_generation_is_current(
+        &self,
+        asset_id: i32,
+        generation: u64,
+    ) -> bool {
+        self.trail_render_buffer_generations.get(&asset_id).copied() == Some(generation)
+    }
+
+    /// Attempts to reserve one background particle build slot.
+    pub(crate) fn try_acquire_particle_build_worker(&mut self) -> bool {
+        if self.active_particle_build_workers >= PARTICLE_BACKGROUND_WORKER_LIMIT {
+            return false;
+        }
+        self.active_particle_build_workers += 1;
+        true
+    }
+
+    /// Releases one background particle build slot.
+    pub(crate) fn release_particle_build_worker(&mut self) {
+        if self.active_particle_build_workers == 0 {
+            logger::warn!("particle build worker accounting underflow");
+            return;
+        }
+        self.active_particle_build_workers -= 1;
     }
 
     /// Whether any upload work is queued or deferred on missing prerequisites.
@@ -137,7 +205,7 @@ impl AssetTransferQueue {
     /// Resident PhotonDust point render buffers.
     pub(crate) fn point_render_buffers(
         &self,
-    ) -> &hashbrown::HashMap<i32, crate::particles::PointRenderBufferAsset> {
+    ) -> &HashMap<i32, crate::particles::PointRenderBufferAsset> {
         &self.catalogs.point_render_buffers
     }
 
@@ -261,8 +329,19 @@ impl AssetTransferQueue {
             gpu: AssetGpuRuntime::default(),
             video: VideoAssetRuntime::default(),
             integrator: AssetIntegrator::default(),
+            point_render_buffer_generations: HashMap::new(),
+            trail_render_buffer_generations: HashMap::new(),
+            active_particle_build_workers: 0,
         }
     }
+}
+
+/// Advances and returns the latest accepted particle render-buffer generation for `asset_id`.
+fn next_particle_generation(generations: &mut HashMap<i32, u64>, asset_id: i32) -> u64 {
+    let entry = generations.entry(asset_id).or_insert(0);
+    let next = entry.wrapping_add(1).max(1);
+    *entry = next;
+    next
 }
 
 #[cfg(test)]

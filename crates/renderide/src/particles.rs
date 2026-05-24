@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use glam::{Quat, Vec2, Vec3, Vec4};
+use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::assets::mesh::{
@@ -19,6 +20,12 @@ use crate::shared::{
 const BILLBOARD_VERTICES_PER_POINT: usize = 4;
 /// Number of billboard indices generated for one point particle.
 const BILLBOARD_INDICES_PER_POINT: usize = 12;
+/// Minimum point particles before Rayon decode/fill scheduling is worthwhile.
+const POINT_PARTICLE_PARALLEL_MIN: usize = 2_048;
+/// Point particle chunk size used by parallel vertex/index fill.
+const POINT_PARTICLE_PARALLEL_CHUNK: usize = 1_024;
+/// Minimum trail points before building texture-mode meshes in parallel is worthwhile.
+const TRAIL_PARALLEL_POINT_MIN: usize = 1_024;
 /// Number of bytes in one PhotonDust trail-offset row.
 const TRAIL_OFFSET_BYTES: usize = 16;
 /// Generated particle mesh id tag for billboard quads.
@@ -59,6 +66,7 @@ pub(crate) struct TrailRenderBufferAsset {
 }
 
 /// Meshes and metadata produced by a point render-buffer upload.
+#[derive(Debug)]
 pub(crate) struct PointRenderBufferMeshUpload {
     /// Resident point render-buffer metadata.
     pub(crate) asset: PointRenderBufferAsset,
@@ -67,11 +75,37 @@ pub(crate) struct PointRenderBufferMeshUpload {
 }
 
 /// Meshes and metadata produced by a trail render-buffer upload.
+#[derive(Debug)]
 pub(crate) struct TrailRenderBufferMeshUpload {
     /// Resident trail render-buffer metadata.
     pub(crate) asset: TrailRenderBufferAsset,
     /// Generated trail meshes for the supported texture modes.
     pub(crate) meshes: Vec<GpuMesh>,
+}
+
+/// Existing generated trail meshes, keyed by texture mode, for in-place GPU buffer reuse.
+#[derive(Default)]
+pub(crate) struct TrailRenderBufferExistingMeshes {
+    /// Existing stretch-mode trail mesh.
+    pub(crate) stretch: Option<GpuMesh>,
+    /// Existing tiled trail mesh.
+    pub(crate) tile: Option<GpuMesh>,
+    /// Existing per-segment distributed trail mesh.
+    pub(crate) distribute_per_segment: Option<GpuMesh>,
+    /// Existing per-segment repeated trail mesh.
+    pub(crate) repeat_per_segment: Option<GpuMesh>,
+}
+
+impl TrailRenderBufferExistingMeshes {
+    /// Takes the existing mesh for `mode`, leaving that slot empty.
+    fn take_mode(&mut self, mode: TrailTextureMode) -> Option<GpuMesh> {
+        match mode {
+            TrailTextureMode::Stretch => self.stretch.take(),
+            TrailTextureMode::Tile => self.tile.take(),
+            TrailTextureMode::DistributePerSegment => self.distribute_per_segment.take(),
+            TrailTextureMode::RepeatPerSegment => self.repeat_per_segment.take(),
+        }
+    }
 }
 
 /// Error raised while validating or generating a PhotonDust render-buffer mesh.
@@ -216,6 +250,7 @@ pub(crate) fn build_point_render_buffer_upload(
     gpu: MeshGpuUploadContext<'_>,
     raw: Arc<[u8]>,
     upload: &PointRenderBufferUpload,
+    existing: Option<GpuMesh>,
 ) -> Result<PointRenderBufferMeshUpload, ParticleRenderBufferError> {
     profiling::scope!("particle::build_point_render_buffer");
     let asset_id = upload.asset_id;
@@ -233,6 +268,7 @@ pub(crate) fn build_point_render_buffer_upload(
         asset_id,
         &points,
         upload.frame_grid_size,
+        existing,
     )?;
     let points: Arc<[PointParticle]> = Arc::from(points.into_boxed_slice());
     Ok(PointRenderBufferMeshUpload {
@@ -251,6 +287,7 @@ pub(crate) fn build_trail_render_buffer_upload(
     gpu: MeshGpuUploadContext<'_>,
     raw: Arc<[u8]>,
     upload: &TrailRenderBufferUpload,
+    existing: TrailRenderBufferExistingMeshes,
 ) -> Result<TrailRenderBufferMeshUpload, ParticleRenderBufferError> {
     profiling::scope!("particle::build_trail_render_buffer");
     let asset_id = upload.asset_id;
@@ -262,27 +299,7 @@ pub(crate) fn build_trail_render_buffer_upload(
         upload.trail_point_count,
     )?;
     let trails = decode_trails(raw.as_ref(), upload, trails_count, trail_point_count)?;
-    let mut meshes = Vec::with_capacity(4);
-    for mode in [
-        TrailTextureMode::Stretch,
-        TrailTextureMode::Tile,
-        TrailTextureMode::DistributePerSegment,
-        TrailTextureMode::RepeatPerSegment,
-    ] {
-        let mesh_asset_id = trail_render_buffer_mesh_asset_id(asset_id, mode).ok_or(
-            ParticleRenderBufferError::GeneratedIdOverflow {
-                kind: "trail",
-                asset_id,
-            },
-        )?;
-        meshes.push(build_trail_mesh(
-            gpu,
-            mesh_asset_id,
-            asset_id,
-            &trails,
-            mode,
-        )?);
-    }
+    let meshes = build_trail_meshes(gpu, asset_id, &trails, existing)?;
     Ok(TrailRenderBufferMeshUpload {
         asset: TrailRenderBufferAsset {
             asset_id,
@@ -476,8 +493,7 @@ fn decode_point_particles(
         count,
         2,
     )?;
-    let mut points = Vec::with_capacity(count);
-    for index in 0..count {
+    let decode = |index| {
         let p: [f32; 3] = read_pod_at(raw, &positions, index);
         let r: [f32; 4] = read_pod_at(raw, &rotations, index);
         let s: [f32; 3] = read_pod_at(raw, &sizes, index);
@@ -485,14 +501,19 @@ fn decode_point_particles(
         let frame_index = frames
             .as_ref()
             .map(|frame_range| read_pod_at::<u16>(raw, frame_range, index));
-        points.push(PointParticle {
+        PointParticle {
             position: Vec3::from_array(p),
             rotation: Quat::from_xyzw(r[0], r[1], r[2], r[3]),
             size: Vec3::from_array(s),
             color: Vec4::from_array(c),
             frame_index,
-        });
-    }
+        }
+    };
+    let points = if point_parallel_is_worthwhile(count) {
+        (0..count).into_par_iter().map(decode).collect()
+    } else {
+        (0..count).map(decode).collect()
+    };
     Ok(points)
 }
 
@@ -502,6 +523,7 @@ fn build_billboard_mesh(
     source_asset_id: i32,
     points: &[PointParticle],
     frame_grid_size: glam::IVec2,
+    existing: Option<GpuMesh>,
 ) -> Result<GpuMesh, ParticleRenderBufferError> {
     let vertex_count = points
         .len()
@@ -524,45 +546,9 @@ fn build_billboard_mesh(
         });
     }
 
-    let mut vertices = Vec::with_capacity(vertex_count * generated_vertex_stride());
-    let mut indices = Vec::with_capacity(index_count * 4);
-    let corners = [
-        Vec2::new(0.0, 0.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 1.0),
-        Vec2::new(1.0, 1.0),
-    ];
-    for (particle_index, point) in points.iter().enumerate() {
-        let base_vertex = particle_index
-            .checked_mul(BILLBOARD_VERTICES_PER_POINT)
-            .and_then(|v| u32::try_from(v).ok())
-            .ok_or(ParticleRenderBufferError::MeshTooLarge {
-                kind: "point",
-                asset_id: source_asset_id,
-            })?;
-        let (_, _, roll) = point.rotation.to_euler(glam::EulerRot::XYZ);
-        let point_data = Vec3::new(point.size.x, point.size.y, roll);
-        for corner in corners {
-            let uv = particle_frame_uv(corner, point.frame_index, frame_grid_size);
-            push_generated_vertex(&mut vertices, point.position, point_data, uv, point.color);
-        }
-        for index in [
-            base_vertex,
-            base_vertex + 1,
-            base_vertex + 2,
-            base_vertex + 2,
-            base_vertex + 1,
-            base_vertex + 3,
-            base_vertex,
-            base_vertex + 2,
-            base_vertex + 1,
-            base_vertex + 2,
-            base_vertex + 3,
-            base_vertex + 1,
-        ] {
-            indices.extend_from_slice(bytemuck::bytes_of(&index));
-        }
-    }
+    let mut vertices = vec![0u8; vertex_count * generated_vertex_stride()];
+    let mut indices = vec![0u8; index_count * size_of::<u32>()];
+    fill_billboard_buffers(points, frame_grid_size, &mut vertices, &mut indices);
 
     upload_generated_mesh(
         gpu,
@@ -576,7 +562,121 @@ fn build_billboard_mesh(
             index_count,
             bounds: bounds_for_points(points),
         },
+        existing,
     )
+}
+
+/// Returns whether point decode/fill work is large enough to amortize Rayon scheduling.
+fn point_parallel_is_worthwhile(count: usize) -> bool {
+    count >= POINT_PARTICLE_PARALLEL_MIN
+}
+
+/// Fills packed billboard vertex and index buffers for `points`.
+fn fill_billboard_buffers(
+    points: &[PointParticle],
+    frame_grid_size: glam::IVec2,
+    vertices: &mut [u8],
+    indices: &mut [u8],
+) {
+    let vertex_chunk_len = BILLBOARD_VERTICES_PER_POINT * generated_vertex_stride();
+    let index_chunk_len = BILLBOARD_INDICES_PER_POINT * size_of::<u32>();
+    if point_parallel_is_worthwhile(points.len()) {
+        points
+            .par_chunks(POINT_PARTICLE_PARALLEL_CHUNK)
+            .zip(vertices.par_chunks_mut(vertex_chunk_len * POINT_PARTICLE_PARALLEL_CHUNK))
+            .zip(indices.par_chunks_mut(index_chunk_len * POINT_PARTICLE_PARALLEL_CHUNK))
+            .enumerate()
+            .for_each(
+                |(chunk_index, ((point_chunk, vertex_chunk), index_chunk))| {
+                    let base_particle = chunk_index * POINT_PARTICLE_PARALLEL_CHUNK;
+                    fill_billboard_chunk(
+                        point_chunk,
+                        base_particle,
+                        frame_grid_size,
+                        vertex_chunk,
+                        index_chunk,
+                    );
+                },
+            );
+    } else {
+        fill_billboard_chunk(points, 0, frame_grid_size, vertices, indices);
+    }
+}
+
+/// Fills one contiguous point chunk into matching vertex and index chunks.
+fn fill_billboard_chunk(
+    points: &[PointParticle],
+    base_particle: usize,
+    frame_grid_size: glam::IVec2,
+    vertices: &mut [u8],
+    indices: &mut [u8],
+) {
+    let vertex_stride = generated_vertex_stride();
+    let vertex_chunk_len = BILLBOARD_VERTICES_PER_POINT * vertex_stride;
+    let index_chunk_len = BILLBOARD_INDICES_PER_POINT * size_of::<u32>();
+    for (local_index, point) in points.iter().enumerate() {
+        let particle_index = base_particle + local_index;
+        let vertex_start = local_index * vertex_chunk_len;
+        let index_start = local_index * index_chunk_len;
+        fill_billboard_particle(
+            point,
+            particle_index,
+            frame_grid_size,
+            &mut vertices[vertex_start..vertex_start + vertex_chunk_len],
+            &mut indices[index_start..index_start + index_chunk_len],
+        );
+    }
+}
+
+/// Fills the four billboard vertices and twelve duplicated indices for one point.
+fn fill_billboard_particle(
+    point: &PointParticle,
+    particle_index: usize,
+    frame_grid_size: glam::IVec2,
+    vertices: &mut [u8],
+    indices: &mut [u8],
+) {
+    let (_, _, roll) = point.rotation.to_euler(glam::EulerRot::XYZ);
+    let point_data = Vec3::new(point.size.x, point.size.y, roll);
+    for (corner_index, corner) in [
+        Vec2::new(0.0, 0.0),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(1.0, 1.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let vertex_stride = generated_vertex_stride();
+        let vertex_start = corner_index * vertex_stride;
+        let uv = particle_frame_uv(corner, point.frame_index, frame_grid_size);
+        write_generated_vertex(
+            &mut vertices[vertex_start..vertex_start + vertex_stride],
+            point.position,
+            point_data,
+            uv,
+            point.color,
+        );
+    }
+
+    let base_vertex = (particle_index * BILLBOARD_VERTICES_PER_POINT) as u32;
+    write_u32s(
+        indices,
+        &[
+            base_vertex,
+            base_vertex + 1,
+            base_vertex + 2,
+            base_vertex + 2,
+            base_vertex + 1,
+            base_vertex + 3,
+            base_vertex,
+            base_vertex + 2,
+            base_vertex + 1,
+            base_vertex + 2,
+            base_vertex + 3,
+            base_vertex + 1,
+        ],
+    );
 }
 
 fn particle_frame_uv(corner: Vec2, frame_index: Option<u16>, frame_grid_size: glam::IVec2) -> Vec2 {
@@ -623,7 +723,12 @@ struct TrailPoint {
 }
 
 struct TrailPolyline {
+    /// Ordered trail points after applying the host ring-buffer offset row.
     points: Vec<TrailPoint>,
+    /// Cumulative local-space distance at each point.
+    distances: Vec<f32>,
+    /// Total polyline distance clamped away from zero for stretch-mode UVs.
+    total_distance: f32,
 }
 
 fn decode_trails(
@@ -692,7 +797,13 @@ fn decode_trails(
                 });
             }
         }
-        trails.push(TrailPolyline { points });
+        let distances = trail_distances(&points);
+        let total_distance = distances.last().copied().unwrap_or(0.0).max(1e-6);
+        trails.push(TrailPolyline {
+            points,
+            distances,
+            total_distance,
+        });
     }
     Ok(trails)
 }
@@ -715,12 +826,60 @@ fn decode_trail_offset(row: [i32; 4], trail_point_count: usize) -> Option<TrailO
     })
 }
 
+/// Builds the generated trail meshes for every supported texture coordinate mode.
+fn build_trail_meshes(
+    gpu: MeshGpuUploadContext<'_>,
+    asset_id: i32,
+    trails: &[TrailPolyline],
+    mut existing: TrailRenderBufferExistingMeshes,
+) -> Result<Vec<GpuMesh>, ParticleRenderBufferError> {
+    let modes = [
+        TrailTextureMode::Stretch,
+        TrailTextureMode::Tile,
+        TrailTextureMode::DistributePerSegment,
+        TrailTextureMode::RepeatPerSegment,
+    ];
+    let inputs: Result<Vec<_>, ParticleRenderBufferError> = modes
+        .into_iter()
+        .map(|mode| {
+            let mesh_asset_id = trail_render_buffer_mesh_asset_id(asset_id, mode).ok_or(
+                ParticleRenderBufferError::GeneratedIdOverflow {
+                    kind: "trail",
+                    asset_id,
+                },
+            )?;
+            Ok((mode, mesh_asset_id, existing.take_mode(mode)))
+        })
+        .collect();
+    let inputs = inputs?;
+    if trail_mesh_parallel_is_worthwhile(trails) {
+        return inputs
+            .into_par_iter()
+            .map(|(mode, mesh_asset_id, existing)| {
+                build_trail_mesh(gpu, mesh_asset_id, asset_id, trails, mode, existing)
+            })
+            .collect();
+    }
+    inputs
+        .into_iter()
+        .map(|(mode, mesh_asset_id, existing)| {
+            build_trail_mesh(gpu, mesh_asset_id, asset_id, trails, mode, existing)
+        })
+        .collect()
+}
+
+/// Returns whether trail mesh generation has enough point work to build modes in parallel.
+fn trail_mesh_parallel_is_worthwhile(trails: &[TrailPolyline]) -> bool {
+    trails.iter().map(|trail| trail.points.len()).sum::<usize>() >= TRAIL_PARALLEL_POINT_MIN
+}
+
 fn build_trail_mesh(
     gpu: MeshGpuUploadContext<'_>,
     mesh_asset_id: i32,
     source_asset_id: i32,
     trails: &[TrailPolyline],
     texture_mode: TrailTextureMode,
+    existing: Option<GpuMesh>,
 ) -> Result<GpuMesh, ParticleRenderBufferError> {
     let vertex_count = trails
         .iter()
@@ -760,14 +919,17 @@ fn build_trail_mesh(
         if trail.points.len() < 2 {
             continue;
         }
-        let distances = trail_distances(&trail.points);
-        let total = distances.last().copied().unwrap_or(0.0).max(1e-6);
         for point_index in 0..trail.points.len() {
             let point = trail.points[point_index];
             let tangent = trail_tangent(&trail.points, point_index);
             let side = trail_side(tangent);
             let half_width = point.width * 0.5;
-            let v = trail_v_coordinate(texture_mode, &distances, total, point_index);
+            let v = trail_v_coordinate(
+                texture_mode,
+                &trail.distances,
+                trail.total_distance,
+                point_index,
+            );
             push_generated_vertex(
                 &mut vertices,
                 point.position - side * half_width,
@@ -804,10 +966,14 @@ fn build_trail_mesh(
             index_count,
             bounds: bounds_for_trails(trails),
         },
+        existing,
     )
 }
 
 fn trail_distances(points: &[TrailPoint]) -> Vec<f32> {
+    if points.is_empty() {
+        return Vec::new();
+    }
     let mut distances = Vec::with_capacity(points.len());
     let mut total = 0.0;
     distances.push(0.0);
@@ -880,6 +1046,27 @@ fn push_f32s<const N: usize>(out: &mut Vec<u8>, values: &[f32; N]) {
     out.extend_from_slice(bytemuck::cast_slice(values));
 }
 
+/// Writes one generated vertex into an already sized byte slice.
+fn write_generated_vertex(out: &mut [u8], position: Vec3, normal: Vec3, uv: Vec2, color: Vec4) {
+    let mut cursor = 0usize;
+    cursor += write_f32s(&mut out[cursor..], &position.to_array());
+    cursor += write_f32s(&mut out[cursor..], &normal.to_array());
+    cursor += write_f32s(&mut out[cursor..], &uv.to_array());
+    let _ = write_f32s(&mut out[cursor..], &color.to_array());
+}
+
+/// Writes tightly packed `f32` values into `out` and returns the byte count written.
+fn write_f32s<const N: usize>(out: &mut [u8], values: &[f32; N]) -> usize {
+    let bytes = bytemuck::cast_slice(values);
+    out[..bytes.len()].copy_from_slice(bytes);
+    bytes.len()
+}
+
+/// Writes tightly packed `u32` values into `out`.
+fn write_u32s(out: &mut [u8], values: &[u32]) {
+    out.copy_from_slice(bytemuck::cast_slice(values));
+}
+
 /// Inputs needed to publish one renderer-generated mesh into the mesh pool.
 struct GeneratedMeshUploadInput {
     /// Human-readable source kind used in diagnostics.
@@ -903,6 +1090,7 @@ struct GeneratedMeshUploadInput {
 fn upload_generated_mesh(
     gpu: MeshGpuUploadContext<'_>,
     input: GeneratedMeshUploadInput,
+    existing: Option<GpuMesh>,
 ) -> Result<GpuMesh, ParticleRenderBufferError> {
     let data = generated_mesh_upload_data(
         input.mesh_asset_id,
@@ -929,7 +1117,7 @@ fn upload_generated_mesh(
             asset_id: input.source_asset_id,
         });
     }
-    try_upload_mesh_from_raw(gpu, &raw, &data, None, &layout).ok_or(
+    try_upload_mesh_from_raw(gpu, &raw, &data, existing, &layout).ok_or(
         ParticleRenderBufferError::GpuUploadFailed {
             kind: input.kind,
             asset_id: input.source_asset_id,
@@ -1118,6 +1306,78 @@ mod tests {
         assert_eq!(points[0].position, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(points[0].size, Vec3::new(4.0, 5.0, 6.0));
         assert_eq!(points[0].frame_index, Some(7));
+    }
+
+    #[test]
+    fn billboard_fill_writes_stable_point_indices() {
+        let points = vec![
+            PointParticle {
+                position: Vec3::new(1.0, 2.0, 3.0),
+                rotation: Quat::IDENTITY,
+                size: Vec3::splat(1.0),
+                color: Vec4::ONE,
+                frame_index: None,
+            },
+            PointParticle {
+                position: Vec3::new(4.0, 5.0, 6.0),
+                rotation: Quat::IDENTITY,
+                size: Vec3::splat(2.0),
+                color: Vec4::ONE,
+                frame_index: Some(1),
+            },
+        ];
+        let mut vertices =
+            vec![0u8; points.len() * BILLBOARD_VERTICES_PER_POINT * generated_vertex_stride()];
+        let mut indices = vec![0u8; points.len() * BILLBOARD_INDICES_PER_POINT * size_of::<u32>()];
+
+        fill_billboard_buffers(&points, glam::IVec2::new(2, 1), &mut vertices, &mut indices);
+
+        let index_words: &[u32] = bytemuck::cast_slice(&indices);
+        assert_eq!(
+            index_words,
+            &[
+                0, 1, 2, 2, 1, 3, 0, 2, 1, 2, 3, 1, 4, 5, 6, 6, 5, 7, 4, 6, 5, 6, 7, 5
+            ]
+        );
+        let first_vertex: &[f32] = bytemuck::cast_slice(&vertices[..generated_vertex_stride()]);
+        assert_eq!(&first_vertex[..3], &[1.0, 2.0, 3.0]);
+        assert_eq!(&first_vertex[6..8], &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn trail_decode_precomputes_distances() {
+        let trails_offset = 0;
+        let positions_offset = trails_offset + TRAIL_OFFSET_BYTES as i32;
+        let colors_offset = positions_offset + 3 * 12;
+        let sizes_offset = colors_offset + 3 * 16;
+        let mut raw = Vec::new();
+        raw.extend_from_slice(bytemuck::cast_slice(&[[0i32, 3, 0, 3]]));
+        raw.extend_from_slice(bytemuck::cast_slice(&[
+            [0.0f32, 0.0, 0.0],
+            [3.0f32, 0.0, 0.0],
+            [3.0f32, 4.0, 0.0],
+        ]));
+        raw.extend_from_slice(bytemuck::cast_slice(&[
+            [1.0f32, 1.0, 1.0, 1.0],
+            [1.0f32, 1.0, 1.0, 1.0],
+            [1.0f32, 1.0, 1.0, 1.0],
+        ]));
+        raw.extend_from_slice(bytemuck::cast_slice(&[1.0f32, 1.0, 1.0]));
+        let upload = TrailRenderBufferUpload {
+            asset_id: 77,
+            trails_count: 1,
+            trail_point_count: 3,
+            trails_offset,
+            positions_offset,
+            colors_offset,
+            sizes_offset,
+            ..Default::default()
+        };
+
+        let trails = decode_trails(&raw, &upload, 1, 3).unwrap();
+
+        assert_eq!(trails[0].distances, vec![0.0, 3.0, 7.0]);
+        assert_eq!(trails[0].total_distance, 7.0);
     }
 
     #[test]
