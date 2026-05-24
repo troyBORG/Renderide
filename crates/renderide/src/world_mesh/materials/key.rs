@@ -3,6 +3,7 @@
 use crate::materials::{
     EmbeddedTangentFallbackMode, MaterialBlendMode, MaterialRenderState, RasterFrontFace,
     RasterPipelineKind, RasterPrimitiveTopology, SceneColorSnapshotMode,
+    UNITY_RENDER_QUEUE_TRANSPARENT, UNITY_TRANSPARENT_RENDER_QUEUE_MIN,
 };
 
 use super::transparent::TransparentMaterialClass;
@@ -71,6 +72,55 @@ pub struct MaterialDrawBatchKey {
     pub transparent_class: TransparentMaterialClass,
 }
 
+impl MaterialDrawBatchKey {
+    /// Returns whether material and shader state make this draw alpha/order sensitive.
+    #[inline]
+    pub fn effective_alpha_blended(&self) -> bool {
+        self.alpha_blended || self.blend_mode.is_transparent()
+    }
+
+    /// Returns whether this draw should use transparent distance sorting within its render queue.
+    #[inline]
+    pub fn uses_transparent_sorting(&self) -> bool {
+        render_queue_uses_transparent_sorting(self.render_queue, self.effective_alpha_blended())
+    }
+
+    /// Returns whether this draw belongs after the skybox/background split.
+    #[inline]
+    pub fn records_after_skybox(&self) -> bool {
+        render_queue_records_after_skybox(self.render_queue)
+            || self.effective_alpha_blended()
+            || self.embedded_uses_scene_color_snapshot
+            || self.render_state.depth_write == Some(false)
+    }
+
+    /// Returns whether this draw needs strict order-sensitive submission within its phase.
+    #[inline]
+    pub fn requires_strict_order(&self) -> bool {
+        self.effective_alpha_blended()
+            || self.uses_transparent_sorting()
+            || self.transparent_class.is_transparent()
+            || self.embedded_uses_scene_color_snapshot
+            || self.render_state.depth_write == Some(false)
+    }
+}
+
+/// Returns whether a render queue should use transparent distance sorting for this alpha state.
+#[inline]
+pub(super) fn render_queue_uses_transparent_sorting(
+    render_queue: i32,
+    alpha_blended: bool,
+) -> bool {
+    render_queue >= UNITY_RENDER_QUEUE_TRANSPARENT
+        || (alpha_blended && render_queue >= UNITY_TRANSPARENT_RENDER_QUEUE_MIN)
+}
+
+/// Returns whether a render queue records after the skybox/background split.
+#[inline]
+fn render_queue_records_after_skybox(render_queue: i32) -> bool {
+    render_queue >= UNITY_TRANSPARENT_RENDER_QUEUE_MIN
+}
+
 /// Computes a 64-bit content hash for `key` used by the draw-sort comparator's primary tiebreaker.
 ///
 /// Uses [`ahash::AHasher`] so the hash is deterministic for a given build, fast in the hot
@@ -81,4 +131,66 @@ pub fn compute_batch_key_hash(key: &MaterialDrawBatchKey) -> u64 {
     let mut h = ahash::AHasher::default();
     key.hash(&mut h);
     h.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MaterialBlendMode;
+    use crate::materials::{UNITY_RENDER_QUEUE_TRANSPARENT, UNITY_TRANSPARENT_RENDER_QUEUE_MIN};
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
+
+    fn key(alpha_blended: bool) -> crate::world_mesh::MaterialDrawBatchKey {
+        dummy_world_mesh_draw_item(DummyDrawItemSpec {
+            material_asset_id: 1,
+            property_block: None,
+            skinned: false,
+            sorting_order: 0,
+            mesh_asset_id: 1,
+            node_id: 0,
+            slot_index: 0,
+            collect_order: 0,
+            alpha_blended,
+        })
+        .batch_key
+    }
+
+    #[test]
+    fn transparent_sorting_starts_at_transparent_queue_for_opaque_blend() {
+        let mut key = key(false);
+        key.render_queue = UNITY_RENDER_QUEUE_TRANSPARENT - 1;
+        key.blend_mode = MaterialBlendMode::Opaque;
+
+        assert!(!key.uses_transparent_sorting());
+        assert!(key.records_after_skybox());
+        assert!(!key.requires_strict_order());
+
+        key.render_queue = UNITY_RENDER_QUEUE_TRANSPARENT;
+        assert!(key.uses_transparent_sorting());
+        assert!(key.requires_strict_order());
+    }
+
+    #[test]
+    fn transparent_sorting_starts_at_lower_transparent_queue_for_non_opaque_blend() {
+        let mut key = key(false);
+        key.render_queue = UNITY_TRANSPARENT_RENDER_QUEUE_MIN - 1;
+        key.blend_mode = MaterialBlendMode::UnityBlend { src: 5, dst: 10 };
+
+        assert!(!key.uses_transparent_sorting());
+        assert!(key.records_after_skybox());
+        assert!(key.requires_strict_order());
+
+        key.render_queue = UNITY_TRANSPARENT_RENDER_QUEUE_MIN;
+        assert!(key.uses_transparent_sorting());
+    }
+
+    #[test]
+    fn transparent_sorting_uses_effective_alpha_blended_state() {
+        let mut key = key(true);
+        key.render_queue = UNITY_TRANSPARENT_RENDER_QUEUE_MIN;
+        key.blend_mode = MaterialBlendMode::StemDefault;
+
+        assert!(key.uses_transparent_sorting());
+        assert!(key.records_after_skybox());
+        assert!(key.requires_strict_order());
+    }
 }
