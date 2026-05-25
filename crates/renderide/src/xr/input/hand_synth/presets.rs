@@ -1,6 +1,9 @@
 //! Finger-pose presets used by hand synthesis.
 //!
 //! The arrays are calibration data; keep the literal values stable for diffability.
+//!
+//! These values were converted to parent space from raw inputs
+//! available in `model_space_presets`.
 
 #![expect(
     clippy::unreadable_literal,
