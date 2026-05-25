@@ -13,12 +13,14 @@
 //!   driver-thread queue boundary.
 //! - **GPU frame ms** -- when the adapter advertises [`wgpu::Features::TIMESTAMP_QUERY`] +
 //!   [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`], wall-clock from a `WriteTimestamp(0)`
-//!   command issued before the tick's first command buffer to a `WriteTimestamp(1)` command
-//!   issued after the tick's last command buffer, computed from the GPU's own clock via
+//!   command issued before a tracked submit's first command buffer to a `WriteTimestamp(1)` command
+//!   issued after that submit's last command buffer, computed from the GPU's own clock via
 //!   [`wgpu::Queue::get_timestamp_period`]. When those features are unavailable, falls back to
 //!   the wall-clock between `Queue::submit` returning on the driver thread and
 //!   [`wgpu::Queue::on_submitted_work_done`] firing -- [`GpuMsSource`] records which path
-//!   produced the value so the HUD can relabel the row honestly.
+//!   produced the value so the HUD can relabel the row honestly. Presentation-only submits, such
+//!   as VR mirror blits and OpenXR handoff copies, can opt out so they do not overwrite the primary
+//!   render graph timing for the tick.
 //! - **Roundtrip ms** -- wall-clock between consecutive winit ticks. Tracked outside this
 //!   struct ([`crate::diagnostics::FrameTimingHudSnapshot::wall_frame_time_ms`]).
 //!
@@ -51,7 +53,7 @@ const MAX_PENDING_PAIRS: usize = 16;
 /// it for actual compute time.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GpuMsSource {
-    /// Computed from real GPU `WriteTimestamp` queries that bracket the tick's command buffers.
+    /// Computed from real GPU `WriteTimestamp` queries that bracket tracked command buffers.
     FrameBracket,
     /// Wall-clock between driver-thread `Queue::submit` returning and
     /// `Queue::on_submitted_work_done` firing. Fallback used when the adapter lacks the
@@ -175,7 +177,7 @@ impl FrameCpuGpuTiming {
         }
     }
 
-    /// Call after all render graph submits for this tick (last submit index is known).
+    /// Call after all tracked render submits for this tick (last submit index is known).
     ///
     /// Picks up the per-tick GPU value when the driver thread / readback already reported it;
     /// the GPU number may still arrive later, in which case
@@ -403,6 +405,26 @@ mod tests {
         t.end_frame();
         assert_eq!(t.last_gpu_source, Some(GpuMsSource::CallbackLatency));
         assert_eq!(t.gpu_frame_ms, Some(4.0));
+    }
+
+    #[test]
+    fn final_tracked_submit_is_the_frame_gpu_value() {
+        let mut t = FrameCpuGpuTiming::default();
+        let start = Instant::now();
+        t.begin_frame(start);
+        let (generation, first_seq, _fs) = t.on_before_tracked_submit().expect("first tracked");
+        let (_, second_seq, _) = t.on_before_tracked_submit().expect("second tracked");
+        assert_eq!(first_seq, 1);
+        assert_eq!(second_seq, 2);
+
+        t.record_main_thread_cpu_end(start + Duration::from_millis(4));
+        t.record_gpu_done(generation, first_seq, 1.0, GpuMsSource::FrameBracket);
+        t.record_gpu_done(generation, second_seq, 6.0, GpuMsSource::FrameBracket);
+        t.end_frame();
+
+        assert_eq!(t.gpu_frame_ms, Some(6.0));
+        let (_, paired_gpu) = t.last_completed_paired_frame_ms.expect("paired");
+        assert_eq!(paired_gpu, 6.0);
     }
 
     #[test]
