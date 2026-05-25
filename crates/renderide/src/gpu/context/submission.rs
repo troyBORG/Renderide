@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use super::GpuContext;
 
@@ -199,6 +200,8 @@ impl GpuContext {
     /// swapchain texture, [`wgpu::Queue::on_submitted_work_done`] callbacks) to remain
     /// pipelined alongside the next frame's CPU recording.
     pub fn wait_for_previous_present(&self) {
+        let start = Instant::now();
         self.submission.driver_thread.wait_for_previous_present();
+        self.record_frame_timing_excluded_wait(start.elapsed());
     }
 }

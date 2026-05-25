@@ -427,13 +427,16 @@ impl AppDriver {
     }
 
     fn end_frame_timing_and_hud_capture(&mut self) {
+        let excluded_wait = self.runtime.drain_frame_timing_excluded_wait();
         let Some(target) = self.target.as_mut() else {
             return;
         };
         let gpu = target.gpu_mut();
         // Capture the main-thread CPU duration just before finalizing the frame's timing --
         // every per-frame submit has been dispatched by now, but the event loop has not yet
-        // yielded, so this represents the time the main thread spent on this tick.
+        // yielded. Explicit display/compositor waits are subtracted so the HUD CPU value
+        // represents active renderer work rather than frame pacing.
+        gpu.record_frame_timing_excluded_wait(excluded_wait);
         gpu.record_main_thread_cpu_end(Instant::now());
         gpu.end_frame_timing();
         gpu.end_gpu_profiler_frame();

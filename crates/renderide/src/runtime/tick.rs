@@ -6,7 +6,7 @@
 //! [`Self::drain_reflection_probe_render_tasks`], [`Self::drain_camera_render_tasks`],
 //! [`Self::pre_frame`], and [`Self::render_desktop_frame`] in their fixed order.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::diagnostics::crash_context::{self, TickPhase};
 use crate::gpu::GpuContext;
@@ -32,6 +32,16 @@ impl RendererRuntime {
         self.frontend.on_tick_frame_wall_clock(now);
         let (primary, background) = self.frontend.ipc_consecutive_outbound_drop_streaks();
         crash_context::set_ipc_drop_streaks(primary, background);
+    }
+
+    /// Adds main-thread pacing time observed outside [`GpuContext`] to the current frame timing.
+    pub(crate) fn note_frame_timing_excluded_wait(&mut self, wait: Duration) {
+        self.tick_state.note_frame_timing_excluded_wait(wait);
+    }
+
+    /// Drains pacing time accumulated outside [`GpuContext`] for HUD CPU-frame accounting.
+    pub(crate) fn drain_frame_timing_excluded_wait(&mut self) -> Duration {
+        self.tick_state.drain_frame_timing_excluded_wait()
     }
 
     /// Per-tick decoupling activation check. Call **after** [`Self::poll_ipc`] (so a

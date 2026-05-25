@@ -3,7 +3,7 @@
 //! - [`frame_bracket`] -- GPU timestamp sessions that bracket each tick's command buffers and
 //!   feed the debug HUD's `gpu_frame_ms`.
 //! - [`frame_cpu_gpu_timing`] -- CPU/GPU wall-clock accumulator that pairs each frame's
-//!   main-thread CPU interval with the GPU completion callback.
+//!   active main-thread CPU work with the GPU completion callback.
 //!
 //! The standalone state-machine types live here. Per-method facades on [`super::GpuContext`]
 //! live alongside the context struct.

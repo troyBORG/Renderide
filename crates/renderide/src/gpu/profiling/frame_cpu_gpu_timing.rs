@@ -8,8 +8,9 @@
 //!   [`Self::record_main_thread_cpu_end`] call from the runtime tick epilogue, both on the
 //!   *main thread*. This is the time the renderer's main thread spends building the frame
 //!   (asset integration, scene snapshot, draw collection, encoder recording, submit dispatch).
-//!   It excludes FPS-gating sleeps, lockstep waits, and event-loop idles, and it does **not**
-//!   cross the driver-thread queue boundary.
+//!   It excludes FPS-gating sleeps, lockstep waits, event-loop idles, and explicit GPU/display
+//!   pacing waits recorded through [`Self::record_excluded_wait`]. It does **not** cross the
+//!   driver-thread queue boundary.
 //! - **GPU frame ms** -- when the adapter advertises [`wgpu::Features::TIMESTAMP_QUERY`] +
 //!   [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`], wall-clock from a `WriteTimestamp(0)`
 //!   command issued before the tick's first command buffer to a `WriteTimestamp(1)` command
@@ -34,7 +35,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use hashbrown::HashMap;
 
@@ -65,6 +66,9 @@ pub struct FrameCpuGpuTiming {
     generation: u64,
     /// Start of the winit app-driver frame tick.
     frame_start: Option<Instant>,
+    /// Main-thread waits that pace the tick on GPU, display, or compositor readiness rather than
+    /// active renderer CPU work.
+    excluded_wait: Duration,
     /// Number of tracked submits this tick (1-based).
     submit_seq: u32,
     /// Set in [`Self::end_frame`] to the last submit index for this tick.
@@ -124,6 +128,7 @@ impl FrameCpuGpuTiming {
     pub fn begin_frame(&mut self, frame_start: Instant) {
         self.generation = self.generation.wrapping_add(1);
         self.frame_start = Some(frame_start);
+        self.excluded_wait = Duration::ZERO;
         self.submit_seq = 0;
         self.finalized_seq = None;
         self.pending_real_submit_by_seq.clear();
@@ -135,17 +140,31 @@ impl FrameCpuGpuTiming {
         // without blocking -- the previous tick's values stand in until the next pairing lands.
     }
 
+    /// Records main-thread pacing time that should not count as renderer CPU work.
+    ///
+    /// This is for explicit waits on GPU/display/compositor readiness that happen inside the
+    /// app-driver tick after [`Self::begin_frame`] and before [`Self::end_frame`]. Calls outside
+    /// an active frame are ignored so late cleanup and startup synchronization do not leak into
+    /// the next HUD sample.
+    pub(crate) fn record_excluded_wait(&mut self, wait: Duration) {
+        if wait.is_zero() || self.frame_start.is_none() || self.finalized_seq.is_some() {
+            return;
+        }
+        self.excluded_wait = self.excluded_wait.saturating_add(wait);
+    }
+
     /// Publishes the main-thread CPU frame duration synchronously from the runtime tick
     /// epilogue, after the last `Queue::submit` dispatch but before the event-loop yield.
     ///
     /// This is the value the HUD's "CPU" row reflects. It excludes driver-thread queue
-    /// overhead, FPS-gating sleeps, and lockstep waits -- those are visible separately as
-    /// [`Self::submit_latency_ms`] (driver-side) or in the wall-clock "Frame" row.
+    /// overhead, FPS-gating sleeps, lockstep waits, and waits recorded through
+    /// [`Self::record_excluded_wait`] -- those remain visible in the wall-clock "Frame" row.
     pub fn record_main_thread_cpu_end(&mut self, cpu_end: Instant) {
         let Some(frame_start) = self.frame_start else {
             return;
         };
-        let cpu_ms = cpu_end.saturating_duration_since(frame_start).as_secs_f64() * 1000.0;
+        let gross_cpu = cpu_end.saturating_duration_since(frame_start);
+        let cpu_ms = gross_cpu.saturating_sub(self.excluded_wait).as_secs_f64() * 1000.0;
         self.cpu_frame_ms = Some(cpu_ms);
         if self.submit_seq > 0 {
             let key = (self.generation, self.submit_seq);
@@ -384,6 +403,36 @@ mod tests {
         t.end_frame();
         assert_eq!(t.last_gpu_source, Some(GpuMsSource::CallbackLatency));
         assert_eq!(t.gpu_frame_ms, Some(4.0));
+    }
+
+    #[test]
+    fn cpu_frame_ms_subtracts_excluded_wait() {
+        let mut t = FrameCpuGpuTiming::default();
+        let start = Instant::now();
+        t.begin_frame(start);
+        let (generation, seq, _fs) = t.on_before_tracked_submit().expect("tracked");
+        t.record_excluded_wait(Duration::from_millis(2));
+        t.record_main_thread_cpu_end(start + Duration::from_millis(7));
+        t.record_gpu_done(generation, seq, 3.0, GpuMsSource::FrameBracket);
+        t.end_frame();
+
+        let cpu = t.cpu_frame_ms.expect("cpu_frame_ms");
+        assert!((4.5..5.5).contains(&cpu), "cpu={cpu}");
+        let (paired_cpu, paired_gpu) = t.last_completed_paired_frame_ms.expect("paired");
+        assert!((4.5..5.5).contains(&paired_cpu), "paired_cpu={paired_cpu}");
+        assert_eq!(paired_gpu, 3.0);
+    }
+
+    #[test]
+    fn excluded_wait_saturates_cpu_frame_ms_at_zero() {
+        let mut t = FrameCpuGpuTiming::default();
+        let start = Instant::now();
+        t.begin_frame(start);
+        let _ = t.on_before_tracked_submit().expect("tracked");
+        t.record_excluded_wait(Duration::from_millis(10));
+        t.record_main_thread_cpu_end(start + Duration::from_millis(4));
+
+        assert_eq!(t.cpu_frame_ms, Some(0.0));
     }
 
     #[test]

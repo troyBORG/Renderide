@@ -6,7 +6,7 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::gpu::driver_thread::SubmitToken;
 use crate::gpu::submission_state::PendingGpuProfilerEnd;
@@ -43,6 +43,22 @@ impl GpuContext {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         ft.end_frame();
+    }
+
+    /// Adds main-thread pacing time that should be subtracted from the HUD CPU frame value.
+    ///
+    /// Use this for waits on GPU/display/compositor readiness. The timing accumulator ignores
+    /// calls outside an active frame, so callers may record measured waits unconditionally.
+    pub(crate) fn record_frame_timing_excluded_wait(&self, wait: Duration) {
+        if wait.is_zero() {
+            return;
+        }
+        let mut ft = self
+            .submission
+            .frame_timing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        ft.record_excluded_wait(wait);
     }
 
     /// Mutable reference to the GPU profiler, when one is active.
@@ -247,11 +263,11 @@ impl GpuContext {
         ft.last_gpu_source
     }
 
-    /// Publishes the main-thread CPU frame duration synchronously.
+    /// Publishes the active main-thread CPU frame duration synchronously.
     ///
     /// Call from the runtime tick epilogue, after the last [`wgpu::Queue::submit`] dispatch
-    /// but before the event-loop yields. The captured duration becomes the HUD's "CPU" row
-    /// reading -- see
+    /// but before the event-loop yields. The timing accumulator subtracts excluded pacing waits
+    /// before publishing the HUD's "CPU" row reading -- see
     /// [`crate::gpu::frame_cpu_gpu_timing::FrameCpuGpuTiming::record_main_thread_cpu_end`].
     pub fn record_main_thread_cpu_end(&self, cpu_end: Instant) {
         profiling::scope!("gpu::record_main_thread_cpu_end");

@@ -159,8 +159,8 @@ waits. EMA-smoothed for display; the graph below shows raw samples.";
 
 const CPU_TOOLTIP: &str = "\
 Main-thread tick duration: from frame start to the moment the renderer finishes dispatching \
-this tick's submit. Excludes FPS-gating sleeps, lockstep waits, and event-loop idles. \
-EMA-smoothed.";
+this tick's submit, minus GPU/display/compositor pacing waits. Excludes FPS-gating sleeps, \
+lockstep waits, and event-loop idles. EMA-smoothed.";
 
 const VRAM_TOOLTIP: &str = "\
 Wgpu device allocator memory tracked by the active backend. Shows live allocation bytes and \
