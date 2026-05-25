@@ -165,6 +165,7 @@ fn msaa_main_graph_uses_transparent_sequence_for_grab_resolves() {
     assert_eq!(g.pass_count(), 10);
     assert_eq!(g.compile_stats.topo_levels, 10);
     assert_eq!(g.compile_stats.registered_pass_count, 10);
+    assert!(!pass_names.contains(&"WorldMeshForwardGtaoDepthResolve"));
 }
 
 #[test]
@@ -378,6 +379,7 @@ fn enabling_gtao_applies_before_depth_snapshot_and_transparent_tail() {
     assert!(gtao_composite_pos < depth_snapshot_pos);
     assert!(depth_snapshot_pos < transparent_pos);
     assert!(!pass_names.contains(&"GtaoApply"));
+    assert!(!pass_names.contains(&"WorldMeshForwardGtaoDepthResolve"));
     assert!(
         g.transient_textures
             .iter()
@@ -388,6 +390,50 @@ fn enabling_gtao_applies_before_depth_snapshot_and_transparent_tail() {
             .iter()
             .any(|t| t.desc.label == "gtao_view_normals_msaa")
     );
+}
+
+#[test]
+fn msaa_gtao_resolves_depth_before_depth_prefilter() {
+    let post = gtao_enabled_post();
+    let mut key = smoke_key();
+    key.msaa_sample_count = 4;
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let g = build_main_graph(key, &post).expect("MSAA GTAO graph");
+    let pass_names: Vec<&str> = g.pass_info.iter().map(|p| p.name.as_str()).collect();
+    let opaque_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardOpaque")
+        .expect("opaque pass");
+    let pre_resolve_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardGtaoDepthResolve")
+        .expect("pre-GTAO depth resolve pass");
+    let normal_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardNormals")
+        .expect("GTAO normal prepass");
+    let prefilter_pos = pass_names
+        .iter()
+        .position(|name| *name == "GtaoDepthPrefilter")
+        .expect("GTAO depth prefilter pass");
+    let gtao_main_pos = pass_names
+        .iter()
+        .position(|name| *name == "GtaoMain")
+        .expect("GTAO main pass");
+    let transparent_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardTransparentSequence")
+        .expect("transparent sequence pass");
+    let final_resolve_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardDepthResolve")
+        .expect("final depth resolve pass");
+
+    assert!(opaque_pos < pre_resolve_pos);
+    assert!(pre_resolve_pos < normal_pos);
+    assert!(normal_pos < prefilter_pos);
+    assert!(prefilter_pos < gtao_main_pos);
+    assert!(transparent_pos < final_resolve_pos);
 }
 
 #[test]

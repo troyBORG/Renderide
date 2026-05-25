@@ -59,7 +59,7 @@ fn add_world_mesh_depth_prepass(builder: &mut GraphBuilder, h: &MainGraphHandles
 ///
 /// Order matches execution: mesh deform compute, clustered lights, world-mesh depth prepass and
 /// forward opaque raster, optional opaque-only GTAO subchain, depth snapshot, forward intersect,
-/// transparent sequence, depth resolve compute, and Hi-Z build. Edge wiring is performed
+/// transparent sequence, final MSAA depth resolve, and Hi-Z build. Edge wiring is performed
 /// separately by [`super::edges::add_main_graph_edges`].
 pub(super) fn register_main_graph_passes(
     builder: &mut GraphBuilder,
@@ -85,12 +85,11 @@ pub(super) fn register_main_graph_passes(
     ));
     let gtao = add_gtao_if_active(
         builder,
-        h,
+        forward_resources,
         post_processing_settings,
-        msaa_enabled,
         multiview_stereo,
     );
-    let depth_snapshot = builder.add_compute_pass(Box::new(
+    let depth_snapshot = builder.add_encoder_pass(Box::new(
         crate::passes::WorldMeshDepthSnapshotPass::new(forward_resources),
     ));
     let forward_intersect = builder.add_raster_pass(Box::new(
@@ -100,7 +99,7 @@ pub(super) fn register_main_graph_passes(
         crate::passes::WorldMeshForwardTransparentSequencePass::new(forward_resources),
     ));
     let depth_resolve = if msaa_enabled {
-        Some(builder.add_compute_pass(Box::new(
+        Some(builder.add_encoder_pass(Box::new(
             crate::passes::WorldMeshForwardDepthResolvePass::new(forward_resources),
         )))
     } else {
