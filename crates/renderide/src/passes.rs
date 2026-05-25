@@ -27,7 +27,8 @@ pub(crate) use world_mesh_forward::{
     WorldMeshForwardDepthPrepassGraphResources, WorldMeshForwardDepthResolvePass,
     WorldMeshForwardEncodeRefs, WorldMeshForwardGraphResources,
     WorldMeshForwardGtaoDepthResolvePass, WorldMeshForwardIntersectPass,
-    WorldMeshForwardNormalGraphResources, WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass,
-    WorldMeshForwardPlanSlot, WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
+    WorldMeshForwardMsaaGraphResources, WorldMeshForwardNormalGraphResources,
+    WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass, WorldMeshForwardPlanSlot,
+    WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
     WorldMeshForwardTransparentSequencePass, prepare_world_mesh_forward_frame,
 };
