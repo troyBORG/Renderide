@@ -82,7 +82,7 @@ impl Default for GtaoSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            quality_level: 3,
+            quality_level: 2,
             slice_count_override: 0,
             resolution_divisor: 1,
             radius_meters: 1.0,
@@ -96,7 +96,7 @@ impl Default for GtaoSettings {
             final_value_power: 2.2,
             depth_mip_sampling_offset: 3.3,
             albedo_multibounce: 0.0,
-            denoise_passes: 3,
+            denoise_passes: 6,
             denoise_blur_beta: 1.2,
         }
     }
