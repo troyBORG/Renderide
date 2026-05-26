@@ -222,9 +222,10 @@ fn mono_gtao_graph_declares_single_layer_view_depth_mips() {
     let view_depth = graph
         .transient_textures
         .iter()
-        .find(|texture| texture.desc.label == "gtao_view_depth")
+        .find(|texture| texture.desc.label == "gtao_view_depth_mip0")
         .expect("gtao view depth transient");
     assert_eq!(view_depth.desc.array_layers, TransientArrayLayers::Frame);
+    assert_eq!(view_depth.desc.mip_levels, 1);
 }
 
 #[test]
@@ -244,9 +245,10 @@ fn stereo_gtao_graph_declares_layered_view_depth_mips() {
     let view_depth = graph
         .transient_textures
         .iter()
-        .find(|texture| texture.desc.label == "gtao_view_depth")
+        .find(|texture| texture.desc.label == "gtao_view_depth_mip0")
         .expect("gtao view depth transient");
     assert_eq!(view_depth.desc.array_layers, TransientArrayLayers::Fixed(2));
+    assert_eq!(view_depth.desc.mip_levels, 1);
 }
 
 #[test]
