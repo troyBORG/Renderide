@@ -1572,6 +1572,11 @@ mod tests {
 
         assert_eq!(points[0].position, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(points[0].size, Vec3::new(4.0, 5.0, 6.0));
+        // SRGB to linear conversion
+        assert!(
+            Vec4::new(0.05087609, 0.21404114, 0.5225216, 1.0).distance_squared(points[0].color)
+                < 1e-5
+        );
         assert_eq!(points[0].frame_index, Some(7));
     }
 
