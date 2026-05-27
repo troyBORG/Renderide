@@ -24,7 +24,7 @@ pub(super) fn rendering_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty:
 fn rendering_presentation_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     ui.text("Presentation");
     ui.indent();
-    ui.text_disabled("VSync (On = adaptive FifoRelaxed/Fifo; applies immediately, no restart).");
+    ui.text_disabled("VSync (On = strict FIFO; applies immediately, no restart).");
     for (i, &mode) in VsyncMode::ALL.iter().enumerate() {
         let _id = ui.push_id_int(200 + i as i32);
         if ui

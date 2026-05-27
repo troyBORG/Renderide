@@ -5,6 +5,7 @@ use winit::event::{DeviceEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents};
 use winit::window::WindowId;
 
+use crate::config::VsyncMode;
 use crate::frontend::input::{apply_device_event, apply_window_event};
 
 use super::super::exit::ExitReason;
@@ -164,11 +165,18 @@ impl ApplicationHandler for AppDriver {
             .runtime
             .run_asset_integration_while_waiting_for_submit(std::time::Instant::now());
 
+        let vsync = self
+            .runtime
+            .settings()
+            .read()
+            .map(|settings| settings.rendering.vsync)
+            .unwrap_or(VsyncMode::Off);
         let frame_pacing_caps = self.runtime.desktop_frame_pacing_caps();
         let plan = plan_redraw(RedrawInputs {
             has_window: self.target.is_some(),
             exit_requested: self.exit_is_requested(),
             vr_active: self.runtime.vr_active(),
+            vsync,
             window_has_keyboard_focus: self.input.window_focused,
             foreground_fps_cap: frame_pacing_caps.foreground_fps_cap,
             background_fps_cap: frame_pacing_caps.background_fps_cap,

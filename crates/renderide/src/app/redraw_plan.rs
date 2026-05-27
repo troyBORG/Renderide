@@ -2,6 +2,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::config::VsyncMode;
+
 /// Redraw action for the next `about_to_wait` event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RedrawDecision {
@@ -33,6 +35,8 @@ pub(crate) struct RedrawInputs {
     pub(crate) exit_requested: bool,
     /// Whether VR pacing owns frame cadence.
     pub(crate) vr_active: bool,
+    /// Swapchain VSync mode. `On` lets FIFO presentation own desktop cadence.
+    pub(crate) vsync: VsyncMode,
     /// Whether winit reports that the renderer window currently has keyboard focus.
     pub(crate) window_has_keyboard_focus: bool,
     /// FPS cap used while the renderer window is the foreground input window; `0` means uncapped.
@@ -76,7 +80,7 @@ pub(crate) fn plan_redraw(inputs: RedrawInputs) -> RedrawPlan {
         };
     }
 
-    if inputs.vr_active {
+    if inputs.vr_active || inputs.vsync == VsyncMode::On {
         return RedrawPlan {
             decision: RedrawDecision::RedrawNow,
             fps_cap: 0,
@@ -109,7 +113,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        RedrawDecision, RedrawInputs, min_interval_for_fps_cap, next_redraw_wait_until, plan_redraw,
+        RedrawDecision, RedrawInputs, VsyncMode, min_interval_for_fps_cap, next_redraw_wait_until,
+        plan_redraw,
     };
 
     #[test]
@@ -155,6 +160,7 @@ mod tests {
             has_window: true,
             exit_requested: false,
             vr_active: false,
+            vsync: VsyncMode::Off,
             window_has_keyboard_focus: true,
             foreground_fps_cap: 60,
             background_fps_cap: 15,
@@ -174,6 +180,7 @@ mod tests {
             has_window: true,
             exit_requested: false,
             vr_active: false,
+            vsync: VsyncMode::Off,
             window_has_keyboard_focus: false,
             foreground_fps_cap: 60,
             background_fps_cap: 15,
@@ -197,6 +204,7 @@ mod tests {
                 has_window: true,
                 exit_requested: false,
                 vr_active: false,
+                vsync: VsyncMode::Off,
                 window_has_keyboard_focus: true,
                 foreground_fps_cap: 30,
                 background_fps_cap: 15,
@@ -217,6 +225,7 @@ mod tests {
                 has_window: true,
                 exit_requested: false,
                 vr_active: false,
+                vsync: VsyncMode::Off,
                 window_has_keyboard_focus: true,
                 foreground_fps_cap: 0,
                 background_fps_cap: 15,
@@ -231,6 +240,7 @@ mod tests {
                 has_window: true,
                 exit_requested: false,
                 vr_active: true,
+                vsync: VsyncMode::Off,
                 window_has_keyboard_focus: true,
                 foreground_fps_cap: 60,
                 background_fps_cap: 15,
@@ -243,6 +253,28 @@ mod tests {
     }
 
     #[test]
+    fn redraw_plan_redraws_immediately_when_vsync_is_on() {
+        let t0 = Instant::now();
+        let now = t0 + Duration::from_millis(1);
+        for window_has_keyboard_focus in [true, false] {
+            let plan = plan_redraw(RedrawInputs {
+                has_window: true,
+                exit_requested: false,
+                vr_active: false,
+                vsync: VsyncMode::On,
+                window_has_keyboard_focus,
+                foreground_fps_cap: 60,
+                background_fps_cap: 15,
+                last_frame_start: Some(t0),
+                now,
+            });
+            assert_eq!(plan.fps_cap, 0);
+            assert_eq!(plan.decision, RedrawDecision::RedrawNow);
+            assert_eq!(plan.wait_ms, 0.0);
+        }
+    }
+
+    #[test]
     fn redraw_plan_idles_without_window_or_after_exit() {
         let now = Instant::now();
         assert_eq!(
@@ -250,6 +282,7 @@ mod tests {
                 has_window: false,
                 exit_requested: false,
                 vr_active: false,
+                vsync: VsyncMode::Off,
                 window_has_keyboard_focus: true,
                 foreground_fps_cap: 60,
                 background_fps_cap: 15,
@@ -264,6 +297,7 @@ mod tests {
                 has_window: true,
                 exit_requested: true,
                 vr_active: true,
+                vsync: VsyncMode::Off,
                 window_has_keyboard_focus: true,
                 foreground_fps_cap: 60,
                 background_fps_cap: 15,

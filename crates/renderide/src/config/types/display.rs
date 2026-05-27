@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// Desktop display frame-pacing caps. Persisted as `[display]`.
 ///
-/// Non-zero values cap desktop redraw scheduling via winit (`ControlFlow::WaitUntil`); OpenXR VR
-/// sessions ignore these caps so headset frame pacing is unchanged.
+/// Non-zero values cap desktop redraw scheduling via winit (`ControlFlow::WaitUntil`) while
+/// swapchain vsync is off; OpenXR VR sessions ignore these caps so headset frame pacing is
+/// unchanged.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DisplaySettings {
