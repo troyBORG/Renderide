@@ -247,9 +247,16 @@ fn present_surface_if_present(
             GpuFlightDriverStage::PresentStart,
             GpuFlightCallResult::Ok,
         );
-        // `SurfaceTexture::present` is infallible in the current wgpu API; if that
-        // changes, route the error into `errors` with `DriverErrorKind::Present`.
-        tex.present();
+        {
+            profiling::scope!("driver::present::queue_gate_lock");
+            let _gate = ctx.gpu_queue_access_gate.lock();
+            {
+                profiling::scope!("driver::present::surface_present");
+                // `SurfaceTexture::present` is infallible in the current wgpu API; if that
+                // changes, route the error into `errors` with `DriverErrorKind::Present`.
+                tex.present();
+            }
+        }
     };
     // Signal to the main thread that the previous surface texture is no longer
     // outstanding so its next `get_current_texture` call can proceed without a

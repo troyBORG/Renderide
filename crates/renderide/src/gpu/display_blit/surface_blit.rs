@@ -82,7 +82,7 @@ impl DisplayBlitResources {
         self.ensure_uniform(device);
         let Some(uniform_buf) = self.uniform().get() else {
             logger::warn!("display_blit: uniform buffer missing after ensure_uniform");
-            frame.present();
+            submit_surface_frame_traced(gpu, Vec::new(), frame, SurfaceSubmitTrace::Desktop);
             return Ok(());
         };
         self.uniform().write(gpu.queue(), uv_bytes);

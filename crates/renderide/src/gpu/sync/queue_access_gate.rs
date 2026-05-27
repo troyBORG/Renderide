@@ -21,13 +21,15 @@
 //! OpenXR's Vulkan binding requires external synchronization for calls that may access the bound
 //! `VkQueue`. Renderide binds OpenXR to the same Vulkan queue that backs [`wgpu::Queue`], so the
 //! gate is also held around `xrBeginFrame`, `xrAcquireSwapchainImage`,
-//! `xrReleaseSwapchainImage`, and `xrEndFrame`.
+//! `xrReleaseSwapchainImage`, and `xrEndFrame`. Vulkan surface presentation also reaches the
+//! queue via `vkQueuePresentKHR`, so [`wgpu::SurfaceTexture::present`] is serialized through the
+//! same gate.
 //!
 //! # Scope
 //!
 //! The gate is held around `Queue::write_texture` call sites in the asset texture upload
-//! path, decoded video texture callbacks, the driver thread's `Queue::submit`, and the
-//! narrow OpenXR calls listed above. Long waits such as `xrWaitFrame`,
+//! path, decoded video texture callbacks, the driver thread's `Queue::submit`,
+//! `SurfaceTexture::present`, and the narrow OpenXR calls listed above. Long waits such as `xrWaitFrame`,
 //! `xrWaitSwapchainImage`, view location, and input sync stay outside the gate so
 //! compositor stalls do not block unrelated GPU submissions.
 
@@ -62,8 +64,9 @@ impl GpuQueueAccessGate {
     }
 
     /// Locks the gate for the duration of the returned guard. Call immediately before
-    /// [`wgpu::Queue::write_texture`], [`wgpu::Queue::submit`], or an OpenXR queue-access
-    /// call and drop the guard as soon as that call returns.
+    /// [`wgpu::Queue::write_texture`], [`wgpu::Queue::submit`],
+    /// [`wgpu::SurfaceTexture::present`], or an OpenXR queue-access call and drop the guard as
+    /// soon as that call returns.
     pub fn lock(&self) -> parking_lot::MutexGuard<'_, ()> {
         self.inner.lock()
     }

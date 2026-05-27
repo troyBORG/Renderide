@@ -58,13 +58,13 @@ impl VrMirrorBlitResources {
         self.ensure_surface_uniform(device);
         let Some(uniform_buf) = self.surface_uniform().get() else {
             logger::warn!("vr_mirror: surface uniform buffer missing after ensure_surface_uniform");
-            frame.present();
+            submit_surface_frame_traced(gpu, Vec::new(), frame, SurfaceSubmitTrace::VrMirror);
             return Ok(());
         };
         self.surface_uniform().write(gpu.queue(), uniform_bytes);
 
         let Some(staging_tex) = self.staging_texture() else {
-            frame.present();
+            submit_surface_frame_traced(gpu, Vec::new(), frame, SurfaceSubmitTrace::VrMirror);
             return Ok(());
         };
         let staging_view = staging_tex.create_view(&wgpu::TextureViewDescriptor::default());

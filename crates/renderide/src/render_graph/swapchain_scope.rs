@@ -13,7 +13,7 @@
 //! drop-order trick that was previously inlined in
 //! `crates/renderide/src/render_graph/compiled/exec.rs`.
 
-use crate::gpu::GpuContext;
+use crate::gpu::{GpuContext, GpuQueueAccessGate};
 use crate::present::{SurfaceAcquireTrace, SurfaceFrameOutcome, acquire_surface_outcome_traced};
 use crate::render_graph::error::GraphExecuteError;
 
@@ -37,6 +37,8 @@ pub struct SwapchainScope {
     inner: Option<wgpu::SurfaceTexture>,
     /// Pre-created default view for render-pass attachment.
     backbuffer_view: Option<wgpu::TextureView>,
+    /// Queue gate used by the drop-time fallback present path.
+    queue_gate: Option<GpuQueueAccessGate>,
 }
 
 impl SwapchainScope {
@@ -45,11 +47,12 @@ impl SwapchainScope {
         Self {
             inner: None,
             backbuffer_view: None,
+            queue_gate: None,
         }
     }
 
     /// Wraps an acquired surface texture and creates its default color view.
-    pub fn new(tex: wgpu::SurfaceTexture) -> Self {
+    pub fn new(tex: wgpu::SurfaceTexture, queue_gate: GpuQueueAccessGate) -> Self {
         let view = tex
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -57,6 +60,7 @@ impl SwapchainScope {
         Self {
             inner: Some(tex),
             backbuffer_view: Some(view),
+            queue_gate: Some(queue_gate),
         }
     }
 
@@ -97,9 +101,10 @@ impl SwapchainScope {
             SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => {
                 Ok(SwapchainEnterOutcome::SkipFrame)
             }
-            SurfaceFrameOutcome::Acquired(tex) => {
-                Ok(SwapchainEnterOutcome::Acquired(Self::new(tex)))
-            }
+            SurfaceFrameOutcome::Acquired(tex) => Ok(SwapchainEnterOutcome::Acquired(Self::new(
+                tex,
+                gpu.gpu_queue_access_gate().clone(),
+            ))),
         }
     }
 
@@ -127,7 +132,12 @@ impl SwapchainScope {
 impl Drop for SwapchainScope {
     fn drop(&mut self) {
         if let Some(tex) = self.inner.take() {
-            tex.present();
+            if let Some(queue_gate) = self.queue_gate.as_ref() {
+                let _gate = queue_gate.lock();
+                tex.present();
+            } else {
+                tex.present();
+            }
         }
     }
 }

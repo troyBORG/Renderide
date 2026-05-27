@@ -94,12 +94,21 @@ pub enum SurfaceSubmitTrace {
     Desktop,
 }
 
+/// Driver-thread submit path used for a surface frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SurfaceSubmitRoute {
+    /// Submit through the compact frame-timing path.
+    TrackedFrame,
+    /// Submit without updating compact frame timing.
+    UntrackedFrame,
+}
+
 impl SurfaceSubmitTrace {
-    /// Returns `true` when this surface submit should update compact frame timing.
-    pub(crate) const fn tracks_frame_timing(self) -> bool {
+    /// Returns the driver-thread submit path for this surface submit.
+    const fn submit_route(self) -> SurfaceSubmitRoute {
         match self {
-            Self::Desktop | Self::ClearFallback => true,
-            Self::VrMirror | Self::VrClear => false,
+            Self::Desktop | Self::ClearFallback => SurfaceSubmitRoute::TrackedFrame,
+            Self::VrMirror | Self::VrClear => SurfaceSubmitRoute::UntrackedFrame,
         }
     }
 }
@@ -236,10 +245,13 @@ fn submit_surface_command_buffers(
     frame: wgpu::SurfaceTexture,
     trace: SurfaceSubmitTrace,
 ) {
-    if trace.tracks_frame_timing() {
-        gpu.submit_frame_batch(command_buffers, Some(frame), None);
-    } else {
-        gpu.submit_frame_batch_untracked(command_buffers, Some(frame), None);
+    match trace.submit_route() {
+        SurfaceSubmitRoute::TrackedFrame => {
+            gpu.submit_frame_batch(command_buffers, Some(frame), None);
+        }
+        SurfaceSubmitRoute::UntrackedFrame => {
+            gpu.submit_frame_batch_untracked(command_buffers, Some(frame), None);
+        }
     }
 }
 
@@ -396,17 +408,29 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::SurfaceSubmitTrace;
+    use super::{SurfaceSubmitRoute, SurfaceSubmitTrace};
 
     #[test]
-    fn vr_surface_submits_do_not_track_compact_frame_timing() {
-        assert!(!SurfaceSubmitTrace::VrMirror.tracks_frame_timing());
-        assert!(!SurfaceSubmitTrace::VrClear.tracks_frame_timing());
+    fn vr_surface_submits_route_to_untracked_driver_submission() {
+        assert_eq!(
+            SurfaceSubmitTrace::VrMirror.submit_route(),
+            SurfaceSubmitRoute::UntrackedFrame
+        );
+        assert_eq!(
+            SurfaceSubmitTrace::VrClear.submit_route(),
+            SurfaceSubmitRoute::UntrackedFrame
+        );
     }
 
     #[test]
-    fn desktop_surface_submits_track_compact_frame_timing() {
-        assert!(SurfaceSubmitTrace::Desktop.tracks_frame_timing());
-        assert!(SurfaceSubmitTrace::ClearFallback.tracks_frame_timing());
+    fn desktop_surface_submits_route_to_tracked_driver_submission() {
+        assert_eq!(
+            SurfaceSubmitTrace::Desktop.submit_route(),
+            SurfaceSubmitRoute::TrackedFrame
+        );
+        assert_eq!(
+            SurfaceSubmitTrace::ClearFallback.submit_route(),
+            SurfaceSubmitRoute::TrackedFrame
+        );
     }
 }
