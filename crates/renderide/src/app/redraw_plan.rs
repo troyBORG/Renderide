@@ -2,6 +2,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::config::VsyncMode;
+
 /// Redraw action for the next `about_to_wait` event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RedrawDecision {
@@ -33,6 +35,8 @@ pub(crate) struct RedrawInputs {
     pub(crate) exit_requested: bool,
     /// Whether VR pacing owns frame cadence.
     pub(crate) vr_active: bool,
+    /// Swapchain VSync mode. `On` lets FIFO presentation own desktop cadence.
+    pub(crate) vsync: VsyncMode,
     /// Whether the window is currently focused.
     pub(crate) window_focused: bool,
     /// FPS cap used while focused; `0` means uncapped.
@@ -76,7 +80,7 @@ pub(crate) fn plan_redraw(inputs: RedrawInputs) -> RedrawPlan {
         };
     }
 
-    if inputs.vr_active {
+    if inputs.vr_active || inputs.vsync == VsyncMode::On {
         return RedrawPlan {
             decision: RedrawDecision::RedrawNow,
             fps_cap: 0,
@@ -109,7 +113,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        RedrawDecision, RedrawInputs, min_interval_for_fps_cap, next_redraw_wait_until, plan_redraw,
+        RedrawDecision, RedrawInputs, VsyncMode, min_interval_for_fps_cap, next_redraw_wait_until,
+        plan_redraw,
     };
 
     #[test]
@@ -155,6 +160,7 @@ mod tests {
             has_window: true,
             exit_requested: false,
             vr_active: false,
+            vsync: VsyncMode::Off,
             window_focused: true,
             focused_fps_cap: 60,
             unfocused_fps_cap: 15,
@@ -174,6 +180,7 @@ mod tests {
             has_window: true,
             exit_requested: false,
             vr_active: false,
+            vsync: VsyncMode::Off,
             window_focused: false,
             focused_fps_cap: 60,
             unfocused_fps_cap: 15,
@@ -192,6 +199,7 @@ mod tests {
                 has_window: true,
                 exit_requested: false,
                 vr_active: false,
+                vsync: VsyncMode::Off,
                 window_focused: true,
                 focused_fps_cap: 0,
                 unfocused_fps_cap: 15,
@@ -206,6 +214,7 @@ mod tests {
                 has_window: true,
                 exit_requested: false,
                 vr_active: true,
+                vsync: VsyncMode::Off,
                 window_focused: true,
                 focused_fps_cap: 60,
                 unfocused_fps_cap: 15,
@@ -218,6 +227,28 @@ mod tests {
     }
 
     #[test]
+    fn redraw_plan_redraws_immediately_when_vsync_is_on() {
+        let t0 = Instant::now();
+        let now = t0 + Duration::from_millis(1);
+        for window_focused in [true, false] {
+            let plan = plan_redraw(RedrawInputs {
+                has_window: true,
+                exit_requested: false,
+                vr_active: false,
+                vsync: VsyncMode::On,
+                window_focused,
+                focused_fps_cap: 60,
+                unfocused_fps_cap: 15,
+                last_frame_start: Some(t0),
+                now,
+            });
+            assert_eq!(plan.fps_cap, 0);
+            assert_eq!(plan.decision, RedrawDecision::RedrawNow);
+            assert_eq!(plan.wait_ms, 0.0);
+        }
+    }
+
+    #[test]
     fn redraw_plan_idles_without_window_or_after_exit() {
         let now = Instant::now();
         assert_eq!(
@@ -225,6 +256,7 @@ mod tests {
                 has_window: false,
                 exit_requested: false,
                 vr_active: false,
+                vsync: VsyncMode::Off,
                 window_focused: true,
                 focused_fps_cap: 60,
                 unfocused_fps_cap: 15,
@@ -239,6 +271,7 @@ mod tests {
                 has_window: true,
                 exit_requested: true,
                 vr_active: true,
+                vsync: VsyncMode::Off,
                 window_focused: true,
                 focused_fps_cap: 60,
                 unfocused_fps_cap: 15,

@@ -6,8 +6,8 @@ labeled_enum! {
     /// Swapchain vsync mode persisted in `config.toml` as `[rendering] vsync`.
     ///
     /// Two user-facing values matching what desktop and VR titles typically expose: **Off**
-    /// (tearing, lowest latency) and **On** (adaptive vsync -- `FifoRelaxed` when available,
-    /// otherwise `Fifo`). Defaults to [`Self::Off`].
+    /// (tearing, lowest latency) and **On** (strict vblank pacing through `Fifo`). Defaults to
+    /// [`Self::Off`].
     ///
     /// Resolution to a [`wgpu::PresentMode`] happens in [`VsyncMode::resolve_present_mode`],
     /// which probes the surface's actual capabilities instead of passing wgpu's `Auto*` shortcuts
@@ -28,9 +28,8 @@ labeled_enum! {
             label: "Off",
             aliases: ["false", "0", "no", "none"],
         },
-        /// Adaptive vsync. Resolves to `FifoRelaxed` when supported (vsync until a frame
-        /// misses its deadline, then tears once instead of waiting another full vblank),
-        /// otherwise falls back to `Fifo`.
+        /// Strict vsync. Resolves to `Fifo` so presentation stays vblank-paced and does not
+        /// intentionally tear when a frame misses its deadline.
         On => {
             persist: "on",
             label: "On",
@@ -62,17 +61,17 @@ impl VsyncMode {
     /// | Variant            | Preference order                            | Behavior                                                          |
     /// | ------------------ | ------------------------------------------- | ----------------------------------------------------------------- |
     /// | [`Self::Off`]      | `Immediate` -> `Mailbox` -> `Fifo`            | Lowest latency; tears                                             |
-    /// | [`Self::On`]       | `FifoRelaxed` -> `Fifo`                      | Vsync until a frame misses; then tear once instead of half-rate   |
+    /// | [`Self::On`]       | `Fifo`                                      | Vblank-paced, no intentional tearing                              |
     ///
-    /// [`Self::On`] follows the same fallback order as `wgpu::PresentMode::AutoVsync` while
-    /// returning an explicitly advertised present mode.
+    /// Compatibility aliases such as `auto`, `adaptive`, and `fifo_relaxed` still load as
+    /// [`Self::On`], but the runtime behavior is strict FIFO.
     ///
     /// [1]: https://www.w3.org/TR/webgpu/#dom-gpupresentmode-fifo
     pub fn resolve_present_mode(self, supported: &[wgpu::PresentMode]) -> wgpu::PresentMode {
-        use wgpu::PresentMode::{Fifo, FifoRelaxed, Immediate, Mailbox};
+        use wgpu::PresentMode::{Fifo, Immediate, Mailbox};
         match self {
             Self::Off => first_supported_present_mode(&[Immediate, Mailbox, Fifo], supported),
-            Self::On => first_supported_present_mode(&[FifoRelaxed, Fifo], supported),
+            Self::On => first_supported_present_mode(&[Fifo], supported),
         }
     }
 }
@@ -127,7 +126,7 @@ mod tests {
         );
         assert_eq!(
             VsyncMode::On.resolve_present_mode(&supported),
-            PresentMode::FifoRelaxed
+            PresentMode::Fifo
         );
     }
 
@@ -146,7 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn on_prefers_fifo_relaxed_when_supported() {
+    fn on_uses_fifo_even_when_relaxed_or_mailbox_supported() {
         let supported = [
             PresentMode::Mailbox,
             PresentMode::Fifo,
@@ -154,15 +153,6 @@ mod tests {
         ];
         assert_eq!(
             VsyncMode::On.resolve_present_mode(&supported),
-            PresentMode::FifoRelaxed
-        );
-    }
-
-    #[test]
-    fn on_falls_back_to_fifo_when_relaxed_missing() {
-        let fifo_only = [PresentMode::Mailbox, PresentMode::Fifo];
-        assert_eq!(
-            VsyncMode::On.resolve_present_mode(&fifo_only),
             PresentMode::Fifo
         );
     }

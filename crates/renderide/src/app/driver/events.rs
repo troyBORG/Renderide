@@ -5,6 +5,7 @@ use winit::event::{DeviceEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents};
 use winit::window::WindowId;
 
+use crate::config::VsyncMode;
 use crate::frontend::input::{apply_device_event, apply_window_event};
 
 use super::super::exit::ExitReason;
@@ -159,7 +160,7 @@ impl ApplicationHandler for AppDriver {
             return;
         }
 
-        let (focused_fps_cap, unfocused_fps_cap) = self
+        let (focused_fps_cap, unfocused_fps_cap, vsync) = self
             .runtime
             .settings()
             .read()
@@ -167,13 +168,15 @@ impl ApplicationHandler for AppDriver {
                 (
                     settings.display.focused_fps_cap,
                     settings.display.unfocused_fps_cap,
+                    settings.rendering.vsync,
                 )
             })
-            .unwrap_or((0, 0));
+            .unwrap_or((0, 0, VsyncMode::Off));
         let plan = plan_redraw(RedrawInputs {
             has_window: self.target.is_some(),
             exit_requested: self.exit_is_requested(),
             vr_active: self.runtime.vr_active(),
+            vsync,
             window_focused: self.input.window_focused,
             focused_fps_cap,
             unfocused_fps_cap,

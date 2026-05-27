@@ -10,8 +10,7 @@ use super::tracy_plot::tracy_plot;
 /// the app driver's `about_to_wait` handler -- either
 /// [`crate::config::DisplaySettings::focused_fps_cap`] or
 /// [`crate::config::DisplaySettings::unfocused_fps_cap`], whichever matches the current focus
-/// state. Zero means uncapped (winit is told `ControlFlow::Poll`); a VR tick emits zero because
-/// the XR runtime paces the session independently.
+/// state, while swapchain vsync is off. Zero means uncapped, vsync-paced, or VR-paced.
 ///
 /// Call once per winit iteration so the Tracy plot sits adjacent to the frame-mark timeline and
 /// the value-per-frame is an exact reading rather than an interpolation. Expands to nothing when
@@ -25,8 +24,8 @@ pub fn plot_fps_cap_active(cap: u32) {
 /// switches in the app driver's `about_to_wait` handler are visible at a glance.
 ///
 /// Intended to be plotted next to [`plot_fps_cap_active`]: a drop from `1.0` to `0.0` should line
-/// up with the cap changing from `focused_fps_cap` to `unfocused_fps_cap` (or vice versa), which
-/// is the usual cause of a sudden frame-time change while profiling.
+/// up with the cap changing from `focused_fps_cap` to `unfocused_fps_cap` (or vice versa) when
+/// vsync is off, which is the usual cause of a sudden frame-time change while profiling.
 ///
 /// Expands to nothing when the `tracy` feature is off.
 #[inline]
