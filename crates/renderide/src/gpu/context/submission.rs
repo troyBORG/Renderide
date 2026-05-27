@@ -170,7 +170,8 @@ impl GpuContext {
         if !command_buffers.is_empty() {
             crate::profiling::emit_render_submit_frame_mark();
         }
-        let track = if timing.tracks_frame_timing() {
+        let has_gpu_work = !command_buffers.is_empty();
+        let track = if timing.tracks_frame_timing() && has_gpu_work {
             let mut ft = self
                 .submission
                 .frame_timing
