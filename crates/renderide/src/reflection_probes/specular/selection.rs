@@ -137,11 +137,13 @@ impl ReflectionProbeSpatialIndex {
     #[must_use]
     pub fn select(&self, object_aabb: (Vec3, Vec3)) -> ReflectionProbeDrawSelection {
         let object_min = Vec3A::from(object_aabb.0);
-        let object_max = Vec3A::from(object_aabb.1);
+        let mut object_max = Vec3A::from(object_aabb.1);
         if self.root.is_none() || !aabb_valid(object_aabb.0, object_aabb.1) {
             return ReflectionProbeDrawSelection::default();
         }
+        object_max = object_max.max(object_min + Vec3A::splat(MIN_BLEND_DISTANCE));
         let object_center = object_center(object_min, object_max);
+        let object_volume = aabb_volume_vec3a(object_min, object_max);
         let mut top: Vec<ProbeScore> = Vec::new();
         let mut fallback: Option<ProbeScore> = None;
         let mut stack = Vec::with_capacity(64);
@@ -160,7 +162,7 @@ impl ReflectionProbeSpatialIndex {
                         object_min,
                         object_max,
                     );
-                    if influence_intersection < MIN_BLEND_DISTANCE {
+                    if influence_intersection < MIN_BLEND_DISTANCE * object_volume {
                         continue;
                     }
                     let score = ProbeScore {
@@ -318,7 +320,7 @@ fn aabb_contains(outer_min: Vec3A, outer_max: Vec3A, inner_min: Vec3A, inner_max
 }
 
 pub(super) fn aabb_valid(min: Vec3, max: Vec3) -> bool {
-    min.is_finite() && max.is_finite() && (max - min).cmpgt(Vec3::ZERO).all()
+    min.is_finite() && max.is_finite() && (max - min).cmpgt(Vec3::ZERO).any()
 }
 
 pub(super) fn sanitized_blend_distance(blend_distance: f32) -> f32 {
