@@ -66,7 +66,7 @@ fn vs_main(
 #endif
 }
 
-//#pass type=forward cull=off a2c=true
+//#pass type=forward cull=material(back) a2c=true
 @fragment
 fn fs_forward_base(
     @builtin(position) frag_pos: vec4<f32>,
@@ -80,9 +80,9 @@ fn fs_forward_base(
     @location(6) color: vec4<f32>,
     @location(8) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let edge = wf::line_stream_edge_mask(barycentric, 1.0);
+    let edge = wf::line_stream_edge_mask(barycentric, 0.5);
     let edge_cutoff = select(0.5, 0.0, rg::frame_sample_count() > 1u);
-    if (edge <= edge_cutoff) {
+    if (edge < edge_cutoff) {
         discard;
     }
     var shaded = xs::fragment_forward_for_layout(

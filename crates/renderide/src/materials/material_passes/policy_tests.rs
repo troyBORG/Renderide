@@ -471,26 +471,33 @@ fn common_wireframe_stems_use_barycentric_material_passes() {
     assert_eq!(additive.color.dst_factor, wgpu::BlendFactor::One);
 }
 
-/// Verifies XSToon wireframe override stems force double-sided line-stream rendering.
+/// Verifies XSToon wireframe override stems preserve source material culling.
 #[test]
-fn xstoon_wireframe_override_stems_use_double_sided_material_passes() {
+fn xstoon_wireframe_override_stems_use_material_culled_passes() {
     assert_xstoon_wireframe_override_pass("xstoon2.0_wireframeoverride_default", false);
     assert_xstoon_wireframe_override_pass("xstoon2.0_wireframeoverride_a2c_default", true);
 }
 
-/// Asserts that an XSToon wireframe override pass ignores host culling.
+/// Asserts that an XSToon wireframe override pass applies `_Culling` over a back-cull fallback.
 fn assert_xstoon_wireframe_override_pass(stem: &str, alpha_to_coverage: bool) {
     let passes = crate::embedded_shaders::embedded_target_passes(stem);
     assert_eq!(passes.len(), 1, "{stem}");
-    assert_eq!(passes[0].cull_mode, None, "{stem}");
-    assert_eq!(
-        passes[0].resolved_cull_mode(MaterialRenderState {
-            cull_override: MaterialCullOverride::Back,
+    assert_eq!(passes[0].cull_mode, Some(wgpu::Face::Back), "{stem}");
+    for (cull_override, expected_cull) in [
+        (MaterialCullOverride::Front, Some(wgpu::Face::Front)),
+        (MaterialCullOverride::Back, Some(wgpu::Face::Back)),
+        (MaterialCullOverride::Off, None),
+    ] {
+        let state = MaterialRenderState {
+            cull_override,
             ..MaterialRenderState::default()
-        }),
-        None,
-        "{stem}"
-    );
+        };
+        assert_eq!(
+            passes[0].resolved_cull_mode(state),
+            expected_cull,
+            "{stem} must apply host {cull_override:?} over the source back-cull fallback"
+        );
+    }
     assert_eq!(passes[0].alpha_to_coverage, alpha_to_coverage, "{stem}");
 }
 

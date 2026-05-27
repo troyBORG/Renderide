@@ -73,13 +73,13 @@ fn xiexe_wireframe_override_matches_line_stream_topology() -> io::Result<()> {
     ] {
         let src = material_source(root)?;
         assert!(
-            src.contains("wf::line_stream_edge_mask(barycentric, 1.0)"),
-            "{root} must draw only the two source LineStream segments"
+            src.contains("wf::line_stream_edge_mask(barycentric, 0.5)"),
+            "{root} must approximate the source LineStream's one-pixel hardware line width"
         );
         assert!(
             src.lines()
-                .any(|line| line.starts_with("//#pass") && line.contains("cull=off")),
-            "{root} must disable triangle culling to match source line primitives"
+                .any(|line| line.starts_with("//#pass") && line.contains("cull=material(back)")),
+            "{root} must preserve source material culling from _Culling"
         );
         assert!(
             !src.contains("@builtin(front_facing)") && src.contains("frag_pos, true, world_pos"),
