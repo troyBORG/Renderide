@@ -167,12 +167,12 @@ pub(crate) const fn admit_relevance_items(
 /// Records the admission decision for a reference-grain Rayon work site.
 #[inline]
 pub(crate) fn record_parallel_admission(
-    site_label: &'static str,
+    _site_label: &'static str,
     work_units: usize,
     independent_items: usize,
     admission: ParallelAdmission,
 ) {
-    profiling::scope!("rayon_admission", site_label);
+    profiling::scope!("rayon_admission", _site_label);
     let chunk_size = admission.chunk_size().unwrap_or(0);
     let chunk_count = if chunk_size == 0 {
         0
