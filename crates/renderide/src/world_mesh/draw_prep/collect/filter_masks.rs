@@ -4,8 +4,8 @@ use hashbrown::HashMap;
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, current_reference_worker_count,
-    has_visibility_parallel_work, record_parallel_admission,
+    ParallelAdmission, current_reference_worker_count, has_visibility_parallel_work,
+    record_parallel_admission,
 };
 use crate::scene::RenderSpaceId;
 
@@ -64,12 +64,7 @@ pub(super) fn build_per_space_filter_masks(
         work_units,
         current_reference_worker_count(),
     );
-    record_parallel_admission(
-        ParallelAdmissionSite::FilterMasks,
-        work_units,
-        space_ids.len(),
-        admission,
-    );
+    record_parallel_admission("filter_masks", work_units, space_ids.len(), admission);
 
     let pairs = if admission.is_parallel() {
         space_ids

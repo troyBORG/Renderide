@@ -6,8 +6,8 @@ use rayon::prelude::*;
 
 use crate::camera::HostCameraFrame;
 use crate::cpu_parallelism::{
-    ParallelAdmissionSite, RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items,
-    current_reference_worker_count, record_parallel_admission,
+    RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items, current_reference_worker_count,
+    record_parallel_admission,
 };
 use crate::graph_inputs::GraphPassFrame;
 use crate::mesh_deform::{
@@ -151,7 +151,7 @@ fn pack_per_draw_vp_uniforms(
     let admission =
         admit_render_command_items(inputs.draws.len(), current_reference_worker_count());
     record_parallel_admission(
-        ParallelAdmissionSite::WorldMeshVpPack,
+        "world_mesh_vp_pack",
         inputs.draws.len(),
         inputs.draws.len(),
         admission,

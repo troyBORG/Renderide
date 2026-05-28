@@ -67,49 +67,6 @@ impl ParallelAdmission {
     }
 }
 
-/// Renderer Rayon admission site recorded in Tracy admission plots.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u64)]
-pub(crate) enum ParallelAdmissionSite {
-    /// Scene Phase B per-space mutation.
-    SceneApply = 1,
-    /// Dirty render-space world-cache flush.
-    SceneWorldCacheFlush = 2,
-    /// World-mesh instance plan construction.
-    WorldMeshInstancePlan = 3,
-    /// Prepared world-mesh draw collection.
-    PreparedDrawCollect = 4,
-    /// Scene-walk world-mesh draw collection.
-    SceneDrawCollect = 5,
-    /// Transform filter mask construction.
-    FilterMasks = 6,
-    /// World-mesh per-view/projection matrix packing.
-    WorldMeshVpPack = 7,
-    /// Mesh-deform per-draw uniform slab serialization.
-    MeshDeformPerDrawSlab = 8,
-    /// Retained render-world reverse-index rebuild.
-    RenderWorldReverseIndex = 9,
-    /// Frame material key collection.
-    MaterialKeyCollection = 10,
-    /// Prepared material key classification.
-    MaterialClassify = 11,
-    /// Pending material batch resolution.
-    MaterialResolve = 12,
-    /// Cross-space mesh-deform work collection.
-    MeshDeformCollectSpaces = 13,
-    /// CPU froxel light assignment.
-    CpuFroxelLights = 14,
-    /// World-mesh forward material packet resolution.
-    MaterialBatchResolve = 15,
-}
-
-impl ParallelAdmissionSite {
-    /// Numeric site id emitted in Tracy plots.
-    pub(crate) const fn id(self) -> u64 {
-        self as u64
-    }
-}
-
 /// Caps a Rayon worker count to the reference renderer scheduling bound.
 pub(crate) const fn reference_worker_count(worker_count: usize) -> usize {
     let workers = if worker_count == 0 { 1 } else { worker_count };
@@ -210,11 +167,12 @@ pub(crate) const fn admit_relevance_items(
 /// Records the admission decision for a reference-grain Rayon work site.
 #[inline]
 pub(crate) fn record_parallel_admission(
-    site: ParallelAdmissionSite,
+    site_label: &'static str,
     work_units: usize,
     independent_items: usize,
     admission: ParallelAdmission,
 ) {
+    profiling::scope!("rayon_admission", site_label);
     let chunk_size = admission.chunk_size().unwrap_or(0);
     let chunk_count = if chunk_size == 0 {
         0
@@ -222,7 +180,6 @@ pub(crate) fn record_parallel_admission(
         independent_items.div_ceil(chunk_size)
     };
     crate::profiling::plot_rayon_admission(crate::profiling::RayonAdmissionProfileSample {
-        site_id: site.id(),
         work_units: work_units as u64,
         independent_items: independent_items as u64,
         chunk_size: chunk_size as u64,

@@ -13,8 +13,8 @@ use parking_lot::Mutex;
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, RENDERABLE_UPDATE_CHUNK_ITEMS,
-    admit_renderable_update_items, current_reference_worker_count, record_parallel_admission,
+    ParallelAdmission, RENDERABLE_UPDATE_CHUNK_ITEMS, admit_renderable_update_items,
+    current_reference_worker_count, record_parallel_admission,
 };
 use crate::gpu_pools::MeshPool;
 use crate::mesh_deform::{
@@ -414,12 +414,7 @@ fn collect_deform_work_into_scratch(
     let space_count = scratch.space_ids.len();
     let admission =
         deform_space_collect_admission(space_count, est, current_reference_worker_count());
-    record_parallel_admission(
-        ParallelAdmissionSite::MeshDeformCollectSpaces,
-        est,
-        space_count,
-        admission,
-    );
+    record_parallel_admission("mesh_deform_collect_spaces", est, space_count, admission);
     if scratch.chunks.len() < space_count {
         scratch.chunks.resize_with(space_count, Vec::new);
     } else {

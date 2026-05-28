@@ -5,8 +5,8 @@ use rayon::prelude::*;
 use std::ops::Range;
 
 use crate::cpu_parallelism::{
-    ParallelAdmissionSite, RENDERABLE_UPDATE_CHUNK_ITEMS, admit_renderable_update_items,
-    current_reference_worker_count, record_parallel_admission,
+    RENDERABLE_UPDATE_CHUNK_ITEMS, admit_renderable_update_items, current_reference_worker_count,
+    record_parallel_admission,
 };
 use crate::scene::{
     MeshRendererInstanceId, RenderWorldRendererKind, SkinnedMeshRenderer, StaticMeshRenderer,
@@ -108,7 +108,7 @@ impl RenderWorldSpace {
             .max(self.skinned_renderers.len());
         let admission = admit_renderable_update_items(table_work, current_reference_worker_count());
         record_parallel_admission(
-            ParallelAdmissionSite::RenderWorldReverseIndex,
+            "render_world_reverse_index",
             self.static_renderers
                 .len()
                 .saturating_add(self.skinned_renderers.len()),

@@ -1,6 +1,6 @@
 use crate::cpu_parallelism::{
-    LIGHT_WORK_CHUNK_LIGHTS, LIGHT_WORK_PARALLEL_MIN_LIGHTS, ParallelAdmissionSite,
-    admit_light_work_items, current_reference_worker_count, record_parallel_admission,
+    LIGHT_WORK_CHUNK_LIGHTS, LIGHT_WORK_PARALLEL_MIN_LIGHTS, admit_light_work_items,
+    current_reference_worker_count, record_parallel_admission,
 };
 use crate::gpu::GpuLight;
 use crate::world_mesh::cluster::ClusterFrameParams;
@@ -41,12 +41,7 @@ impl FroxelLightPlanner {
         }
         let layouts = validated_eye_layouts(eye_params, clusters_per_eye)?;
         let admission = admit_light_work_items(lights.len(), current_reference_worker_count());
-        record_parallel_admission(
-            ParallelAdmissionSite::CpuFroxelLights,
-            lights.len(),
-            lights.len(),
-            admission,
-        );
+        record_parallel_admission("cpu_froxel_lights", lights.len(), lights.len(), admission);
         if should_parallelize_cpu_froxel_lights(lights.len()) {
             build_parallel(lights, eye_params, &layouts, clusters_per_eye)
         } else {

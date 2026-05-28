@@ -65,8 +65,8 @@ use super::super::transforms::{
     extract_transforms_update,
 };
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, VISIBILITY_CULL_CHUNK_ITEMS,
-    current_reference_worker_count, has_visibility_parallel_work, record_parallel_admission,
+    ParallelAdmission, VISIBILITY_CULL_CHUNK_ITEMS, current_reference_worker_count,
+    has_visibility_parallel_work, record_parallel_admission,
 };
 
 /// Render-space apply slots assigned to one mutation worker.
@@ -735,12 +735,7 @@ impl SceneCoordinator {
             apply_work_units(&work)
         };
         let admission = apply_parallel_admission(work.len(), work_units);
-        record_parallel_admission(
-            ParallelAdmissionSite::SceneApply,
-            work_units,
-            work.len(),
-            admission,
-        );
+        record_parallel_admission("scene_apply", work_units, work.len(), admission);
         if !admission.is_parallel() {
             profiling::scope!("scene::apply::mutate::serial_small_batch");
             for mut slot in work.drain(..) {

@@ -19,9 +19,8 @@ use hashbrown::HashMap;
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, RENDER_COMMAND_CHUNK_DRAWS,
-    admit_render_command_items, current_reference_worker_count, record_parallel_admission,
-    reference_worker_count,
+    ParallelAdmission, RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items,
+    current_reference_worker_count, record_parallel_admission, reference_worker_count,
 };
 use crate::materials::{
     RasterPipelineKind, ShaderPermutation, UNITY_RENDER_QUEUE_ALPHA_TEST,
@@ -324,7 +323,7 @@ pub fn build_plan_for_shader(
 
     if draws.len() < INSTANCE_PLAN_PARALLEL_MIN_DRAWS {
         record_parallel_admission(
-            ParallelAdmissionSite::WorldMeshInstancePlan,
+            "world_mesh_instance_plan",
             draws.len(),
             draws.len(),
             ParallelAdmission::Serial,
@@ -340,7 +339,7 @@ pub fn build_plan_for_shader(
         instance_plan_admission(draws.len(), windows.len(), worker_count)
     };
     record_parallel_admission(
-        ParallelAdmissionSite::WorldMeshInstancePlan,
+        "world_mesh_instance_plan",
         draws.len(),
         if windows.len() == 1 {
             draws.len()

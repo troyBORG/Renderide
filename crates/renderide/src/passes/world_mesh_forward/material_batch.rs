@@ -9,8 +9,8 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmissionSite, RELEVANCE_PACKET_MIN_ITEMS, admit_relevance_items,
-    current_reference_worker_count, record_parallel_admission,
+    RELEVANCE_PACKET_MIN_ITEMS, admit_relevance_items, current_reference_worker_count,
+    record_parallel_admission,
 };
 use crate::diagnostics::log_throttle::LogThrottle;
 use crate::materials::ShaderPermutation;
@@ -267,7 +267,7 @@ impl<'a> MaterialDrawResolver<'a> {
         let admission =
             admit_relevance_items(boundaries_scratch.len(), current_reference_worker_count());
         record_parallel_admission(
-            ParallelAdmissionSite::MaterialBatchResolve,
+            "material_batch_resolve",
             boundaries_scratch.len(),
             boundaries_scratch.len(),
             admission,

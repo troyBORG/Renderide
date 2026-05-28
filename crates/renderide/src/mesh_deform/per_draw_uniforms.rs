@@ -4,8 +4,8 @@ use glam::Mat4;
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmissionSite, RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items,
-    current_reference_worker_count, record_parallel_admission,
+    RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items, current_reference_worker_count,
+    record_parallel_admission,
 };
 
 use super::wgsl_mat3x3::WgslMat3x3;
@@ -178,7 +178,7 @@ pub fn write_per_draw_uniform_slab(slots: &[PaddedPerDrawUniforms], out: &mut [u
     let dst = &mut out[..need];
     let admission = admit_render_command_items(slots.len(), current_reference_worker_count());
     record_parallel_admission(
-        ParallelAdmissionSite::MeshDeformPerDrawSlab,
+        "mesh_deform_per_draw_slab",
         slots.len(),
         slots.len(),
         admission,

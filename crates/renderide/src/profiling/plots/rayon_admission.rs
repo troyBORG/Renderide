@@ -8,8 +8,6 @@ use super::tracy_plot::tracy_plot;
 /// Rayon admission counters for one runtime work-site decision.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RayonAdmissionProfileSample {
-    /// Stable numeric id for the work site.
-    pub site_id: u64,
     /// Domain work units considered for this admission decision.
     pub work_units: u64,
     /// Independent items available to the Rayon split.
@@ -27,7 +25,6 @@ pub struct RayonAdmissionProfileSample {
 /// Records one Rayon admission decision.
 #[inline]
 pub fn plot_rayon_admission(sample: RayonAdmissionProfileSample) {
-    tracy_plot!("rayon_admission::site_id", sample.site_id as f64);
     tracy_plot!("rayon_admission::work_units", sample.work_units as f64);
     tracy_plot!(
         "rayon_admission::independent_items",

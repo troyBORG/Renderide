@@ -15,8 +15,8 @@ use glam::{Mat4, Vec3};
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, admit_render_command_items,
-    current_reference_worker_count, has_visibility_parallel_work, record_parallel_admission,
+    ParallelAdmission, admit_render_command_items, current_reference_worker_count,
+    has_visibility_parallel_work, record_parallel_admission,
 };
 use crate::gpu_pools::MeshPool;
 use crate::materials::ShaderPermutation;
@@ -352,12 +352,7 @@ pub(crate) fn queue_prepared_draws_for_views_with_parallelism(
     let draw_count = states.iter().map(|state| state.cap_hint).sum::<usize>();
     let admission =
         prepared_collect_admission(task_count, draw_count, current_reference_worker_count());
-    record_parallel_admission(
-        ParallelAdmissionSite::PreparedDrawCollect,
-        draw_count,
-        draw_count,
-        admission,
-    );
+    record_parallel_admission("prepared_draw_collect", draw_count, draw_count, admission);
     if contexts.len() > 1
         && contexts.iter().all(|ctx| ctx.culling.is_none())
         && admission.is_parallel()
@@ -593,12 +588,7 @@ fn collect_prepared_chunks(
     let draws = prepared.draws();
     let admission =
         prepared_collect_admission(run_chunks.len(), cap_hint, current_reference_worker_count());
-    record_parallel_admission(
-        ParallelAdmissionSite::PreparedDrawCollect,
-        cap_hint,
-        cap_hint,
-        admission,
-    );
+    record_parallel_admission("prepared_draw_collect", cap_hint, cap_hint, admission);
     if allow_parallel_chunks && admission.is_parallel() {
         profiling::scope!("mesh::collect_prepared::parallel_chunks");
         run_chunks
@@ -720,7 +710,7 @@ fn collect_prepared_spatial_chunks(
         current_reference_worker_count(),
     );
     record_parallel_admission(
-        ParallelAdmissionSite::PreparedDrawCollect,
+        "prepared_draw_collect",
         candidate_draw_count,
         candidate_draw_count,
         admission,
@@ -788,12 +778,7 @@ fn collect_scene_world_mesh_chunks(
     };
     let admission =
         scene_collect_admission(chunks.len(), work_units, current_reference_worker_count());
-    record_parallel_admission(
-        ParallelAdmissionSite::SceneDrawCollect,
-        work_units,
-        chunks.len(),
-        admission,
-    );
+    record_parallel_admission("scene_draw_collect", work_units, chunks.len(), admission);
     profiling::scope!("mesh::collect");
     let collected =
         if parallelism == WorldMeshDrawCollectParallelism::Full && admission.is_parallel() {

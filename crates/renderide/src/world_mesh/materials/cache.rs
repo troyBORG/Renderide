@@ -17,7 +17,7 @@ use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, RELEVANCE_PACKET_MIN_ITEMS, admit_relevance_items,
+    ParallelAdmission, RELEVANCE_PACKET_MIN_ITEMS, admit_relevance_items,
     current_reference_worker_count, record_parallel_admission,
 };
 use crate::materials::ShaderPermutation;
@@ -487,7 +487,7 @@ impl FrameMaterialBatchCache {
             current_reference_worker_count(),
         );
         record_parallel_admission(
-            ParallelAdmissionSite::MaterialKeyCollection,
+            "material_key_collection",
             work_units,
             active.len(),
             admission,
@@ -733,12 +733,7 @@ impl FrameMaterialBatchCache {
         let mut touch_stats = MaterialBatchCacheTouchStats::default();
         let mut pending_resolves = Vec::new();
         let admission = admit_relevance_items(keys.len(), current_reference_worker_count());
-        record_parallel_admission(
-            ParallelAdmissionSite::MaterialClassify,
-            keys.len(),
-            keys.len(),
-            admission,
-        );
+        record_parallel_admission("material_classify", keys.len(), keys.len(), admission);
         if keys.len() >= MATERIAL_CLASSIFY_PARALLEL_MIN_KEYS && admission.is_parallel() {
             profiling::scope!("mesh::material_batch_cache::prepared_classify_parallel");
             let chunk_size = admission
@@ -959,12 +954,7 @@ fn resolve_pending_material_batches(
         return Vec::new();
     }
     let admission = admit_relevance_items(pending.len(), current_reference_worker_count());
-    record_parallel_admission(
-        ParallelAdmissionSite::MaterialResolve,
-        pending.len(),
-        pending.len(),
-        admission,
-    );
+    record_parallel_admission("material_resolve", pending.len(), pending.len(), admission);
     if pending.len() >= MATERIAL_RESOLVE_PARALLEL_MIN_KEYS && admission.is_parallel() {
         profiling::scope!("mesh::material_batch_cache::prepared_resolve_parallel");
         let chunk_size = admission

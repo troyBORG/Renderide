@@ -13,8 +13,8 @@ use glam::Mat4;
 use crate::assets::texture::{HostTextureAssetKind, pack_host_texture_id};
 use crate::color_space::DEFAULT_SKYBOX_CLEAR_COLOR;
 use crate::cpu_parallelism::{
-    ParallelAdmission, ParallelAdmissionSite, admit_renderable_update_items,
-    current_reference_worker_count, record_parallel_admission,
+    ParallelAdmission, admit_renderable_update_items, current_reference_worker_count,
+    record_parallel_admission,
 };
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{BlitToDisplayState, FrameSubmitData, RenderSH2, RenderingContext};
@@ -460,12 +460,7 @@ impl SceneCoordinator {
         };
         let admission =
             world_cache_flush_admission(work.len(), work_units, current_reference_worker_count());
-        record_parallel_admission(
-            ParallelAdmissionSite::SceneWorldCacheFlush,
-            work_units,
-            work.len(),
-            admission,
-        );
+        record_parallel_admission("scene_world_cache_flush", work_units, work.len(), admission);
 
         // `&self.spaces` is a shared borrow across rayon workers; `BTreeMap::get` is `Sync` for
         // `Sync` keys and values. Each task owns its own cache.
