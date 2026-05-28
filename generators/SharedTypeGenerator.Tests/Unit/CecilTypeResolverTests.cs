@@ -26,4 +26,23 @@ namespace ResolverAsm {
         Assert.NotNull(resolved);
         Assert.Equal("ResolverAsm.Outer/Inner", resolved.FullName);
     }
+
+    /// <summary>Constructed generic types resolve through their open generic Cecil definitions.</summary>
+    [Fact]
+    public void Resolve_handles_constructed_generic_types()
+    {
+        const string source = @"
+namespace ResolverAsm {
+  public class GenericBase<T> { }
+  public sealed class Derived : GenericBase<int> { }
+}";
+        (Assembly reflection, AssemblyDefinition cecil) = TestCompilation.Compile(source);
+        Type derived = reflection.GetType("ResolverAsm.Derived", throwOnError: true)!;
+        Type genericBase = derived.BaseType!;
+
+        TypeDefinition? resolved = CecilTypeResolver.Resolve(cecil, genericBase);
+
+        Assert.NotNull(resolved);
+        Assert.Equal("ResolverAsm.GenericBase`1", resolved.FullName);
+    }
 }

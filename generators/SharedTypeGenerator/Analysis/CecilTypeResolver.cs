@@ -15,6 +15,9 @@ internal static class CecilTypeResolver
     /// <summary>Converts a reflection full name into Cecil's nested-type name format.</summary>
     public static string? GetCecilFullName(Type type)
     {
+        if (type.IsGenericType && !type.IsGenericTypeDefinition)
+            type = type.GetGenericTypeDefinition();
+
         string? fullName = type.FullName;
         return string.IsNullOrEmpty(fullName)
             ? null
