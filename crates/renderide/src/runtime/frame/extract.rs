@@ -526,29 +526,26 @@ fn queue_view_draws(
     collect_view_draws_with_strategy(&contexts, &cull_projs, parallelize_views, inner_parallelism)
 }
 
-/// Shared empty cull-projection reference for defensive fallback indexing.
-const NO_CULL_PROJ: Option<WorldMeshCullProjParams> = None;
-
 /// Queues one view through the general draw-collection path.
 fn collect_one_view_draws(
     ctx: &DrawCollectionContext<'_>,
-    cull_proj: &Option<WorldMeshCullProjParams>,
+    cull_proj: Option<&WorldMeshCullProjParams>,
     parallelism: WorldMeshDrawCollectParallelism,
 ) -> QueuedViewDraws {
     profiling::scope!("render::queue_view_draws::queue_one");
     let queued = queue_draws_with_parallelism(ctx, parallelism);
     QueuedViewDraws {
         queued,
-        cull_proj: *cull_proj,
+        cull_proj: cull_proj.copied(),
     }
 }
 
-/// Returns a cull projection reference for `index`, or a stable `None` reference when absent.
+/// Returns a cull projection reference for `index` when present.
 fn cull_proj_or_none(
     cull_projs: &[Option<WorldMeshCullProjParams>],
     index: usize,
-) -> &Option<WorldMeshCullProjParams> {
-    cull_projs.get(index).unwrap_or(&NO_CULL_PROJ)
+) -> Option<&WorldMeshCullProjParams> {
+    cull_projs.get(index).and_then(Option::as_ref)
 }
 
 /// Dispatches queued draw collection using the selected view-level parallelism strategy.
