@@ -12,6 +12,10 @@ use hashbrown::HashSet;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 
+use crate::cpu_parallelism::{
+    ParallelAdmission, ParallelAdmissionSite, RENDERABLE_UPDATE_CHUNK_ITEMS,
+    admit_renderable_update_items, current_reference_worker_count, record_parallel_admission,
+};
 use crate::gpu_pools::MeshPool;
 use crate::mesh_deform::{
     SkinCacheKey, SkinCacheRendererKind, SkinningPaletteParams, write_skinning_palette_bytes_serial,
@@ -120,7 +124,7 @@ struct MeshDeformDispatchCtx<'a> {
 }
 
 /// Renderer count assigned to one deform collection worker chunk.
-const DEFORM_COLLECT_RENDERER_CHUNK_SIZE: usize = 64;
+const DEFORM_COLLECT_RENDERER_CHUNK_SIZE: usize = RENDERABLE_UPDATE_CHUNK_ITEMS;
 /// Renderer count above which deform work collection fans out across two chunks.
 const DEFORM_COLLECT_PARALLEL_MIN_RENDERERS: usize = DEFORM_COLLECT_RENDERER_CHUNK_SIZE * 2;
 /// Renderer chunks assigned to one deform collection worker task.
@@ -135,6 +139,22 @@ const DEFORM_SPACE_PARALLEL_MIN_SPACES: usize = DEFORM_SPACE_PARALLEL_CHUNK_SPAC
 const DEFORM_PREPLAN_PARALLEL_CHUNK_ITEMS: usize = 16;
 /// Skinned deform work item count required before palette preplanning uses Rayon.
 const DEFORM_PREPLAN_PARALLEL_MIN_ITEMS: usize = DEFORM_PREPLAN_PARALLEL_CHUNK_ITEMS * 2;
+
+/// Returns the cross-space deform collection admission decision for a known worker count.
+fn deform_space_collect_admission(
+    space_count: usize,
+    work_units: usize,
+    worker_count: usize,
+) -> ParallelAdmission {
+    let work_admission = admit_renderable_update_items(work_units, worker_count);
+    if space_count >= DEFORM_SPACE_PARALLEL_MIN_SPACES && work_admission.is_parallel() {
+        ParallelAdmission::Parallel {
+            chunk_size: DEFORM_SPACE_PARALLEL_CHUNK_SPACES,
+        }
+    } else {
+        ParallelAdmission::Serial
+    }
+}
 
 #[derive(Clone, Copy)]
 enum DeformCollectChunkKind {
@@ -392,6 +412,14 @@ fn collect_deform_work_into_scratch(
     scratch.space_ids.clear();
     scratch.space_ids.extend(scene.render_space_ids());
     let space_count = scratch.space_ids.len();
+    let admission =
+        deform_space_collect_admission(space_count, est, current_reference_worker_count());
+    record_parallel_admission(
+        ParallelAdmissionSite::MeshDeformCollectSpaces,
+        est,
+        space_count,
+        admission,
+    );
     if scratch.chunks.len() < space_count {
         scratch.chunks.resize_with(space_count, Vec::new);
     } else {
@@ -412,7 +440,7 @@ fn collect_deform_work_into_scratch(
             );
             return;
         }
-        _ if space_count >= DEFORM_SPACE_PARALLEL_MIN_SPACES => {
+        _ if admission.is_parallel() => {
             let space_ids = &scratch.space_ids;
             let chunks = &mut scratch.chunks;
             space_ids
@@ -435,7 +463,11 @@ fn collect_deform_work_into_scratch(
                     );
                 });
         }
-        _ => {}
+        _ => {
+            for (space_id, chunk) in scratch.space_ids.iter().copied().zip(&mut scratch.chunks) {
+                collect_deform_work_for_space(scene, mesh_pool, visible_filter, space_id, chunk);
+            }
+        }
     }
 
     scratch.work.clear();

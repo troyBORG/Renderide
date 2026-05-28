@@ -13,9 +13,13 @@
 //! A frame where nothing has changed touches each live entry with one HashMap probe and four
 //! `u64` comparisons -- no dictionary or router lookups required.
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 
+use crate::cpu_parallelism::{
+    ParallelAdmission, ParallelAdmissionSite, RELEVANCE_PACKET_MIN_ITEMS, admit_relevance_items,
+    current_reference_worker_count, record_parallel_admission,
+};
 use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialDictionary;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
@@ -28,13 +32,86 @@ use super::resolve::{MaterialResolveCtx, ResolvedMaterialBatch, resolve_material
 /// Active render spaces assigned to one material-key collection worker.
 const MATERIAL_KEY_PARALLEL_CHUNK_SPACES: usize = 1;
 /// Material keys assigned to one parallel material-resolution worker.
-const MATERIAL_RESOLVE_PARALLEL_CHUNK_KEYS: usize = 32;
+const MATERIAL_RESOLVE_PARALLEL_CHUNK_KEYS: usize = RELEVANCE_PACKET_MIN_ITEMS;
 /// Material-key count required before stale/missing prepared keys resolve on Rayon workers.
 const MATERIAL_RESOLVE_PARALLEL_MIN_KEYS: usize = MATERIAL_RESOLVE_PARALLEL_CHUNK_KEYS * 2;
 /// Material keys assigned to one prepared-cache classification worker.
-const MATERIAL_CLASSIFY_PARALLEL_CHUNK_KEYS: usize = 64;
+const MATERIAL_CLASSIFY_PARALLEL_CHUNK_KEYS: usize = RELEVANCE_PACKET_MIN_ITEMS;
 /// Material-key count required before prepared cache classification uses Rayon.
 const MATERIAL_CLASSIFY_PARALLEL_MIN_KEYS: usize = MATERIAL_CLASSIFY_PARALLEL_CHUNK_KEYS * 2;
+
+/// Shared immutable inputs for scene-driven material cache refresh.
+#[derive(Clone, Copy)]
+struct SceneMaterialRefreshInputs<'a, 'b> {
+    /// Scene containing active render spaces to walk.
+    scene: &'a SceneCoordinator,
+    /// Material resolution context used for stale or missing keys.
+    ctx: MaterialResolveCtx<'b>,
+    /// Material router generation captured at the start of refresh.
+    router_gen: u64,
+    /// Cache frame stamp assigned to entries touched during refresh.
+    current_frame: u64,
+}
+
+/// Returns the material-key collection admission decision for a known worker count.
+#[inline]
+fn material_key_collection_admission(
+    space_count: usize,
+    work_units: usize,
+    worker_count: usize,
+) -> ParallelAdmission {
+    let work_admission = admit_relevance_items(work_units, worker_count);
+    if space_count >= MATERIAL_KEY_PARALLEL_CHUNK_SPACES * 2 && work_admission.is_parallel() {
+        ParallelAdmission::Parallel {
+            chunk_size: MATERIAL_KEY_PARALLEL_CHUNK_SPACES,
+        }
+    } else {
+        ParallelAdmission::Serial
+    }
+}
+
+/// Estimates material-slot rows scanned during frame material-key collection.
+fn estimate_material_key_collection_work(
+    scene: &SceneCoordinator,
+    space_ids: &[RenderSpaceId],
+) -> usize {
+    space_ids
+        .iter()
+        .filter_map(|space_id| scene.space(*space_id))
+        .map(|space| {
+            let static_keys = space
+                .static_mesh_renderers()
+                .iter()
+                .filter(|renderer| {
+                    renderer.mesh_asset_id >= 0 && renderer.emits_visible_color_draws()
+                })
+                .map(estimate_renderer_material_keys)
+                .sum::<usize>();
+            let skinned_keys = space
+                .skinned_mesh_renderers()
+                .iter()
+                .filter(|renderer| {
+                    renderer.base.mesh_asset_id >= 0 && renderer.base.emits_visible_color_draws()
+                })
+                .map(|renderer| estimate_renderer_material_keys(&renderer.base))
+                .sum::<usize>();
+            static_keys.saturating_add(skinned_keys)
+        })
+        .sum()
+}
+
+/// Estimates visible material-key rows referenced by one mesh renderer.
+fn estimate_renderer_material_keys(renderer: &crate::scene::StaticMeshRenderer) -> usize {
+    if renderer.material_slots.is_empty() {
+        usize::from(renderer.primary_material_asset_id.is_some_and(|id| id >= 0))
+    } else {
+        renderer
+            .material_slots
+            .iter()
+            .filter(|slot| slot.material_asset_id >= 0)
+            .count()
+    }
+}
 
 /// Cached resolution plus the validation keys captured at resolve time.
 #[derive(Clone)]
@@ -205,7 +282,7 @@ pub struct FrameMaterialBatchCache {
     /// Reused per-frame deduplication set for `(material_asset_id, property_block_id)` keys
     /// observed during [`Self::refresh_for_frame`]; cleared at the top of every refresh and
     /// repopulated.
-    seen_scratch: hashbrown::HashSet<(i32, Option<i32>)>,
+    seen_scratch: HashSet<(i32, Option<i32>)>,
     /// Reused active-space-id list for the multi-space refresh path; cleared at the top of every
     /// [`Self::refresh_for_frame`] that needs it.
     active_scratch: Vec<RenderSpaceId>,
@@ -247,7 +324,7 @@ impl FrameMaterialBatchCache {
         Self {
             entries: HashMap::new(),
             frame_counter: 0,
-            seen_scratch: hashbrown::HashSet::new(),
+            seen_scratch: HashSet::new(),
             active_scratch: Vec::new(),
             keys_per_space_scratch: Vec::new(),
             last_refresh_router_gen: None,
@@ -337,6 +414,125 @@ impl FrameMaterialBatchCache {
             .map(|e| &e.batch)
     }
 
+    /// Walks active scene renderers and refreshes every referenced material key.
+    fn refresh_scene_material_keys(
+        &mut self,
+        inputs: SceneMaterialRefreshInputs<'_, '_>,
+    ) -> MaterialBatchCacheTouchStats {
+        let mut active_space_ids = inputs
+            .scene
+            .render_space_ids()
+            .filter(|id| inputs.scene.space(*id).is_some_and(|s| s.is_active()));
+        let first = active_space_ids.next();
+        let second = active_space_ids.next();
+        let mut seen = std::mem::take(&mut self.seen_scratch);
+        seen.clear();
+        let mut touch_stats = MaterialBatchCacheTouchStats::default();
+
+        match (first, second) {
+            (None, _) => {}
+            (Some(only), None) => {
+                self.refresh_single_space_material_keys(inputs, only, &mut seen, &mut touch_stats);
+            }
+            (Some(first), Some(second)) => {
+                self.refresh_multi_space_material_keys(
+                    inputs,
+                    [first, second].into_iter().chain(active_space_ids),
+                    &mut seen,
+                    &mut touch_stats,
+                );
+            }
+        }
+
+        self.seen_scratch = seen;
+        touch_stats
+    }
+
+    /// Refreshes cache entries referenced by one active render space.
+    fn refresh_single_space_material_keys(
+        &mut self,
+        inputs: SceneMaterialRefreshInputs<'_, '_>,
+        space_id: RenderSpaceId,
+        seen: &mut HashSet<(i32, Option<i32>)>,
+        touch_stats: &mut MaterialBatchCacheTouchStats,
+    ) {
+        for key in collect_material_keys_for_space(inputs.scene, space_id) {
+            if seen.insert(key) {
+                touch_stats.note(self.touch_or_refresh(
+                    key.0,
+                    key.1,
+                    inputs.ctx,
+                    inputs.router_gen,
+                    inputs.current_frame,
+                ));
+            }
+        }
+    }
+
+    /// Refreshes cache entries referenced by multiple active render spaces.
+    fn refresh_multi_space_material_keys(
+        &mut self,
+        inputs: SceneMaterialRefreshInputs<'_, '_>,
+        active_space_ids: impl Iterator<Item = RenderSpaceId>,
+        seen: &mut HashSet<(i32, Option<i32>)>,
+        touch_stats: &mut MaterialBatchCacheTouchStats,
+    ) {
+        let mut active = std::mem::take(&mut self.active_scratch);
+        active.clear();
+        active.extend(active_space_ids);
+        let work_units = estimate_material_key_collection_work(inputs.scene, &active);
+        let admission = material_key_collection_admission(
+            active.len(),
+            work_units,
+            current_reference_worker_count(),
+        );
+        record_parallel_admission(
+            ParallelAdmissionSite::MaterialKeyCollection,
+            work_units,
+            active.len(),
+            admission,
+        );
+
+        let mut keys_per_space = std::mem::take(&mut self.keys_per_space_scratch);
+        keys_per_space.resize_with(active.len(), Vec::new);
+        if admission.is_parallel() {
+            keys_per_space
+                .par_iter_mut()
+                .with_min_len(MATERIAL_KEY_PARALLEL_CHUNK_SPACES)
+                .zip(
+                    active
+                        .par_iter()
+                        .with_min_len(MATERIAL_KEY_PARALLEL_CHUNK_SPACES),
+                )
+                .for_each(|(out, &space_id)| {
+                    out.clear();
+                    collect_material_keys_into(inputs.scene, space_id, out);
+                });
+        } else {
+            for (out, &space_id) in keys_per_space.iter_mut().zip(active.iter()) {
+                out.clear();
+                collect_material_keys_into(inputs.scene, space_id, out);
+            }
+        }
+
+        for keys in &keys_per_space {
+            for &key in keys {
+                if seen.insert(key) {
+                    touch_stats.note(self.touch_or_refresh(
+                        key.0,
+                        key.1,
+                        inputs.ctx,
+                        inputs.router_gen,
+                        inputs.current_frame,
+                    ));
+                }
+            }
+        }
+
+        self.active_scratch = active;
+        self.keys_per_space_scratch = keys_per_space;
+    }
+
     /// Refreshes the cache against the current scene and dependency state.
     ///
     /// Walks every active render space once, for each referenced
@@ -379,90 +575,12 @@ impl FrameMaterialBatchCache {
             pipeline_property_ids,
             shader_perm,
         };
-
-        // Walk active spaces lazily so the single-space steady state skips the
-        // `Vec<RenderSpaceId>` allocation entirely.
-        let mut active_space_ids = scene
-            .render_space_ids()
-            .filter(|id| scene.space(*id).is_some_and(|s| s.is_active()));
-        let first = active_space_ids.next();
-        let second = active_space_ids.next();
-
-        // Pull cross-frame scratch out so it can be passed around independently of `&mut self`.
-        // `mem::take` leaves a default (empty, allocation-less) container behind; we restore the
-        // populated containers (with their grown capacities) before returning.
-        let mut seen = std::mem::take(&mut self.seen_scratch);
-        seen.clear();
-        let mut touch_stats = MaterialBatchCacheTouchStats::default();
-
-        match (first, second) {
-            (None, _) => {}
-            (Some(only), None) => {
-                // Single-space fast path: probe directly without intermediate Vec allocations.
-                for key in collect_material_keys_for_space(scene, only) {
-                    if seen.insert(key) {
-                        touch_stats.note(self.touch_or_refresh(
-                            key.0,
-                            key.1,
-                            ctx,
-                            router_gen,
-                            current_frame,
-                        ));
-                    }
-                }
-            }
-            (Some(first), Some(second)) => {
-                let mut active = std::mem::take(&mut self.active_scratch);
-                active.clear();
-                active.reserve(2 + active_space_ids.size_hint().0);
-                active.push(first);
-                active.push(second);
-                active.extend(active_space_ids);
-
-                // Phase A: collect `(material_asset_id, property_block_id)` keys per space in
-                // parallel. The walk is O(renderers x slots); parallelising it across spaces
-                // keeps the serial Phase B work bounded by unique materials rather than per-draw
-                // references. Inner `Vec`s are reused across frames and cleared in place so the
-                // collect routine appends without reallocating in steady state.
-                let mut keys_per_space = std::mem::take(&mut self.keys_per_space_scratch);
-                keys_per_space.resize_with(active.len(), Vec::new);
-                keys_per_space
-                    .par_iter_mut()
-                    .with_min_len(MATERIAL_KEY_PARALLEL_CHUNK_SPACES)
-                    .zip(
-                        active
-                            .par_iter()
-                            .with_min_len(MATERIAL_KEY_PARALLEL_CHUNK_SPACES),
-                    )
-                    .for_each(|(out, &space_id)| {
-                        out.clear();
-                        collect_material_keys_into(scene, space_id, out);
-                    });
-
-                // Phase B: serial dedup + cache probe/insert. Each unique key is touched once;
-                // the cache entry's `last_used_frame` stamp makes the visit count-invariant.
-                for keys in &keys_per_space {
-                    for &key in keys {
-                        if seen.insert(key) {
-                            touch_stats.note(self.touch_or_refresh(
-                                key.0,
-                                key.1,
-                                ctx,
-                                router_gen,
-                                current_frame,
-                            ));
-                        }
-                    }
-                }
-
-                // Restore scratch (capacities retained).
-                self.active_scratch = active;
-                self.keys_per_space_scratch = keys_per_space;
-            }
-        }
-
-        // Restore the dedup scratch (capacity retained).
-        self.seen_scratch = seen;
+        let mut touch_stats = self.refresh_scene_material_keys(SceneMaterialRefreshInputs {
+            scene,
+            ctx,
+            router_gen,
+            current_frame,
+        });
 
         // Evict entries not referenced this frame so the cache tracks the live working set.
         // Cheap -- the cache typically holds a few dozen entries, and this touches them all once.
@@ -614,11 +732,21 @@ impl FrameMaterialBatchCache {
     ) -> (MaterialBatchCacheTouchStats, Vec<PendingMaterialResolve>) {
         let mut touch_stats = MaterialBatchCacheTouchStats::default();
         let mut pending_resolves = Vec::new();
-        if keys.len() >= MATERIAL_CLASSIFY_PARALLEL_MIN_KEYS && rayon::current_num_threads() > 1 {
+        let admission = admit_relevance_items(keys.len(), current_reference_worker_count());
+        record_parallel_admission(
+            ParallelAdmissionSite::MaterialClassify,
+            keys.len(),
+            keys.len(),
+            admission,
+        );
+        if keys.len() >= MATERIAL_CLASSIFY_PARALLEL_MIN_KEYS && admission.is_parallel() {
             profiling::scope!("mesh::material_batch_cache::prepared_classify_parallel");
+            let chunk_size = admission
+                .chunk_size()
+                .unwrap_or(MATERIAL_CLASSIFY_PARALLEL_CHUNK_KEYS);
             let classified = keys
                 .par_iter()
-                .with_min_len(MATERIAL_CLASSIFY_PARALLEL_CHUNK_KEYS)
+                .with_min_len(chunk_size)
                 .map(|&(material_asset_id, property_block_id)| {
                     self.classify_prepared_key_immutable(
                         material_asset_id,
@@ -830,11 +958,21 @@ fn resolve_pending_material_batches(
     if pending.is_empty() {
         return Vec::new();
     }
-    if pending.len() >= MATERIAL_RESOLVE_PARALLEL_MIN_KEYS && rayon::current_num_threads() > 1 {
+    let admission = admit_relevance_items(pending.len(), current_reference_worker_count());
+    record_parallel_admission(
+        ParallelAdmissionSite::MaterialResolve,
+        pending.len(),
+        pending.len(),
+        admission,
+    );
+    if pending.len() >= MATERIAL_RESOLVE_PARALLEL_MIN_KEYS && admission.is_parallel() {
         profiling::scope!("mesh::material_batch_cache::prepared_resolve_parallel");
+        let chunk_size = admission
+            .chunk_size()
+            .unwrap_or(MATERIAL_RESOLVE_PARALLEL_CHUNK_KEYS);
         pending
             .par_iter()
-            .with_min_len(MATERIAL_RESOLVE_PARALLEL_CHUNK_KEYS)
+            .with_min_len(chunk_size)
             .map(|pending| pending.resolve(ctx, router_gen, current_frame))
             .collect()
     } else {

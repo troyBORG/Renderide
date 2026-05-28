@@ -5,6 +5,10 @@ use glam::Mat4;
 use rayon::prelude::*;
 
 use crate::camera::HostCameraFrame;
+use crate::cpu_parallelism::{
+    ParallelAdmissionSite, RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items,
+    current_reference_worker_count, record_parallel_admission,
+};
 use crate::graph_inputs::GraphPassFrame;
 use crate::mesh_deform::{
     PER_DRAW_UNIFORM_STRIDE, PaddedPerDrawUniforms, write_per_draw_uniform_slab,
@@ -17,7 +21,7 @@ use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 use super::vp::compute_per_draw_vp_matrices;
 
 /// Draws assigned to one per-draw VP / model uniform packing worker chunk.
-const PER_DRAW_VP_PARALLEL_CHUNK_DRAWS: usize = 64;
+const PER_DRAW_VP_PARALLEL_CHUNK_DRAWS: usize = RENDER_COMMAND_CHUNK_DRAWS;
 /// Per-draw VP chunks assigned to one Rayon worker leaf.
 const PER_DRAW_VP_PARALLEL_CHUNKS_PER_TASK: usize = 1;
 /// Minimum draws before parallelizing per-draw VP / model uniform packing.
@@ -144,7 +148,15 @@ fn pack_per_draw_vp_uniforms(
                 item.reflection_probes.importance_mask,
             );
     };
-    if inputs.draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
+    let admission =
+        admit_render_command_items(inputs.draws.len(), current_reference_worker_count());
+    record_parallel_admission(
+        ParallelAdmissionSite::WorldMeshVpPack,
+        inputs.draws.len(),
+        inputs.draws.len(),
+        admission,
+    );
+    if inputs.draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS && admission.is_parallel() {
         uniforms
             .par_chunks_mut(PER_DRAW_VP_PARALLEL_CHUNK_DRAWS)
             .with_min_len(PER_DRAW_VP_PARALLEL_CHUNKS_PER_TASK)

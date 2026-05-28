@@ -1,3 +1,7 @@
+use crate::cpu_parallelism::{
+    LIGHT_WORK_CHUNK_LIGHTS, LIGHT_WORK_PARALLEL_MIN_LIGHTS, ParallelAdmissionSite,
+    admit_light_work_items, current_reference_worker_count, record_parallel_admission,
+};
 use crate::gpu::GpuLight;
 use crate::world_mesh::cluster::ClusterFrameParams;
 
@@ -10,9 +14,9 @@ use super::types::{CpuClusterAssignments, CpuFroxelStats, FroxelLayout};
 /// Light count at which `Auto` mode starts considering CPU froxel assignment.
 pub(in crate::passes::clustered_light) const AUTO_CPU_FROXEL_LIGHT_THRESHOLD: u32 = 64;
 /// Lights assigned to one CPU froxel worker chunk.
-pub(super) const CPU_FROXEL_LIGHT_CHUNK_SIZE: usize = 32;
+pub(super) const CPU_FROXEL_LIGHT_CHUNK_SIZE: usize = LIGHT_WORK_CHUNK_LIGHTS;
 /// Light count at which CPU froxel assignment fans out across worker chunks.
-pub(super) const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = CPU_FROXEL_LIGHT_CHUNK_SIZE * 2;
+pub(super) const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = LIGHT_WORK_PARALLEL_MIN_LIGHTS;
 /// CPU froxel light chunks assigned to one worker task.
 pub(super) const CPU_FROXEL_PARALLEL_CHUNK_TASKS: usize = 1;
 /// Cluster-count stride for local prefix-sum chunks.
@@ -36,6 +40,13 @@ impl FroxelLightPlanner {
             return Some(CpuClusterAssignments::default());
         }
         let layouts = validated_eye_layouts(eye_params, clusters_per_eye)?;
+        let admission = admit_light_work_items(lights.len(), current_reference_worker_count());
+        record_parallel_admission(
+            ParallelAdmissionSite::CpuFroxelLights,
+            lights.len(),
+            lights.len(),
+            admission,
+        );
         if should_parallelize_cpu_froxel_lights(lights.len()) {
             build_parallel(lights, eye_params, &layouts, clusters_per_eye)
         } else {
@@ -47,7 +58,17 @@ impl FroxelLightPlanner {
 /// Returns whether CPU froxel assignment should split light ranges over Rayon.
 #[inline]
 pub(super) fn should_parallelize_cpu_froxel_lights(light_count: usize) -> bool {
+    should_parallelize_cpu_froxel_lights_with_workers(light_count, current_reference_worker_count())
+}
+
+/// Returns whether CPU froxel assignment should split light ranges for a known worker count.
+#[inline]
+pub(super) const fn should_parallelize_cpu_froxel_lights_with_workers(
+    light_count: usize,
+    worker_count: usize,
+) -> bool {
     light_count >= CPU_FROXEL_PARALLEL_MIN_LIGHTS
+        && admit_light_work_items(light_count, worker_count).is_parallel()
 }
 
 /// Returns whether CPU froxel prefix and merge helpers should use Rayon.

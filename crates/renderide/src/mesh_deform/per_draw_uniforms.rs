@@ -3,6 +3,11 @@
 use glam::Mat4;
 use rayon::prelude::*;
 
+use crate::cpu_parallelism::{
+    ParallelAdmissionSite, RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items,
+    current_reference_worker_count, record_parallel_admission,
+};
+
 use super::wgsl_mat3x3::WgslMat3x3;
 
 /// Stride between consecutive draw slots in the uniform slab (`mat4`x3 + WGSL padding).
@@ -149,7 +154,7 @@ impl PaddedPerDrawUniforms {
 }
 
 /// Draw slots assigned to one slab-copy worker chunk.
-const PER_DRAW_SLAB_PARALLEL_CHUNK_SLOTS: usize = 64;
+const PER_DRAW_SLAB_PARALLEL_CHUNK_SLOTS: usize = RENDER_COMMAND_CHUNK_DRAWS;
 /// Slab-copy chunks assigned to one Rayon worker leaf.
 const PER_DRAW_SLAB_PARALLEL_CHUNKS_PER_TASK: usize = 1;
 /// Slot count above which slab writes fan out to a rayon worker pool.
@@ -171,7 +176,14 @@ pub fn write_per_draw_uniform_slab(slots: &[PaddedPerDrawUniforms], out: &mut [u
     );
     profiling::scope!("mesh_deform::write_per_draw_uniform_slab");
     let dst = &mut out[..need];
-    if slots.len() >= PER_DRAW_SLAB_PARALLEL_MIN {
+    let admission = admit_render_command_items(slots.len(), current_reference_worker_count());
+    record_parallel_admission(
+        ParallelAdmissionSite::MeshDeformPerDrawSlab,
+        slots.len(),
+        slots.len(),
+        admission,
+    );
+    if slots.len() >= PER_DRAW_SLAB_PARALLEL_MIN && admission.is_parallel() {
         dst.par_chunks_mut(PER_DRAW_UNIFORM_STRIDE * PER_DRAW_SLAB_PARALLEL_CHUNK_SLOTS)
             .with_min_len(PER_DRAW_SLAB_PARALLEL_CHUNKS_PER_TASK)
             .zip(

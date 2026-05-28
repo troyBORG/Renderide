@@ -10,7 +10,7 @@ use super::parallel::build_parallel;
 use super::planner::{
     CPU_FROXEL_LIGHT_CHUNK_SIZE, CPU_FROXEL_PARALLEL_MIN_LIGHTS, CPU_FROXEL_PREFIX_CHUNK_SIZE,
     CPU_FROXEL_PREFIX_PARALLEL_MIN_CLUSTERS, FroxelLightPlanner, build_serial,
-    should_parallelize_cpu_froxel_lights, should_parallelize_cpu_froxel_prefix,
+    should_parallelize_cpu_froxel_lights_with_workers, should_parallelize_cpu_froxel_prefix,
     validated_eye_layouts,
 };
 use super::prefix::{prefix_counts_to_ranges_parallel, prefix_counts_to_ranges_serial};
@@ -97,11 +97,17 @@ fn cpu_froxel_light_parallel_gate_starts_at_two_chunks() {
         CPU_FROXEL_PARALLEL_MIN_LIGHTS,
         CPU_FROXEL_LIGHT_CHUNK_SIZE * 2
     );
-    assert!(!should_parallelize_cpu_froxel_lights(
-        CPU_FROXEL_PARALLEL_MIN_LIGHTS - 1
+    assert!(!should_parallelize_cpu_froxel_lights_with_workers(
+        CPU_FROXEL_PARALLEL_MIN_LIGHTS - 1,
+        4
     ));
-    assert!(should_parallelize_cpu_froxel_lights(
-        CPU_FROXEL_PARALLEL_MIN_LIGHTS
+    assert!(should_parallelize_cpu_froxel_lights_with_workers(
+        CPU_FROXEL_PARALLEL_MIN_LIGHTS,
+        4
+    ));
+    assert!(!should_parallelize_cpu_froxel_lights_with_workers(
+        CPU_FROXEL_PARALLEL_MIN_LIGHTS,
+        1
     ));
 }
 
