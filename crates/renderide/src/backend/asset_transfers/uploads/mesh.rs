@@ -75,16 +75,6 @@ pub fn try_process_mesh_upload(
 }
 
 fn log_mesh_upload_received(data: &MeshUploadData) {
-    logger::debug!(
-        "mesh {}: upload received bytes={} vertices={} bones={} bone_weights={} blendshape_buffers={} high_priority={}",
-        data.asset_id,
-        data.buffer.length,
-        data.vertex_count,
-        data.bone_count,
-        data.bone_weight_count,
-        data.blendshape_buffers.len(),
-        data.high_priority
-    );
 }
 
 fn log_pending_mesh_upload_pressure(queue: &AssetTransferQueue, asset_id: i32) {
