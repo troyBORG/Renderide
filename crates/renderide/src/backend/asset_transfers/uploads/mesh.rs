@@ -74,7 +74,14 @@ pub fn try_process_mesh_upload(
     None
 }
 
-fn log_mesh_upload_received(data: &MeshUploadData) {}
+fn log_mesh_upload_received(data: &MeshUploadData) {
+    logger::trace!(
+        "mesh {} upload received: bytes={} high_priority={}",
+        data.asset_id,
+        data.buffer.length,
+        data.high_priority
+    );
+}
 
 fn log_pending_mesh_upload_pressure(queue: &AssetTransferQueue, asset_id: i32) {
     let pending = queue.pending.pending_mesh_uploads.len();
