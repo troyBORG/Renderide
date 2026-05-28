@@ -95,9 +95,7 @@ pub fn try_upload_mesh_from_raw(
     }
 
     if let Some(existing) = existing {
-        profiling::scope!("asset::mesh_in_place_compatibility");
         if existing.compatible_for_in_place_update(data, layout, raw) {
-            profiling::scope!("asset::mesh_in_place_upload");
             if let Some(mesh) = existing.write_in_place(ctx.queue, raw, data, layout, hint) {
                 if ctx.mapped_buffer_health.generation() != ctx.mapped_buffer_generation {
                     logger::debug!(
