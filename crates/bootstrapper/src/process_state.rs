@@ -77,6 +77,7 @@ pub(crate) struct ChildSlotPoisoned;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::process::Command;
 
     use super::{ChildPoll, SharedChildSlot};
