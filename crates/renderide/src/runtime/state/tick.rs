@@ -10,7 +10,7 @@ use crate::shared::ReflectionProbeRenderResult;
 
 use crate::runtime::offscreen_tasks::reflection_probe::{
     ActiveOnChangesReflectionProbeCapture, ActiveRealtimeReflectionProbeCapture,
-    OnChangesCaptureInflight,
+    OnChangesCaptureThrottle,
 };
 use crate::runtime::offscreen_tasks::submit_completion::SubmitCompletionWorkQueue;
 
@@ -42,10 +42,11 @@ pub(in crate::runtime) struct RuntimeTickState {
     /// OnChanges reflection-probe capture requests waiting for GPU processing.
     pub(in crate::runtime) pending_onchanges_reflection_probe_requests:
         Vec<ReflectionProbeOnChangesRenderRequest>,
-    /// Probes whose capture has started and whose sharp IBL bake has not yet landed, keyed by
-    /// `(render_space_id, renderable_index)`. Gates the OnChanges capture throttle.
-    pub(in crate::runtime) onchanges_capture_inflight:
-        HashMap<(i32, i32), OnChangesCaptureInflight>,
+    /// Per-probe OnChanges capture pacing keyed by `(render_space_id, renderable_index)`. An entry
+    /// coalesces incoming re-bake requests until the probe's sharp bake lands and its minimum
+    /// re-capture interval elapses.
+    pub(in crate::runtime) onchanges_capture_throttle:
+        HashMap<(i32, i32), OnChangesCaptureThrottle>,
     /// OnChanges reflection-probe captures that may span multiple ticks.
     pub(in crate::runtime) active_onchanges_reflection_probe_captures:
         Vec<ActiveOnChangesReflectionProbeCapture>,
@@ -75,7 +76,7 @@ impl RuntimeTickState {
             submit_completion_work: SubmitCompletionWorkQueue::new(),
             pending_reflection_probe_render_results: Vec::new(),
             pending_onchanges_reflection_probe_requests: Vec::new(),
-            onchanges_capture_inflight: HashMap::new(),
+            onchanges_capture_throttle: HashMap::new(),
             active_onchanges_reflection_probe_captures: Vec::new(),
             next_onchanges_reflection_probe_generation: 1,
             active_realtime_reflection_probe_captures: Vec::new(),
