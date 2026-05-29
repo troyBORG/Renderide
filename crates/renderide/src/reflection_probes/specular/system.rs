@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
 
@@ -8,8 +9,10 @@ use crate::reflection_probes::ReflectionProbeCubemapAssets;
 use crate::scene::{RenderSpaceId, SceneCoordinator, reflection_probe_solid_color};
 use crate::shared::{ReflectionProbeType, RenderSH2, RenderingContext};
 use crate::skybox::ibl_cache::{
-    SkyboxIblCache, SkyboxIblKey, build_key, clamp_face_size, mip_extent, mip_levels_for_edge,
+    IblBakeQuality, SkyboxIblCache, SkyboxIblKey, build_key, clamp_face_size, mip_extent,
+    mip_levels_for_edge,
 };
+use crate::skybox::specular::SkyboxIblSource;
 use crate::{profiling, reflection_probes::ReflectionProbeSh2System};
 
 use super::atlas::{AtlasCopyJob, ReflectionProbeAtlas, max_atlas_slots};
@@ -25,6 +28,8 @@ use super::source::{metadata_for_spatial, resolve_probe_source, spatial_probe_fo
 const DEFAULT_REFLECTION_PROBE_FACE_SIZE: u32 = 256;
 /// First atlas slot is reserved as a non-sampled black fallback.
 const FIRST_PROBE_ATLAS_SLOT: u16 = 1;
+/// Minimum interval between realtime `probe-timing` logs for one probe.
+const REALTIME_IBL_TIMING_LOG_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Inputs for advancing specular reflection-probe IBL and selection state.
 pub(crate) struct ReflectionProbeSpecularMaintainParams<'a> {
@@ -58,6 +63,15 @@ pub struct ReflectionProbeSpecularSystem {
     last_stats: MaintainStats,
     /// Last source that finished IBL and optional SH2 work for each probe.
     last_ready: HashMap<ProbeIdentity, LastReadyProbe>,
+    /// Per-probe `probe-timing` diagnostics for the current runtime capture generation.
+    bake_timings: HashMap<ProbeIdentity, ProbeBakeTiming>,
+    /// Highest capture generation whose final (sharp) IBL cube has finished, per runtime probe.
+    ///
+    /// Read by the runtime capture throttle to coalesce host re-bake floods: a new OnChanges
+    /// capture is held until the previously started generation's final bake lands here.
+    runtime_final_ready_generation: HashMap<ProbeIdentity, u64>,
+    /// Last emission time for low-noise realtime `probe-timing` logs.
+    realtime_log_last_emit_at: HashMap<ProbeIdentity, Instant>,
     version: u64,
 }
 
@@ -83,8 +97,27 @@ impl ReflectionProbeSpecularSystem {
             sync_signature: None,
             last_stats: MaintainStats::default(),
             last_ready: HashMap::new(),
+            bake_timings: HashMap::new(),
+            runtime_final_ready_generation: HashMap::new(),
+            realtime_log_last_emit_at: HashMap::new(),
             version: 1,
         }
+    }
+
+    /// Highest capture generation whose final IBL bake has completed for a runtime probe.
+    ///
+    /// Returns `None` until the first final cube for the probe is ready.
+    pub(crate) fn final_ready_generation(
+        &self,
+        space_id: i32,
+        renderable_index: i32,
+    ) -> Option<u64> {
+        self.runtime_final_ready_generation
+            .get(&ProbeIdentity {
+                space_id: RenderSpaceId(space_id),
+                renderable_index,
+            })
+            .copied()
     }
 
     /// Registers a completed runtime cubemap capture for a dynamic reflection probe.
@@ -128,6 +161,12 @@ impl ReflectionProbeSpecularSystem {
         self.last_ready
             .retain(|identity, _probe| !spaces.contains(&identity.space_id));
         let last_ready = last_ready_before.saturating_sub(self.last_ready.len());
+        self.bake_timings
+            .retain(|identity, _timing| !spaces.contains(&identity.space_id));
+        self.runtime_final_ready_generation
+            .retain(|identity, _generation| !spaces.contains(&identity.space_id));
+        self.realtime_log_last_emit_at
+            .retain(|identity, _last| !spaces.contains(&identity.space_id));
         let cache_before = self.space_cache.len();
         self.space_cache
             .retain(|space_id, _cache| !spaces.contains(space_id));
@@ -167,6 +206,12 @@ impl ReflectionProbeSpecularSystem {
         self.captures.retain_active(&collected.active_capture_keys);
         self.last_ready
             .retain(|identity, _probe| collected.active_identities.contains(identity));
+        self.bake_timings
+            .retain(|identity, _timing| collected.active_identities.contains(identity));
+        self.runtime_final_ready_generation
+            .retain(|identity, _generation| collected.active_identities.contains(identity));
+        self.realtime_log_last_emit_at
+            .retain(|identity, _last| collected.active_identities.contains(identity));
         self.ibl_cache
             .prune_completed_except(&collected.active_keys);
         collected.ready.sort_unstable_by_key(|probe| {
@@ -269,46 +314,46 @@ impl ReflectionProbeSpecularSystem {
             space_id,
             renderable_index: probe.renderable_index,
         };
+        let capture_key = RuntimeReflectionProbeCaptureKey {
+            space_id,
+            renderable_index: probe.renderable_index,
+        };
         if matches!(
             probe.state.r#type,
             ReflectionProbeType::OnChanges | ReflectionProbeType::Realtime
         ) && !reflection_probe_solid_color(probe.state)
         {
-            summary
-                .active_capture_keys
-                .insert(RuntimeReflectionProbeCaptureKey {
-                    space_id,
-                    renderable_index: probe.renderable_index,
-                });
+            summary.active_capture_keys.insert(capture_key);
         }
         let Some(source) = resolve_probe_source(space_id, probe, params.assets, &self.captures)
         else {
             return;
         };
         summary.active_identities.insert(identity);
-        let key = build_key(&source, face_size);
-        summary.active_keys.insert(key.clone());
         let sh2 = params
             .reflection_probe_sh2_enabled
             .then(|| params.sh2_system.ensure_ibl_source(space_id.0, &source))
             .flatten();
-        if self
-            .ibl_cache
-            .ensure_source(params.gpu, key.clone(), source)
-        {
-            stats.scheduled_ibl_bakes = stats.scheduled_ibl_bakes.saturating_add(1);
-        }
-        let current_ready = self
-            .ibl_cache
-            .completed_cube(&key)
-            .filter(|_cube| !params.reflection_probe_sh2_enabled || sh2.is_some())
-            .map(|cube| (key.clone(), cube.mip_levels, sh2.is_some()));
-        if let Some((key, mip_levels, has_sh2)) = current_ready {
+        let ready = self.schedule_and_resolve_ready(
+            params.gpu,
+            ProbeBakeRequest {
+                identity,
+                capture_key,
+                timing_mode: probe_timing_mode(probe.state.r#type),
+            },
+            source,
+            face_size,
+            &mut summary.active_keys,
+            stats,
+        );
+        let ready =
+            ready.filter(|_cube| !params.reflection_probe_sh2_enabled || sh2.is_some());
+        if let Some((key, _texture, mip_levels)) = ready {
             summary.ready.push(ReadyProbeSummary {
                 identity,
                 key,
                 mip_levels,
-                has_sh2,
+                has_sh2: sh2.is_some(),
             });
             return;
         }
@@ -356,6 +401,10 @@ impl ReflectionProbeSpecularSystem {
             space_id,
             renderable_index: probe.renderable_index,
         };
+        let capture_key = RuntimeReflectionProbeCaptureKey {
+            space_id,
+            renderable_index: probe.renderable_index,
+        };
         if matches!(
             probe.state.r#type,
             ReflectionProbeType::OnChanges | ReflectionProbeType::Realtime
@@ -364,39 +413,38 @@ impl ReflectionProbeSpecularSystem {
             cache
                 .summary
                 .active_capture_keys
-                .insert(RuntimeReflectionProbeCaptureKey {
-                    space_id,
-                    renderable_index: probe.renderable_index,
-                });
+                .insert(capture_key);
         }
         let Some(source) = resolve_probe_source(space_id, probe, params.assets, &self.captures)
         else {
             return;
         };
         cache.summary.active_identities.insert(identity);
-        let key = build_key(&source, face_size);
-        cache.summary.active_keys.insert(key.clone());
         let sh2 = params
             .reflection_probe_sh2_enabled
             .then(|| params.sh2_system.ensure_ibl_source(space_id.0, &source))
             .flatten();
-        if self
-            .ibl_cache
-            .ensure_source(params.gpu, key.clone(), source)
-        {
-            stats.scheduled_ibl_bakes = stats.scheduled_ibl_bakes.saturating_add(1);
-        }
+        let ready = self.schedule_and_resolve_ready(
+            params.gpu,
+            ProbeBakeRequest {
+                identity,
+                capture_key,
+                timing_mode: probe_timing_mode(probe.state.r#type),
+            },
+            source,
+            face_size,
+            &mut cache.summary.active_keys,
+            stats,
+        );
+        let ready =
+            ready.filter(|_cube| !params.reflection_probe_sh2_enabled || sh2.is_some());
         let Some(spatial) =
             spatial_probe_for_state(params.scene, space_id, probe, params.render_context, 0)
         else {
             return;
         };
-        let current_ready = self
-            .ibl_cache
-            .completed_cube(&key)
-            .filter(|_cube| !params.reflection_probe_sh2_enabled || sh2.is_some())
-            .map(|cube| (cube.texture.clone(), cube.mip_levels));
-        if let Some((texture, mip_levels)) = current_ready {
+        if let Some((key, texture, mip_levels)) = ready {
+            let has_sh2 = sh2.is_some();
             let mut metadata = metadata_for_spatial(&spatial, probe.state, sh2.as_ref());
             metadata.params[1] = mip_levels.saturating_sub(1) as f32;
             self.last_ready.insert(
@@ -412,7 +460,7 @@ impl ReflectionProbeSpecularSystem {
                 identity,
                 key: key.clone(),
                 mip_levels,
-                has_sh2: sh2.is_some(),
+                has_sh2,
             });
             cache.ready.push(ReadyProbe {
                 identity,
@@ -446,6 +494,178 @@ impl ReflectionProbeSpecularSystem {
                 spatial,
             });
         }
+    }
+
+    /// Schedules the IBL bake(s) for one probe source and returns the best cube ready to sample.
+    ///
+    /// Non-runtime sources bake a single final cube. Runtime (OnChanges/Realtime) sources bake a
+    /// cheap draft cube first for a fast blurry result, then a final cube that replaces it; the
+    /// draft cube is kept resident until the final cube finishes.
+    fn schedule_and_resolve_ready(
+        &mut self,
+        gpu: &mut GpuContext,
+        request: ProbeBakeRequest,
+        source: SkyboxIblSource,
+        face_size: u32,
+        active_keys: &mut HashSet<SkyboxIblKey>,
+        stats: &mut MaintainStats,
+    ) -> Option<(SkyboxIblKey, Arc<wgpu::Texture>, u32)> {
+        let final_key = build_key(&source, face_size, IblBakeQuality::Final);
+        active_keys.insert(final_key.clone());
+        if !matches!(source, SkyboxIblSource::RuntimeCubemap(_)) {
+            if self
+                .ibl_cache
+                .ensure_source(gpu, final_key.clone(), source)
+            {
+                stats.scheduled_ibl_bakes = stats.scheduled_ibl_bakes.saturating_add(1);
+            }
+            return self
+                .ibl_cache
+                .completed_cube(&final_key)
+                .map(|cube| (final_key, cube.texture.clone(), cube.mip_levels));
+        }
+
+        let generation = self
+            .captures
+            .get(request.capture_key)
+            .map(|capture| capture.generation);
+        if request.timing_mode != ProbeTimingMode::None {
+            self.refresh_bake_timing(request.identity, request.capture_key);
+        }
+        // Anti-strobe: once a probe has shown a sharp (final) cube, never swap back to a blurry
+        // draft -- that sharp->blurry->sharp flicker is a seizure risk during rapid changes.
+        // Drafts are only used for the first (cold) appearance; afterwards we hold the previous
+        // sharp result until the next sharp bake lands.
+        let hold_sharp_after_first_final = request.timing_mode != ProbeTimingMode::None;
+        let has_shown_final = hold_sharp_after_first_final
+            && self
+                .runtime_final_ready_generation
+                .contains_key(&request.identity);
+        let draft_key = build_key(&source, face_size, IblBakeQuality::Draft);
+        if let Some((texture, mip_levels)) = self
+            .ibl_cache
+            .completed_cube(&final_key)
+            .map(|cube| (cube.texture.clone(), cube.mip_levels))
+        {
+            if request.timing_mode != ProbeTimingMode::None {
+                if let Some(generation) = generation {
+                    self.runtime_final_ready_generation
+                        .insert(request.identity, generation);
+                }
+                self.log_probe_bake_ready(request.identity, request.timing_mode, true);
+            }
+            return Some((final_key, texture, mip_levels));
+        }
+        if has_shown_final {
+            // Keep baking the sharp cube; hold the previous sharp result (the caller falls back to
+            // `last_ready`) instead of flashing a fresh draft.
+            if self.ibl_cache.ensure_source(gpu, final_key, source) {
+                stats.scheduled_ibl_bakes = stats.scheduled_ibl_bakes.saturating_add(1);
+            }
+            return None;
+        }
+        if let Some((texture, mip_levels)) = self
+            .ibl_cache
+            .completed_cube(&draft_key)
+            .map(|cube| (cube.texture.clone(), cube.mip_levels))
+        {
+            if request.timing_mode != ProbeTimingMode::None {
+                self.log_probe_bake_ready(request.identity, request.timing_mode, false);
+            }
+            active_keys.insert(draft_key.clone());
+            if self.ibl_cache.ensure_source(gpu, final_key, source) {
+                stats.scheduled_ibl_bakes = stats.scheduled_ibl_bakes.saturating_add(1);
+            }
+            return Some((draft_key, texture, mip_levels));
+        }
+        active_keys.insert(draft_key.clone());
+        if self.ibl_cache.ensure_source(gpu, draft_key, source) {
+            stats.scheduled_ibl_bakes = stats.scheduled_ibl_bakes.saturating_add(1);
+        }
+        None
+    }
+
+    /// Resets the `probe-timing` stopwatch for a probe when a newer capture generation arrives.
+    fn refresh_bake_timing(
+        &mut self,
+        identity: ProbeIdentity,
+        capture_key: RuntimeReflectionProbeCaptureKey,
+    ) {
+        let Some((generation, requested_at)) = self
+            .captures
+            .get(capture_key)
+            .map(|capture| (capture.generation, capture.requested_at))
+        else {
+            return;
+        };
+        let needs_reset = self
+            .bake_timings
+            .get(&identity)
+            .is_none_or(|timing| timing.generation != generation);
+        if needs_reset {
+            self.bake_timings.insert(
+                identity,
+                ProbeBakeTiming {
+                    generation,
+                    requested_at,
+                    draft_logged: false,
+                    final_logged: false,
+                },
+            );
+        }
+    }
+
+    /// Logs the first time a draft or final runtime bake becomes ready for a capture generation.
+    fn log_probe_bake_ready(
+        &mut self,
+        identity: ProbeIdentity,
+        timing_mode: ProbeTimingMode,
+        is_final: bool,
+    ) {
+        let Some(timing) = self.bake_timings.get_mut(&identity) else {
+            return;
+        };
+        let already_logged = if is_final {
+            timing.final_logged
+        } else {
+            timing.draft_logged
+        };
+        if already_logged {
+            return;
+        }
+        if is_final {
+            timing.final_logged = true;
+        } else {
+            timing.draft_logged = true;
+        }
+        if timing_mode == ProbeTimingMode::Realtime && !is_final {
+            // Realtime probes run continuously; draft logs are noisy and less actionable.
+            return;
+        }
+        if timing_mode == ProbeTimingMode::Realtime {
+            let now = Instant::now();
+            if let Some(last) = self.realtime_log_last_emit_at.get(&identity).copied()
+                && now.duration_since(last) < REALTIME_IBL_TIMING_LOG_INTERVAL
+            {
+                return;
+            }
+            self.realtime_log_last_emit_at.insert(identity, now);
+        }
+        let elapsed_ms = timing.requested_at.elapsed().as_secs_f64() * 1000.0;
+        let generation = timing.generation;
+        logger::info!(
+            "probe-timing: {} {} IBL ready render_space={} renderable_index={} generation={} total_ms={:.1}",
+            match timing_mode {
+                ProbeTimingMode::OnChanges => "onchanges",
+                ProbeTimingMode::Realtime => "realtime",
+                ProbeTimingMode::None => "runtime",
+            },
+            if is_final { "final" } else { "draft" },
+            identity.space_id.0,
+            identity.renderable_index,
+            generation,
+            elapsed_ms,
+        );
     }
 
     fn refresh_collect_config(&mut self, config: ProbeCollectConfig) {
@@ -730,6 +950,47 @@ struct ProbeIdentity {
     space_id: RenderSpaceId,
     /// Dense reflection-probe renderable index.
     renderable_index: i32,
+}
+
+/// Per-probe inputs for scheduling and resolving one runtime IBL bake.
+struct ProbeBakeRequest {
+    /// Probe identity used for timing and last-ready bookkeeping.
+    identity: ProbeIdentity,
+    /// Runtime capture slot identity for this probe.
+    capture_key: RuntimeReflectionProbeCaptureKey,
+    /// Timing/logging mode for this probe type.
+    timing_mode: ProbeTimingMode,
+}
+
+/// Probe-type specific timing behavior for runtime IBL diagnostics and policies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProbeTimingMode {
+    /// No runtime probe timing behavior required.
+    None,
+    /// Host-triggered discrete probe updates.
+    OnChanges,
+    /// Continuous realtime probe updates (rate-limited logging).
+    Realtime,
+}
+
+/// `probe-timing` stopwatch state for one runtime reflection probe.
+struct ProbeBakeTiming {
+    /// Capture generation this timing tracks.
+    generation: u64,
+    /// Instant the renderer began the capture feeding this generation.
+    requested_at: Instant,
+    /// Whether the draft IBL completion has already been logged.
+    draft_logged: bool,
+    /// Whether the final IBL completion has already been logged.
+    final_logged: bool,
+}
+
+fn probe_timing_mode(probe_type: ReflectionProbeType) -> ProbeTimingMode {
+    match probe_type {
+        ReflectionProbeType::OnChanges => ProbeTimingMode::OnChanges,
+        ReflectionProbeType::Realtime => ProbeTimingMode::Realtime,
+        ReflectionProbeType::Baked => ProbeTimingMode::None,
+    }
 }
 
 /// Last known source that can be sampled immediately for one probe.

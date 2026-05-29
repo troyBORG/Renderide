@@ -1,4 +1,5 @@
 use super::*;
+use crate::skybox::ibl_cache::IblBakeQuality;
 
 #[test]
 fn closed_space_filter_matches_runtime_cubemap_space() {
@@ -13,6 +14,7 @@ fn closed_space_filter_matches_runtime_cubemap_space() {
             mip_levels: 1,
             storage_v_inverted: true,
             face_size: 128,
+            quality: IblBakeQuality::Final,
         },
         &spaces,
     ));
@@ -184,5 +186,6 @@ fn runtime_key(space_id: RenderSpaceId, renderable_index: i32) -> SkyboxIblKey {
         mip_levels: 1,
         storage_v_inverted: true,
         face_size: 128,
+        quality: IblBakeQuality::Final,
     }
 }
