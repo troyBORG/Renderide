@@ -6,6 +6,8 @@ use crate::config::{
     MotionBlurSettings, RendererSettings, TonemapMode,
 };
 
+use super::controls::{drag_f32_slider_setting, drag_u32_slider_setting};
+
 /// Master toggle, GTAO, bloom, motion blur, auto-exposure, and tonemap settings.
 pub(super) fn post_processing_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     ui.text("Post-Processing");
@@ -60,31 +62,43 @@ fn post_processing_gtao(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bo
 fn gtao_quality_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut bool) {
     ui.text("Quality");
     ui.indent();
-    if ui
-        .slider_config("Quality level", 0_u32, GTAO_MAX_QUALITY_LEVEL)
-        .build(&mut gtao.quality_level)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Quality level",
+        &mut gtao.quality_level,
+        0,
+        GTAO_MAX_QUALITY_LEVEL,
+    ) {
         *dirty = true;
     }
     ui.text_disabled("0 = low, 1 = medium, 2 = high, 3 = ultra, 4 = experimental high.");
-    if ui
-        .slider_config("Slice override", 0_u32, GTAO_MAX_SLICE_COUNT)
-        .build(&mut gtao.slice_count_override)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Slice override",
+        &mut gtao.slice_count_override,
+        0,
+        GTAO_MAX_SLICE_COUNT,
+    ) {
         *dirty = true;
     }
     ui.text_disabled("0 uses the selected preset.");
-    if ui
-        .slider_config("Steps override", 0_u32, GTAO_MAX_STEPS_PER_SLICE)
-        .build(&mut gtao.step_count)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Steps override",
+        &mut gtao.step_count,
+        0,
+        GTAO_MAX_STEPS_PER_SLICE,
+    ) {
         *dirty = true;
     }
     ui.text_disabled("0 uses the selected preset.");
-    if ui
-        .slider_config("Resolution divisor", 1_u32, GTAO_MAX_RESOLUTION_DIVISOR)
-        .build(&mut gtao.resolution_divisor)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Resolution divisor",
+        &mut gtao.resolution_divisor,
+        1,
+        GTAO_MAX_RESOLUTION_DIVISOR,
+    ) {
         *dirty = true;
     }
     let (effective_slices, effective_steps) = gtao.effective_sample_counts();
@@ -100,74 +114,97 @@ fn gtao_quality_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut bo
 fn gtao_sampling_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut bool) {
     ui.text("Sampling");
     ui.indent();
-    if ui
-        .slider_config("Radius (m)", 0.01_f32, 10.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.radius_meters)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Radius (m)",
+        &mut gtao.radius_meters,
+        0.01,
+        10.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Radius multiplier", 0.1_f32, 8.0_f32)
-        .display_format("%.3f")
-        .build(&mut gtao.radius_multiplier)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Radius multiplier",
+        &mut gtao.radius_multiplier,
+        0.1,
+        8.0,
+        Some("%.3f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Intensity", 0.0_f32, 8.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.intensity)
-    {
+    if drag_f32_slider_setting(ui, "Intensity", &mut gtao.intensity, 0.0, 8.0, Some("%.2f")) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Max pixel radius", 1.0_f32, 4096.0_f32)
-        .display_format("%.0f")
-        .build(&mut gtao.max_pixel_radius)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Max pixel radius",
+        &mut gtao.max_pixel_radius,
+        1.0,
+        4096.0,
+        Some("%.0f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Falloff range", 0.01_f32, 2.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.falloff_range)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Falloff range",
+        &mut gtao.falloff_range,
+        0.01,
+        2.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Sample distribution power", 0.25_f32, 6.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.sample_distribution_power)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Sample distribution power",
+        &mut gtao.sample_distribution_power,
+        0.25,
+        6.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Thin occluder compensation", 0.0_f32, 2.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.thin_occluder_compensation)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Thin occluder compensation",
+        &mut gtao.thin_occluder_compensation,
+        0.0,
+        2.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Final value power", 0.1_f32, 12.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.final_value_power)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Final value power",
+        &mut gtao.final_value_power,
+        0.1,
+        12.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Depth mip sampling offset", -8.0_f32, 30.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.depth_mip_sampling_offset)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Depth mip sampling offset",
+        &mut gtao.depth_mip_sampling_offset,
+        -8.0,
+        30.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Multi-bounce albedo", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.albedo_multibounce)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Multi-bounce albedo",
+        &mut gtao.albedo_multibounce,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
     ui.unindent();
@@ -177,17 +214,23 @@ fn gtao_sampling_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut b
 fn gtao_denoise_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut bool) {
     ui.text("Denoise");
     ui.indent();
-    if ui
-        .slider_config("Denoise passes", 0_u32, GTAO_MAX_DENOISE_PASSES)
-        .build(&mut gtao.denoise_passes)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Denoise passes",
+        &mut gtao.denoise_passes,
+        0,
+        GTAO_MAX_DENOISE_PASSES,
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Denoise blur beta", 0.0_f32, 16.0_f32)
-        .display_format("%.2f")
-        .build(&mut gtao.denoise_blur_beta)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Denoise blur beta",
+        &mut gtao.denoise_blur_beta,
+        0.0,
+        16.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
     ui.unindent();
@@ -207,46 +250,64 @@ fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut b
         *dirty = true;
     }
     let bloom = &mut g.post_processing.bloom;
-    if ui
-        .slider_config("Intensity", 0.0_f32, 1.0_f32)
-        .display_format("%.3f")
-        .build(&mut bloom.intensity)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Intensity",
+        &mut bloom.intensity,
+        0.0,
+        1.0,
+        Some("%.3f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Low-frequency boost", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut bloom.low_frequency_boost)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Low-frequency boost",
+        &mut bloom.low_frequency_boost,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Low-frequency boost curvature", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut bloom.low_frequency_boost_curvature)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Low-frequency boost curvature",
+        &mut bloom.low_frequency_boost_curvature,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("High-pass frequency", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut bloom.high_pass_frequency)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "High-pass frequency",
+        &mut bloom.high_pass_frequency,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Prefilter threshold (HDR)", 0.0_f32, 8.0_f32)
-        .display_format("%.2f")
-        .build(&mut bloom.prefilter_threshold)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Prefilter threshold (HDR)",
+        &mut bloom.prefilter_threshold,
+        0.0,
+        8.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Prefilter threshold softness", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut bloom.prefilter_threshold_softness)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Prefilter threshold softness",
+        &mut bloom.prefilter_threshold_softness,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
     ui.text("Composite mode");
@@ -261,10 +322,13 @@ fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut b
             *dirty = true;
         }
     }
-    if ui
-        .slider_config("Max mip dimension (px)", 64_u32, 2048_u32)
-        .build(&mut bloom.max_mip_dimension)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Max mip dimension (px)",
+        &mut bloom.max_mip_dimension,
+        64,
+        2048,
+    ) {
         *dirty = true;
     }
     let effective_max_mip_dimension = bloom.effective_max_mip_dimension();
@@ -292,24 +356,33 @@ fn post_processing_motion_blur(ui: &imgui::Ui, g: &mut RendererSettings, dirty: 
         *dirty = true;
     }
     let motion_blur = &mut g.post_processing.motion_blur;
-    if ui
-        .slider_config("Shutter angle", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut motion_blur.shutter_angle)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Shutter angle",
+        &mut motion_blur.shutter_angle,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Samples", 0_u32, MotionBlurSettings::MAX_SAMPLE_COUNT)
-        .build(&mut motion_blur.sample_count)
-    {
+    if drag_u32_slider_setting(
+        ui,
+        "Samples",
+        &mut motion_blur.sample_count,
+        0,
+        MotionBlurSettings::MAX_SAMPLE_COUNT,
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Max velocity (px)", 0.0_f32, 512.0_f32)
-        .display_format("%.0f")
-        .build(&mut motion_blur.max_velocity_pixels)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Max velocity (px)",
+        &mut motion_blur.max_velocity_pixels,
+        0.0,
+        512.0,
+        Some("%.0f"),
+    ) {
         *dirty = true;
     }
     if !motion_blur.is_effectively_enabled() {
@@ -330,36 +403,34 @@ fn post_processing_auto_exposure(ui: &imgui::Ui, g: &mut RendererSettings, dirty
         *dirty = true;
     }
     let auto = &mut g.post_processing.auto_exposure;
-    if ui
-        .slider_config("Min EV", -16.0_f32, 16.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.min_ev)
-    {
+    if drag_f32_slider_setting(ui, "Min EV", &mut auto.min_ev, -16.0, 16.0, Some("%.2f")) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Max EV", -16.0_f32, 16.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.max_ev)
-    {
+    if drag_f32_slider_setting(ui, "Max EV", &mut auto.max_ev, -16.0, 16.0, Some("%.2f")) {
         *dirty = true;
     }
     let (min_ev, max_ev) = auto.resolved_ev_range();
     if (min_ev, max_ev) != (auto.min_ev, auto.max_ev) {
         ui.text_disabled(format!("Effective EV range: {min_ev:.2} to {max_ev:.2}."));
     }
-    if ui
-        .slider_config("Low percentile", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.low_percent)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Low percentile",
+        &mut auto.low_percent,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("High percentile", 0.0_f32, 1.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.high_percent)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "High percentile",
+        &mut auto.high_percent,
+        0.0,
+        1.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
     let (low, high) = auto.resolved_filter();
@@ -368,36 +439,44 @@ fn post_processing_auto_exposure(ui: &imgui::Ui, g: &mut RendererSettings, dirty
             "Effective percentile filter: {low:.2} to {high:.2}."
         ));
     }
-    if ui
-        .slider_config("Brighten speed (EV/s)", 0.0_f32, 12.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.speed_brighten)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Brighten speed (EV/s)",
+        &mut auto.speed_brighten,
+        0.0,
+        12.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Darken speed (EV/s)", 0.0_f32, 12.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.speed_darken)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Darken speed (EV/s)",
+        &mut auto.speed_darken,
+        0.0,
+        12.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config(
-            "Transition distance (EV)",
-            AutoExposureSettings::MIN_TRANSITION_DISTANCE,
-            8.0_f32,
-        )
-        .display_format("%.2f")
-        .build(&mut auto.exponential_transition_distance)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Transition distance (EV)",
+        &mut auto.exponential_transition_distance,
+        AutoExposureSettings::MIN_TRANSITION_DISTANCE,
+        8.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
-    if ui
-        .slider_config("Middle-gray compensation (EV)", -8.0_f32, 8.0_f32)
-        .display_format("%.2f")
-        .build(&mut auto.compensation_ev)
-    {
+    if drag_f32_slider_setting(
+        ui,
+        "Middle-gray compensation (EV)",
+        &mut auto.compensation_ev,
+        -8.0,
+        8.0,
+        Some("%.2f"),
+    ) {
         *dirty = true;
     }
 }

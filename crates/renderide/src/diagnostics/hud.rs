@@ -129,6 +129,7 @@ impl DebugHud {
         {
             let io = imgui.io_mut();
             io.config_windows_move_from_title_bar_only = true;
+            io.config_drag_click_to_input_text = true;
             io.font_global_scale = hud_settings.resolved_ui_scale();
             io.ini_saving_rate = IMGUI_INI_SAVE_RATE_SECS;
         }
