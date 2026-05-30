@@ -180,6 +180,11 @@ impl Drop for BlockingCallWatchdog {
 mod tests {
     use super::*;
 
+    fn instant_before_now(offset: Duration) -> Instant {
+        let now = Instant::now();
+        now.checked_sub(offset).unwrap_or(now)
+    }
+
     #[test]
     fn disarm_before_timeout_does_not_block() {
         let start = Instant::now();
@@ -241,7 +246,7 @@ mod tests {
     #[test]
     fn early_disarm_before_delayed_worker_start_does_not_fire() {
         let (tx, rx) = mpsc::channel();
-        let armed_at = Instant::now() - Duration::from_millis(50);
+        let armed_at = instant_before_now(Duration::from_millis(50));
         let disarmed_at = armed_at + Duration::from_millis(1);
         let fired = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let fired_for_hook = Arc::clone(&fired);
@@ -264,7 +269,7 @@ mod tests {
     #[test]
     fn late_disarm_before_delayed_worker_start_fires_once() {
         let (tx, rx) = mpsc::channel();
-        let armed_at = Instant::now() - Duration::from_millis(50);
+        let armed_at = instant_before_now(Duration::from_millis(50));
         let disarmed_at = armed_at + Duration::from_millis(20);
         let fired = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let fired_for_hook = Arc::clone(&fired);
