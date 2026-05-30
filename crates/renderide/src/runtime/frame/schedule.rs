@@ -13,7 +13,7 @@ use crate::scene::SceneCoordinator;
 use crate::world_mesh::WorldMeshDrawCollectParallelism;
 
 use super::extract::{ExtractedFrame, PreparedViews};
-use super::view_plan::{FrameViewPlan, HeadlessOffscreenSnapshot, ViewFamilyPlan};
+use super::view_plan::{FrameViewPlan, ViewFamilyPlan};
 
 /// Ordered CPU render phases for every graph-backed render submission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -229,10 +229,7 @@ pub(in crate::runtime) fn execute_one_shot_view_plans<'a>(
             .first()
             .map(FrameViewPlan::frame_global_view)
             .unwrap_or_default();
-        PreparedViews::new(
-            ViewFamilyPlan::new(&frame_global, plans),
-            Option::<HeadlessOffscreenSnapshot>::None,
-        )
+        PreparedViews::new(ViewFamilyPlan::new(&frame_global, plans))
     });
     execute_prepared_views_with_cleanup(
         schedule,
