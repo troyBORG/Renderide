@@ -3,18 +3,21 @@
 use crate::config::RendererSettings;
 use crate::reflection_probes::specular::MAX_LOCAL_PROBES;
 
+use super::controls::drag_u32_slider_setting;
+
 /// Experimental feature flags.
 pub(super) fn experimental_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     ui.text("Experimental");
     ui.indent();
-    let mut mrp = g.experimental.effective_max_local_reflection_probes();
-    if ui.slider(
+    let mut mrp = g.experimental.effective_max_local_reflection_probes() as u32;
+    if drag_u32_slider_setting(
+        ui,
         "Maximum number of local reflection probes per mesh",
-        0,
-        MAX_LOCAL_PROBES,
         &mut mrp,
+        0,
+        MAX_LOCAL_PROBES as u32,
     ) {
-        g.experimental.max_local_reflection_probes = mrp.clamp(0, MAX_LOCAL_PROBES);
+        g.experimental.max_local_reflection_probes = mrp as usize;
         *dirty = true;
     }
     if ui.checkbox(

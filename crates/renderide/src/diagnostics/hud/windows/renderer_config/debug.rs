@@ -1,13 +1,11 @@
 //! Debug, diagnostics, and watchdog renderer-config HUD controls.
 
-use imgui::Drag;
-
 use crate::config::{
     DebugHudSettings, PowerPreferenceSetting, RenderGraphValidationMode, RendererSettings,
     WatchdogAction,
 };
 
-use super::controls::drag_u32_setting;
+use super::controls::{drag_f32_setting, drag_u32_setting};
 use super::log_folder::open_log_folder;
 
 const MIN_WATCHDOG_POLL_INTERVAL_MS: u32 = 10;
@@ -60,18 +58,16 @@ fn debug_hud_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool)
     }
     ui.text_disabled("Saves ImGui window placement to renderide-imgui.ini next to config.toml.");
     let mut ui_scale = g.debug.hud.resolved_ui_scale();
-    if Drag::new("HUD UI scale")
-        .range(
-            DebugHudSettings::MIN_UI_SCALE,
-            DebugHudSettings::MAX_UI_SCALE,
-        )
-        .speed(0.01)
-        .build(ui, &mut ui_scale)
-    {
-        g.debug.hud.ui_scale = ui_scale.clamp(
-            DebugHudSettings::MIN_UI_SCALE,
-            DebugHudSettings::MAX_UI_SCALE,
-        );
+    if drag_f32_setting(
+        ui,
+        "HUD UI scale",
+        &mut ui_scale,
+        DebugHudSettings::MIN_UI_SCALE,
+        DebugHudSettings::MAX_UI_SCALE,
+        0.01,
+        None,
+    ) {
+        g.debug.hud.ui_scale = ui_scale;
         *dirty = true;
     }
     ui.unindent();
