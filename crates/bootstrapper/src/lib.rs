@@ -23,6 +23,7 @@ pub mod ipc;
 mod orchestration;
 pub mod panic_hook;
 mod paths;
+pub mod photosensitivity_warning;
 mod process_state;
 mod protocol;
 mod protocol_handlers;
