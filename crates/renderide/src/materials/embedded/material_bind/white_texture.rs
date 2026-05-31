@@ -49,14 +49,17 @@ impl PlaceholderTextureColor {
 
     /// Texture format whose sampler decode preserves [`Self::rgba`] as the intended linear value.
     ///
-    /// `White`, `Black`, and `Red` keep the sRGB format the color-slot placeholders shipped with
-    /// so 0 and 1 round-trip identically. `Gray` and `FlatNormal` must stay linear (`Rgba8Unorm`):
+    /// `White`, `Black` and `Red` keep the sRGB format the color-slot placeholders shipped with
+    /// so 0 and 1 round-trip identically. `Gray` stays in sRGB format as well, as it is only used for
+    /// detail maps which perform computations in sRGB space. `FlatNormal` must stay linear (`Rgba8Unorm`):
     /// a component of 0.5 is stored as byte 128, and the sRGB EOTF would decode that as ~0.216
     /// instead of ~0.502.
     fn format(self) -> wgpu::TextureFormat {
         match self {
-            Self::White | Self::Black | Self::Red => wgpu::TextureFormat::Rgba8UnormSrgb,
-            Self::Gray | Self::FlatNormal => wgpu::TextureFormat::Rgba8Unorm,
+            Self::White | Self::Black | Self::Red | Self::Gray => {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            }
+            Self::FlatNormal => wgpu::TextureFormat::Rgba8Unorm,
         }
     }
 }

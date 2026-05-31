@@ -352,7 +352,7 @@ fn pbs_metallic_uses_uvsec_for_detail_uvs() -> io::Result<()> {
         "//#mat_default _UVSec float 0.0",
         "_UVSec: f32",
         "@location(5) uv1: vec2<f32>",
-        "pstd::detail_uv(uv0, uv1, mat._UVSec, mat._DetailAlbedoMap_ST)",
+        "pdet::detail_uv(uv0, uv1, mat._UVSec, mat._DetailAlbedoMap_ST)",
         "mv::world_uv2_vertex_main(instance_index, view_idx, pos, n, t, uv0, uv1)",
         "mv::world_uv2_vertex_main(instance_index, 0u, pos, n, t, uv0, uv1)",
     ] {
@@ -362,7 +362,7 @@ fn pbs_metallic_uses_uvsec_for_detail_uvs() -> io::Result<()> {
         );
     }
     assert!(
-        !src.contains("pstd::detail_uv(uv0, uv1, 0.0"),
+        !src.contains("pdet::detail_uv(uv0, uv1, 0.0"),
         "pbsmetallic.wgsl must not hard-code UV0 for secondary textures"
     );
     Ok(())
