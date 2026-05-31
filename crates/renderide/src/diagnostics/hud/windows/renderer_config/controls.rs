@@ -2,8 +2,8 @@
 
 use imgui::{Drag, SliderFlags};
 
-const SLIDER_DRAG_STEPS: f32 = 200.0;
-const MIN_U32_SLIDER_SPEED: f32 = 1.0;
+const NORMALIZED_DRAG_PIXELS: f32 = 200.0;
+const MIN_U32_SLIDER_SPEED: f32 = 0.001;
 const MIN_F32_SLIDER_SPEED: f32 = 0.001;
 
 /// Edits a `u32` setting through an ImGui drag widget with clamped integer output.
@@ -95,14 +95,49 @@ pub(in crate::diagnostics::hud::windows::renderer_config) fn drag_f32_slider_set
 }
 
 fn u32_slider_drag_speed(min: u32, max: u32) -> f32 {
-    (max.saturating_sub(min) as f32 / SLIDER_DRAG_STEPS).max(MIN_U32_SLIDER_SPEED)
+    (max.saturating_sub(min) as f32 / NORMALIZED_DRAG_PIXELS).max(MIN_U32_SLIDER_SPEED)
 }
 
 fn f32_slider_drag_speed(min: f32, max: f32) -> f32 {
     let span = (max - min).abs();
     if span.is_finite() {
-        (span / SLIDER_DRAG_STEPS).max(MIN_F32_SLIDER_SPEED)
+        (span / NORMALIZED_DRAG_PIXELS).max(MIN_F32_SLIDER_SPEED)
     } else {
         MIN_F32_SLIDER_SPEED
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drag_speed_normalizes_small_u32_ranges() {
+        assert_eq!(u32_slider_drag_speed(0, 4), 0.02);
+    }
+
+    #[test]
+    fn drag_speed_normalizes_mid_u32_ranges() {
+        assert_eq!(u32_slider_drag_speed(0, 100), 0.5);
+    }
+
+    #[test]
+    fn drag_speed_normalizes_large_u32_ranges() {
+        assert_eq!(u32_slider_drag_speed(0, 2000), 10.0);
+    }
+
+    #[test]
+    fn drag_speed_uses_fallback_for_empty_u32_ranges() {
+        assert_eq!(u32_slider_drag_speed(10, 10), MIN_U32_SLIDER_SPEED);
+    }
+
+    #[test]
+    fn drag_speed_normalizes_f32_ranges() {
+        assert_eq!(f32_slider_drag_speed(0.0, 10.0), 0.05);
+    }
+
+    #[test]
+    fn drag_speed_uses_fallback_for_invalid_f32_ranges() {
+        assert_eq!(f32_slider_drag_speed(f32::NAN, 10.0), MIN_F32_SLIDER_SPEED);
     }
 }

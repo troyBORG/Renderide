@@ -5,7 +5,7 @@ use crate::config::{
     WatchdogAction,
 };
 
-use super::controls::{drag_f32_setting, drag_u32_setting};
+use super::controls::{drag_f32_slider_setting, drag_u32_slider_setting};
 use super::log_folder::open_log_folder;
 
 const MIN_WATCHDOG_POLL_INTERVAL_MS: u32 = 10;
@@ -58,13 +58,12 @@ fn debug_hud_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool)
     }
     ui.text_disabled("Saves ImGui window placement to renderide-imgui.ini next to config.toml.");
     let mut ui_scale = g.debug.hud.resolved_ui_scale();
-    if drag_f32_setting(
+    if drag_f32_slider_setting(
         ui,
         "HUD UI scale",
         &mut ui_scale,
         DebugHudSettings::MIN_UI_SCALE,
         DebugHudSettings::MAX_UI_SCALE,
-        0.01,
         None,
     ) {
         g.debug.hud.ui_scale = ui_scale;
@@ -129,33 +128,30 @@ fn watchdog_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) 
     if ui.checkbox("Enable watchdog", &mut g.watchdog.enabled) {
         *dirty = true;
     }
-    if drag_u32_setting(
+    if drag_u32_slider_setting(
         ui,
         "Poll interval (ms)",
         &mut g.watchdog.poll_interval_ms,
         MIN_WATCHDOG_POLL_INTERVAL_MS,
         MAX_WATCHDOG_POLL_INTERVAL_MS,
-        10.0,
     ) {
         *dirty = true;
     }
-    if drag_u32_setting(
+    if drag_u32_slider_setting(
         ui,
         "Hitch threshold (ms, 0 = disabled)",
         &mut g.watchdog.hitch_threshold_ms,
         0,
         MAX_WATCHDOG_THRESHOLD_MS,
-        50.0,
     ) {
         *dirty = true;
     }
-    if drag_u32_setting(
+    if drag_u32_slider_setting(
         ui,
         "Hang threshold (ms)",
         &mut g.watchdog.hang_threshold_ms,
         1,
         MAX_WATCHDOG_THRESHOLD_MS,
-        100.0,
     ) {
         *dirty = true;
     }

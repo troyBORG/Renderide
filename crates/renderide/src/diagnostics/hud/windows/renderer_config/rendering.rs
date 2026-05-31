@@ -4,7 +4,7 @@ use crate::config::{
     GraphicsApiSetting, MsaaSampleCount, RendererSettings, SceneColorFormat, VsyncMode,
 };
 
-use super::controls::drag_u32_setting;
+use super::controls::drag_u32_slider_setting;
 
 const MAX_ASSET_INTEGRATION_BUDGET_MS: u32 = 100;
 
@@ -90,23 +90,21 @@ fn rendering_graph_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
 fn rendering_asset_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     ui.text("Assets");
     ui.indent();
-    if drag_u32_setting(
+    if drag_u32_slider_setting(
         ui,
         "Asset integration budget (ms)",
         &mut g.rendering.asset_integration_budget_ms,
         0,
         MAX_ASSET_INTEGRATION_BUDGET_MS,
-        1.0,
     ) {
         *dirty = true;
     }
-    if drag_u32_setting(
+    if drag_u32_slider_setting(
         ui,
         "Extra particle integration budget (ms)",
         &mut g.rendering.asset_particle_integration_budget_ms,
         0,
         MAX_ASSET_INTEGRATION_BUDGET_MS,
-        1.0,
     ) {
         *dirty = true;
     }
