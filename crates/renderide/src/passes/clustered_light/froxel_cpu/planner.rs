@@ -20,7 +20,7 @@ pub(super) const CPU_FROXEL_PARALLEL_MIN_LIGHTS: usize = LIGHT_WORK_PARALLEL_MIN
 /// CPU froxel light chunks assigned to one worker task.
 pub(super) const CPU_FROXEL_PARALLEL_CHUNK_TASKS: usize = 1;
 /// Cluster-count stride for local prefix-sum chunks.
-pub(super) const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 256;
+pub(super) const CPU_FROXEL_PREFIX_CHUNK_SIZE: usize = 128;
 /// Prefix chunks assigned to one Rayon worker leaf.
 pub(super) const CPU_FROXEL_PREFIX_CHUNKS_PER_TASK: usize = 1;
 /// Froxel count at which count merge, offset, and prefix work uses Rayon.

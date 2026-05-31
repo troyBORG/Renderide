@@ -20,7 +20,7 @@ const LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS: usize = 1;
 /// View count required before per-view light preparation fans out.
 const LIGHT_VIEW_PREP_PARALLEL_MIN_VIEWS: usize = LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS * 2;
 /// Candidate light rows required before per-view light preparation fans out.
-const LIGHT_VIEW_PREP_PARALLEL_MIN_LIGHTS: usize = 64;
+const LIGHT_VIEW_PREP_PARALLEL_MIN_LIGHTS: usize = 32;
 
 struct PreparedViewLightPacket {
     view_id: ViewId,

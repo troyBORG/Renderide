@@ -35,7 +35,7 @@ const DEAD_TRANSFORM_ID: usize = usize::MAX;
 /// Cached lights assigned to one world-space resolution worker chunk.
 ///
 /// Light resolution is math-heavy enough that two 32-light grains are a useful lower bound.
-const LIGHT_RESOLVE_PARALLEL_CHUNK_LIGHTS: usize = 32;
+const LIGHT_RESOLVE_PARALLEL_CHUNK_LIGHTS: usize = 16;
 /// Cached light count at which world-space light resolution uses Rayon.
 const LIGHT_RESOLVE_PARALLEL_MIN_LIGHTS: usize = LIGHT_RESOLVE_PARALLEL_CHUNK_LIGHTS * 2;
 

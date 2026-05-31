@@ -15,8 +15,8 @@ use super::AssetTransferQueue;
 use super::integrator::StepResult;
 use super::mesh_upload_batch::MeshUploadStagingBatch;
 
-const MESH_PREPARE_BACKGROUND_MIN_BYTES: usize = 64 * 1024;
-const MESH_PREPARE_BACKGROUND_MIN_VERTICES: i32 = 1024;
+const MESH_PREPARE_BACKGROUND_MIN_BYTES: usize = 32 * 1024;
+const MESH_PREPARE_BACKGROUND_MIN_VERTICES: i32 = 512;
 
 /// GPU handles needed by a mesh upload task.
 pub(super) struct MeshTaskGpu<'a> {

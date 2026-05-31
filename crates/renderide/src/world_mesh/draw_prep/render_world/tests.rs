@@ -533,8 +533,8 @@ fn snapshot_rebuild_tasks_chunk_by_retained_template_count() {
     let tasks = build_snapshot_rebuild_tasks(&[(0, space_id, &space)]);
 
     assert_eq!(tasks.len(), 2);
-    assert_eq!(tasks[0].range, 0..2);
-    assert_eq!(tasks[0].retained_template_count(), 1024);
-    assert_eq!(tasks[1].range, 2..3);
-    assert_eq!(tasks[1].retained_template_count(), 1);
+    assert_eq!(tasks[0].range, 0..1);
+    assert_eq!(tasks[0].retained_template_count(), 800);
+    assert_eq!(tasks[1].range, 1..3);
+    assert_eq!(tasks[1].retained_template_count(), 225);
 }

@@ -1,7 +1,7 @@
 //! Helpers for negative-terminated dense renderable update slabs.
 
 /// Row count assigned to one dense fixup worker chunk.
-const FIXUP_PARALLEL_CHUNK_ROWS: usize = 64;
+const FIXUP_PARALLEL_CHUNK_ROWS: usize = 32;
 
 /// Minimum slab length required before transform-removal fixups switch from a
 /// serial loop to a rayon parallel iterator.

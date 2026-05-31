@@ -20,12 +20,12 @@ use crate::shared::{
 /// Accepted blendshape batches assigned to one grouping threshold grain.
 ///
 /// Batch count above which the grouping + worker dispatch cost is likely to pay off.
-const BLENDSHAPE_APPLY_PARALLEL_CHUNK_BATCHES: usize = 32;
+const BLENDSHAPE_APPLY_PARALLEL_CHUNK_BATCHES: usize = 16;
 /// Touched-renderer count above which blendshape weight apply fans out across rayon.
 const BLENDSHAPE_APPLY_PARALLEL_MIN: usize = BLENDSHAPE_APPLY_PARALLEL_CHUNK_BATCHES * 2;
 
 /// Skinned renderers assigned to one blendshape apply worker chunk.
-const BLENDSHAPE_APPLY_PARALLEL_CHUNK_RENDERERS: usize = 16;
+const BLENDSHAPE_APPLY_PARALLEL_CHUNK_RENDERERS: usize = 8;
 /// Renderer count above which grouped blendshape apply has enough worker slots to fan out.
 const BLENDSHAPE_APPLY_PARALLEL_MIN_RENDERERS: usize =
     BLENDSHAPE_APPLY_PARALLEL_CHUNK_RENDERERS * 2;

@@ -45,7 +45,7 @@ use lod::{LodVisibility, build_lod_visibility};
 use prepared::collect_prepared_chunk;
 use scene_walk::{build_chunk_specs, collect_chunk, estimate_active_renderable_count};
 
-const SPATIAL_QUERY_RUN_CHUNK_TARGET: usize = 64;
+const SPATIAL_QUERY_RUN_CHUNK_TARGET: usize = 32;
 
 #[cfg(test)]
 use super::prepared_renderables::FramePreparedDraw;

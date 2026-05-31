@@ -7,7 +7,7 @@ use super::trail::{TrailPolyline, trail_chunks_by_point_budget_from_trails};
 use super::types::PointParticle;
 
 /// Cheap bound scans use larger chunks so scheduling overhead stays amortized.
-const PARTICLE_BOUNDS_PARALLEL_CHUNK_POINTS: usize = 16_384;
+const PARTICLE_BOUNDS_PARALLEL_CHUNK_POINTS: usize = 4_096;
 /// Point or trail point count required before bounds reduction uses Rayon.
 const PARTICLE_BOUNDS_PARALLEL_MIN_POINTS: usize = PARTICLE_BOUNDS_PARALLEL_CHUNK_POINTS * 2;
 

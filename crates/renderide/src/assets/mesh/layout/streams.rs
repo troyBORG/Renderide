@@ -8,7 +8,7 @@ use super::super::gpu_mesh::attribute_reader::AttributeReader;
 use super::buffer_layout::vertex_format_size;
 
 /// Vertices assigned to one stream expansion worker chunk.
-const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 512;
+const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 256;
 /// Vertex count above which stream expansion fans out across Rayon workers.
 const VERTEX_STREAM_PARALLEL_MIN: usize = VERTEX_STREAM_PARALLEL_CHUNK_VERTICES * 2;
 

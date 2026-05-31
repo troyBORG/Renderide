@@ -19,10 +19,10 @@ use super::upload::{
 pub(super) const BILLBOARD_VERTICES_PER_POINT: usize = 4;
 /// Number of billboard indices generated for one point particle.
 pub(super) const BILLBOARD_INDICES_PER_POINT: usize = 12;
-/// Minimum point particles before Rayon decode/fill scheduling is worthwhile.
-const POINT_PARTICLE_PARALLEL_MIN: usize = 2_048;
 /// Point particle chunk size used by parallel vertex/index fill.
-const POINT_PARTICLE_PARALLEL_CHUNK: usize = 1_024;
+const POINT_PARTICLE_PARALLEL_CHUNK: usize = 256;
+/// Minimum point particles before Rayon decode/fill scheduling is worthwhile.
+const POINT_PARTICLE_PARALLEL_MIN: usize = POINT_PARTICLE_PARALLEL_CHUNK * 2;
 
 /// CPU output from building a point render buffer.
 #[derive(Debug)]

@@ -13,7 +13,7 @@ use super::item::{WorldMeshDrawArrangementStats, WorldMeshDrawItem};
 use super::sort::sort_order_sensitive_draws;
 
 /// Draws assigned to one phase-partition worker chunk.
-const ARRANGE_PARALLEL_CHUNK_DRAWS: usize = 256;
+const ARRANGE_PARALLEL_CHUNK_DRAWS: usize = 128;
 
 /// Draw count at which phase partitioning uses Rayon workers.
 ///

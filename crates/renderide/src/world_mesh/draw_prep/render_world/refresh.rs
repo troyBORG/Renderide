@@ -17,7 +17,7 @@ use super::super::prepared_renderables::{
 use super::state::{RenderWorldRendererRef, RenderWorldRendererTemplate, RenderWorldSpace};
 
 /// Records per worker chunk when refreshing dense retained renderer tables.
-const RENDER_WORLD_REFRESH_CHUNK_SIZE: usize = 64;
+const RENDER_WORLD_REFRESH_CHUNK_SIZE: usize = 32;
 /// Retained-renderer refresh chunks assigned to one Rayon worker leaf.
 const RENDER_WORLD_REFRESH_CHUNKS_PER_TASK: usize = 1;
 /// Renderer count above which retained-template refresh uses Rayon.

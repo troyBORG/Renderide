@@ -7,7 +7,7 @@ use rayon::slice::ParallelSliceMut;
 use super::item::WorldMeshDrawItem;
 
 /// Draws assigned to one secondary structural resort worker chunk.
-const INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRAWS: usize = 512;
+const INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRAWS: usize = 256;
 
 /// Equal-prefix run length above which the secondary structural resort uses Rayon.
 ///
@@ -17,7 +17,7 @@ const INTRA_PREFIX_RUN_PARALLEL_MIN: usize = INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRA
 
 /// Draws assigned to one test-only primary sort worker chunk.
 #[cfg(test)]
-const PRIMARY_SORT_PARALLEL_CHUNK_DRAWS: usize = 512;
+const PRIMARY_SORT_PARALLEL_CHUNK_DRAWS: usize = 256;
 /// Draw count above which the test-only primary sort uses Rayon.
 #[cfg(test)]
 const PRIMARY_SORT_PARALLEL_MIN_DRAWS: usize = PRIMARY_SORT_PARALLEL_CHUNK_DRAWS * 2;

@@ -11,34 +11,35 @@ pub(crate) const MIN_PARALLEL_CHUNKS: usize = 2;
 pub(crate) const REFERENCE_WORKER_CAP: usize = 16;
 
 /// Minimum visibility-style items in one task packet.
-pub(crate) const VISIBILITY_CULL_CHUNK_ITEMS: usize = 1024;
+pub(crate) const VISIBILITY_CULL_CHUNK_ITEMS: usize = 256;
 
 /// Visible draw commands in one task packet.
-pub(crate) const RENDER_COMMAND_CHUNK_DRAWS: usize = 128;
+pub(crate) const RENDER_COMMAND_CHUNK_DRAWS: usize = 64;
 
 /// Renderable update rows in one task packet.
-pub(crate) const RENDERABLE_UPDATE_CHUNK_ITEMS: usize = 64;
+pub(crate) const RENDERABLE_UPDATE_CHUNK_ITEMS: usize = 32;
 
 /// Lights in one task packet.
-pub(crate) const LIGHT_WORK_CHUNK_LIGHTS: usize = 32;
+pub(crate) const LIGHT_WORK_CHUNK_LIGHTS: usize = 16;
 
 /// Minimum lights before a light-work path may use Rayon.
-pub(crate) const LIGHT_WORK_PARALLEL_MIN_LIGHTS: usize = 64;
+pub(crate) const LIGHT_WORK_PARALLEL_MIN_LIGHTS: usize =
+    LIGHT_WORK_CHUNK_LIGHTS * MIN_PARALLEL_CHUNKS;
 
 /// Minimum branchy relevance/material items in one task packet.
-pub(crate) const RELEVANCE_PACKET_MIN_ITEMS: usize = 32;
+pub(crate) const RELEVANCE_PACKET_MIN_ITEMS: usize = 16;
 
 /// Maximum branchy relevance/material items in one task packet.
-pub(crate) const RELEVANCE_PACKET_MAX_ITEMS: usize = 2048;
+pub(crate) const RELEVANCE_PACKET_MAX_ITEMS: usize = 512;
 
 /// Target branchy relevance/material packets per worker.
-pub(crate) const RELEVANCE_TARGET_PACKETS_PER_WORKER: usize = 32;
+pub(crate) const RELEVANCE_TARGET_PACKETS_PER_WORKER: usize = 6;
 
 /// Baseline draw count where view-level frame work is usually large enough for Rayon.
-const DRAW_HEAVY_PARALLEL_BASE_DRAWS: usize = 512;
+const DRAW_HEAVY_PARALLEL_BASE_DRAWS: usize = 128;
 
 /// Additional draw count per worker used to scale the draw-heavy gate on larger machines.
-const DRAW_HEAVY_PARALLEL_DRAWS_PER_WORKER: usize = 128;
+const DRAW_HEAVY_PARALLEL_DRAWS_PER_WORKER: usize = 16;
 
 /// Admission decision for one parallel work site.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,7 +121,8 @@ pub(crate) const fn admit_renderable_update_items(
 
 /// Returns `true` when a space-level visibility-style fan-out has enough total work.
 pub(crate) const fn has_visibility_parallel_work(item_count: usize, worker_count: usize) -> bool {
-    reference_worker_count(worker_count) > 1 && item_count >= VISIBILITY_CULL_CHUNK_ITEMS
+    reference_worker_count(worker_count) > 1
+        && has_two_chunks(item_count, VISIBILITY_CULL_CHUNK_ITEMS)
 }
 
 /// Admits light work using the reference light packet size and light-count floor.
@@ -276,10 +278,6 @@ impl FrameParallelPolicy {
     pub(crate) const fn independent_item_threshold(self) -> usize {
         if self.worker_count <= 1 {
             usize::MAX
-        } else if self.worker_count >= 8 {
-            4
-        } else if self.worker_count >= 4 {
-            3
         } else {
             MIN_PARALLEL_CHUNKS
         }
@@ -336,22 +334,22 @@ mod tests {
 
     #[test]
     fn draw_heavy_threshold_scales_with_worker_count() {
-        assert_eq!(FrameParallelPolicy::new(1).draw_heavy_threshold(), 512);
-        assert_eq!(FrameParallelPolicy::new(4).draw_heavy_threshold(), 512);
-        assert_eq!(FrameParallelPolicy::new(8).draw_heavy_threshold(), 1024);
-        assert_eq!(FrameParallelPolicy::new(32).draw_heavy_threshold(), 2048);
+        assert_eq!(FrameParallelPolicy::new(1).draw_heavy_threshold(), 128);
+        assert_eq!(FrameParallelPolicy::new(4).draw_heavy_threshold(), 128);
+        assert_eq!(FrameParallelPolicy::new(8).draw_heavy_threshold(), 128);
+        assert_eq!(FrameParallelPolicy::new(32).draw_heavy_threshold(), 256);
     }
 
     #[test]
-    fn independent_items_require_multiple_chunks_and_worker_scaled_item_count() {
+    fn independent_items_require_multiple_chunks() {
         let policy = FrameParallelPolicy::new(8);
         assert_eq!(
-            policy.admit_independent_items(FrameCpuWorkload::independent_items(2), 1),
+            policy.admit_independent_items(FrameCpuWorkload::independent_items(1), 1),
             ParallelAdmission::Serial
         );
         assert!(
             policy
-                .admit_independent_items(FrameCpuWorkload::independent_items(4), 1)
+                .admit_independent_items(FrameCpuWorkload::independent_items(2), 1)
                 .is_parallel()
         );
     }
@@ -364,12 +362,12 @@ mod tests {
             ParallelAdmission::Serial
         );
         assert_eq!(
-            policy.admit_draw_heavy_views(FrameCpuWorkload::view_draws(2, 511), 1),
+            policy.admit_draw_heavy_views(FrameCpuWorkload::view_draws(2, 127), 1),
             ParallelAdmission::Serial
         );
         assert!(
             policy
-                .admit_draw_heavy_views(FrameCpuWorkload::view_draws(2, 512), 1)
+                .admit_draw_heavy_views(FrameCpuWorkload::view_draws(2, 128), 1)
                 .is_parallel()
         );
     }
@@ -401,6 +399,10 @@ mod tests {
                 chunk_size: RENDER_COMMAND_CHUNK_DRAWS
             }
         );
+        assert_eq!(
+            admit_render_command_items(RENDER_COMMAND_CHUNK_DRAWS * 2, 1),
+            ParallelAdmission::Serial
+        );
     }
 
     #[test]
@@ -411,10 +413,20 @@ mod tests {
                 chunk_size: RENDERABLE_UPDATE_CHUNK_ITEMS
             }
         );
-        assert!(has_visibility_parallel_work(VISIBILITY_CULL_CHUNK_ITEMS, 8));
-        assert_eq!(admit_light_work_items(63, 8), ParallelAdmission::Serial);
+        assert!(!has_visibility_parallel_work(
+            VISIBILITY_CULL_CHUNK_ITEMS,
+            8
+        ));
+        assert!(has_visibility_parallel_work(
+            VISIBILITY_CULL_CHUNK_ITEMS * 2,
+            8
+        ));
         assert_eq!(
-            admit_light_work_items(64, 8),
+            admit_light_work_items(LIGHT_WORK_CHUNK_LIGHTS * 2 - 1, 8),
+            ParallelAdmission::Serial
+        );
+        assert_eq!(
+            admit_light_work_items(LIGHT_WORK_CHUNK_LIGHTS * 2, 8),
             ParallelAdmission::Parallel {
                 chunk_size: LIGHT_WORK_CHUNK_LIGHTS
             }
@@ -424,6 +436,10 @@ mod tests {
     #[test]
     fn relevance_packet_size_uses_unreal_style_clamps() {
         assert_eq!(relevance_packet_size(1, 8), RELEVANCE_PACKET_MIN_ITEMS);
+        assert_eq!(
+            relevance_packet_size(RELEVANCE_PACKET_MIN_ITEMS * 6 * 8 + 1, 8),
+            RELEVANCE_PACKET_MIN_ITEMS + 1
+        );
         assert_eq!(
             relevance_packet_size(usize::MAX, 1),
             RELEVANCE_PACKET_MAX_ITEMS

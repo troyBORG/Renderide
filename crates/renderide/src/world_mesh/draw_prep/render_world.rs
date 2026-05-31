@@ -36,11 +36,12 @@ const DIRTY_SPACE_REFRESH_PARALLEL_CHUNK_SPACES: usize = 1;
 /// Prepared-snapshot copy tasks assigned to one rebuild worker.
 const SNAPSHOT_REBUILD_PARALLEL_CHUNK_TASKS: usize = 1;
 /// Estimated dirty renderer/template work required before retained cache refresh uses Rayon.
-const DIRTY_SPACE_REFRESH_PARALLEL_MIN_WORK_UNITS: usize = 1024;
+const DIRTY_SPACE_REFRESH_PARALLEL_MIN_WORK_UNITS: usize = 64;
 /// Retained draw templates targeted for one prepared-snapshot rebuild task.
-const SNAPSHOT_REBUILD_PARALLEL_TARGET_CHUNK_TEMPLATES: usize = 1024;
+const SNAPSHOT_REBUILD_PARALLEL_TARGET_CHUNK_TEMPLATES: usize = 256;
 /// Retained draw-template count required before snapshot rebuild fan-out is considered.
-const SNAPSHOT_REBUILD_PARALLEL_MIN_DRAWS: usize = 2048;
+const SNAPSHOT_REBUILD_PARALLEL_MIN_DRAWS: usize =
+    SNAPSHOT_REBUILD_PARALLEL_TARGET_CHUNK_TEMPLATES * 2;
 
 /// Returns the admission decision for transform-root dirty expansion.
 fn transform_root_expansion_admission(

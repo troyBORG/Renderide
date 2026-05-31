@@ -247,13 +247,13 @@ mod tests {
     }
 
     #[test]
-    fn per_view_record_admission_stays_serial_for_tiny_two_view_graphs() {
+    fn per_view_record_admission_admits_medium_two_view_graphs() {
         let estimated_record_work = per_view_record_draw_equivalent(2, 0, 3);
         let admission =
             per_view_record_admission(FrameParallelPolicy::new(4), 2, estimated_record_work, 1);
 
         assert_eq!(estimated_record_work, 384);
-        assert_eq!(admission, ParallelAdmission::Serial);
+        assert_eq!(admission, ParallelAdmission::Parallel { chunk_size: 1 });
     }
 
     #[test]

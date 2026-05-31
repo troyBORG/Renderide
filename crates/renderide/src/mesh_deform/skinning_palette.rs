@@ -7,7 +7,7 @@ use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::RenderingContext;
 
 /// Bone count assigned to one palette construction worker chunk.
-const SKINNING_PALETTE_PARALLEL_CHUNK_BONES: usize = 64;
+const SKINNING_PALETTE_PARALLEL_CHUNK_BONES: usize = 32;
 /// Bone count above which palette construction fans out across rayon.
 ///
 /// Per-bone work is one world lookup plus a Mat4 multiply, so two chunks are enough to amortize

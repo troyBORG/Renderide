@@ -13,7 +13,7 @@ use super::context::ExpandCtx;
 use super::render_buffers::ParticleRenderBufferPreparedKind;
 
 /// Generated mesh-particle draws targeted per worker chunk.
-const MESH_PARTICLE_EXPAND_PARALLEL_CHUNK_DRAWS: usize = 512;
+const MESH_PARTICLE_EXPAND_PARALLEL_CHUNK_DRAWS: usize = 256;
 /// Generated mesh-particle draw count required before expansion fans out.
 const MESH_PARTICLE_EXPAND_PARALLEL_MIN_DRAWS: usize =
     MESH_PARTICLE_EXPAND_PARALLEL_CHUNK_DRAWS * 2;

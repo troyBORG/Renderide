@@ -13,7 +13,7 @@ use super::context::ExpandCtx;
 use super::renderers::{expand_space_into, renderer_count_for_space, try_expand_one_renderer};
 
 /// Renderer slice width used by aggressive prepared-renderable expansion.
-const PREPARED_EXPAND_RENDERER_CHUNK_SIZE: usize = 64;
+const PREPARED_EXPAND_RENDERER_CHUNK_SIZE: usize = 32;
 /// Renderer count in one render space above which expansion fans out across Rayon chunks.
 const PREPARED_EXPAND_PARALLEL_MIN_RENDERERS: usize = PREPARED_EXPAND_RENDERER_CHUNK_SIZE * 2;
 /// Renderer chunks assigned to one prepared-renderable expansion worker.
@@ -222,11 +222,14 @@ mod tests {
         push_expansion_chunks(&mut specs, ExpansionChunkKind::Static, 130);
         push_expansion_chunks(&mut specs, ExpansionChunkKind::Skinned, 70);
 
-        assert_eq!(specs.len(), 5);
-        assert_chunk(&specs[0], ExpansionChunkKind::Static, 0..64);
-        assert_chunk(&specs[1], ExpansionChunkKind::Static, 64..128);
-        assert_chunk(&specs[2], ExpansionChunkKind::Static, 128..130);
-        assert_chunk(&specs[3], ExpansionChunkKind::Skinned, 0..64);
-        assert_chunk(&specs[4], ExpansionChunkKind::Skinned, 64..70);
+        assert_eq!(specs.len(), 8);
+        assert_chunk(&specs[0], ExpansionChunkKind::Static, 0..32);
+        assert_chunk(&specs[1], ExpansionChunkKind::Static, 32..64);
+        assert_chunk(&specs[2], ExpansionChunkKind::Static, 64..96);
+        assert_chunk(&specs[3], ExpansionChunkKind::Static, 96..128);
+        assert_chunk(&specs[4], ExpansionChunkKind::Static, 128..130);
+        assert_chunk(&specs[5], ExpansionChunkKind::Skinned, 0..32);
+        assert_chunk(&specs[6], ExpansionChunkKind::Skinned, 32..64);
+        assert_chunk(&specs[7], ExpansionChunkKind::Skinned, 64..70);
     }
 }

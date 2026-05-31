@@ -11,7 +11,7 @@ use super::math::{
     render_transform_to_matrix,
 };
 
-const WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE: usize = 64;
+const WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE: usize = 32;
 /// Hierarchy-depth chunks assigned to one bulk rebuild worker.
 const WORLD_BULK_REBUILD_PARALLEL_CHUNK_TASKS: usize = 1;
 /// Node count above which a fully dirty cache routes through the bulk rebuild path.
@@ -19,9 +19,10 @@ const WORLD_BULK_REBUILD_PARALLEL_MIN: usize = WORLD_BULK_REBUILD_PARALLEL_CHUNK
 /// Node count in one hierarchy depth level above which that level fans out across rayon.
 const WORLD_BULK_REBUILD_PARALLEL_LEVEL_MIN: usize = WORLD_BULK_REBUILD_PARALLEL_CHUNK_SIZE * 2;
 /// Nodes assigned to one partial dirty rebuild worker chunk.
-const WORLD_PARTIAL_REBUILD_PARALLEL_CHUNK_NODES: usize = 64;
+const WORLD_PARTIAL_REBUILD_PARALLEL_CHUNK_NODES: usize = 32;
 /// Dirty node count required before partial dirty rebuilds use the level-synchronous path.
-const WORLD_PARTIAL_REBUILD_PARALLEL_MIN_DIRTY: usize = 1024;
+const WORLD_PARTIAL_REBUILD_PARALLEL_MIN_DIRTY: usize =
+    WORLD_PARTIAL_REBUILD_PARALLEL_CHUNK_NODES * 2;
 /// Minimum dirty density divisor for the partial rebuild path.
 const WORLD_PARTIAL_REBUILD_MIN_DENSITY_DIVISOR: usize = 16;
 

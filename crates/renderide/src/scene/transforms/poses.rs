@@ -13,7 +13,7 @@ use crate::shared::{RenderTransform, TransformPoseUpdate};
 use super::NodeDirtyMask;
 
 /// Pose rows assigned to one collection worker chunk.
-const POSE_UPDATE_PARALLEL_CHUNK_ROWS: usize = 64;
+const POSE_UPDATE_PARALLEL_CHUNK_ROWS: usize = 32;
 /// Minimum pose-update count before [`collect_pose_rows`] fans out collection across rayon
 /// workers. Below this threshold the scalar loop is faster than rayon dispatch overhead.
 const POSE_UPDATE_PARALLEL_MIN_ROWS: usize = POSE_UPDATE_PARALLEL_CHUNK_ROWS * 2;

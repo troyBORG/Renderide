@@ -138,7 +138,7 @@ const DEFORM_SPACE_PARALLEL_CHUNK_SPACES: usize = 1;
 /// Render-space count required before deform collection fans out across spaces.
 const DEFORM_SPACE_PARALLEL_MIN_SPACES: usize = DEFORM_SPACE_PARALLEL_CHUNK_SPACES * 2;
 /// Skinned deform work items assigned to one palette-preplan worker.
-const DEFORM_PREPLAN_PARALLEL_CHUNK_ITEMS: usize = 16;
+const DEFORM_PREPLAN_PARALLEL_CHUNK_ITEMS: usize = 8;
 /// Skinned deform work item count required before palette preplanning uses Rayon.
 const DEFORM_PREPLAN_PARALLEL_MIN_ITEMS: usize = DEFORM_PREPLAN_PARALLEL_CHUNK_ITEMS * 2;
 
@@ -807,12 +807,15 @@ mod palette_tests {
         push_deform_collect_chunks(&mut specs, DeformCollectChunkKind::Static, 130);
         push_deform_collect_chunks(&mut specs, DeformCollectChunkKind::Skinned, 70);
 
-        assert_eq!(specs.len(), 5);
-        assert_deform_chunk(&specs[0], DeformCollectChunkKind::Static, 0..64);
-        assert_deform_chunk(&specs[1], DeformCollectChunkKind::Static, 64..128);
-        assert_deform_chunk(&specs[2], DeformCollectChunkKind::Static, 128..130);
-        assert_deform_chunk(&specs[3], DeformCollectChunkKind::Skinned, 0..64);
-        assert_deform_chunk(&specs[4], DeformCollectChunkKind::Skinned, 64..70);
+        assert_eq!(specs.len(), 8);
+        assert_deform_chunk(&specs[0], DeformCollectChunkKind::Static, 0..32);
+        assert_deform_chunk(&specs[1], DeformCollectChunkKind::Static, 32..64);
+        assert_deform_chunk(&specs[2], DeformCollectChunkKind::Static, 64..96);
+        assert_deform_chunk(&specs[3], DeformCollectChunkKind::Static, 96..128);
+        assert_deform_chunk(&specs[4], DeformCollectChunkKind::Static, 128..130);
+        assert_deform_chunk(&specs[5], DeformCollectChunkKind::Skinned, 0..32);
+        assert_deform_chunk(&specs[6], DeformCollectChunkKind::Skinned, 32..64);
+        assert_deform_chunk(&specs[7], DeformCollectChunkKind::Skinned, 64..70);
     }
 
     #[test]

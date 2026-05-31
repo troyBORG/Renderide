@@ -15,13 +15,13 @@ use super::types::{
 use super::upload::{GeneratedMeshUploadInput, generated_vertex_stride, push_generated_vertex};
 
 /// Minimum trail points before building texture-mode meshes in parallel is worthwhile.
-const TRAIL_PARALLEL_POINT_MIN: usize = 1_024;
+const TRAIL_PARALLEL_POINT_MIN: usize = 512;
 /// Trail points targeted per decode worker.
-const TRAIL_DECODE_PARALLEL_CHUNK_POINTS: usize = 1_024;
+const TRAIL_DECODE_PARALLEL_CHUNK_POINTS: usize = 256;
 /// Trail points required before trail decode fans out across Rayon.
 pub(super) const TRAIL_DECODE_PARALLEL_MIN_POINTS: usize = TRAIL_DECODE_PARALLEL_CHUNK_POINTS * 2;
 /// Trail points targeted per generated mesh worker.
-const TRAIL_MESH_PARALLEL_CHUNK_POINTS: usize = 1_024;
+const TRAIL_MESH_PARALLEL_CHUNK_POINTS: usize = 256;
 /// Trail points required before one texture-mode mesh build fans out across Rayon.
 const TRAIL_MESH_PARALLEL_MIN_POINTS: usize = TRAIL_MESH_PARALLEL_CHUNK_POINTS * 2;
 

@@ -54,7 +54,7 @@ pub(in crate::runtime) fn await_buffer_map(
 }
 
 /// Per-thread fill chunk for large shared-memory result buffers.
-const PAR_FILL_CHUNK: usize = 64 * 1024;
+const PAR_FILL_CHUNK: usize = 32 * 1024;
 /// Fill chunks assigned to one Rayon worker leaf.
 const PAR_FILL_CHUNKS_PER_TASK: usize = 1;
 /// Buffers at or above this size are zero-filled through rayon.

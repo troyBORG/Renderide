@@ -7,14 +7,14 @@ use crate::shared::TextureFormat;
 /// Texel count per rayon chunk during parallel decode.
 ///
 /// Larger chunks reduce rayon scheduler thrash and keep split counts bounded even on huge inputs.
-const PARALLEL_DECODE_TEXELS_PER_CHUNK: usize = 8_192;
+const PARALLEL_DECODE_TEXELS_PER_CHUNK: usize = 4_096;
 /// Decode chunks assigned to one Rayon worker leaf.
 const PARALLEL_DECODE_CHUNKS_PER_TASK: usize = 1;
 
-/// Texel count at which mip decode fans out across rayon (64 KiB RGBA8 = 128x128).
+/// Texel count at which mip decode fans out across Rayon.
 ///
-/// Most tail mips in a chain are smaller than 128x128, so they keep the serial path and
-/// avoid rayon dispatch overhead. At 128x128 and above, decode is large enough to amortize.
+/// Most tail mips in a chain are below two 4096-texel chunks, so they keep the serial path and
+/// avoid Rayon dispatch overhead.
 const PARALLEL_DECODE_MIN_TEXELS: usize = PARALLEL_DECODE_TEXELS_PER_CHUNK * 2;
 
 #[inline]
@@ -721,7 +721,7 @@ mod tests {
     #[test]
     fn rgb565_parallel_path_matches_small_reference() {
         // Build a small (8x8 = 64 texel) input twice: once decoded via the small path, once tiled
-        // up to 128x128 to force the parallel path. Per-texel bits are identical so the tiled output
+        // above the parallel admission threshold. Per-texel bits are identical so the tiled output
         // must match the small output replicated.
         let w_small = 8usize;
         let h_small = 8usize;

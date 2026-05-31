@@ -23,13 +23,13 @@ const DEFAULT_TANGENT_VEC: Vec4 = Vec4::new(1.0, 0.0, 0.0, 1.0);
 const DEFAULT_RAW_TANGENT_PAYLOAD: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const TANGENT_EPSILON_SQUARED: f32 = 1.0e-20;
 /// Vertices assigned to one tangent extraction or encoding worker chunk.
-const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 512;
+const VERTEX_STREAM_PARALLEL_CHUNK_VERTICES: usize = 256;
 /// Indices assigned to one index-buffer decode worker chunk.
-const MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES: usize = 4096;
+const MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES: usize = 2048;
 /// Index count above which index-buffer decode fans out across Rayon.
 const MESH_INDEX_DECODE_PARALLEL_MIN_INDICES: usize = MESH_INDEX_DECODE_PARALLEL_CHUNK_INDICES * 2;
 /// Triangles assigned to one face-collection worker chunk.
-const MESH_FACE_COLLECT_PARALLEL_CHUNK_TRIANGLES: usize = 2048;
+const MESH_FACE_COLLECT_PARALLEL_CHUNK_TRIANGLES: usize = 1024;
 /// Triangle count above which face collection fans out across Rayon.
 const MESH_FACE_COLLECT_PARALLEL_MIN_TRIANGLES: usize =
     MESH_FACE_COLLECT_PARALLEL_CHUNK_TRIANGLES * 2;

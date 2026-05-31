@@ -38,7 +38,7 @@ const INSTANCE_PLAN_PARALLEL_MIN_WINDOWS: usize = 2;
 /// Draw count above which [`build_plan`] may split batch windows across worker threads.
 const INSTANCE_PLAN_PARALLEL_MIN_DRAWS: usize = RENDER_COMMAND_CHUNK_DRAWS * 2;
 /// Maximum batch windows processed by one parallel worker task.
-const INSTANCE_PLAN_PARALLEL_MAX_WINDOWS_PER_TASK: usize = 12;
+const INSTANCE_PLAN_PARALLEL_MAX_WINDOWS_PER_TASK: usize = 6;
 /// Adaptive window chunks assigned to one Rayon worker leaf.
 const INSTANCE_PLAN_PARALLEL_CHUNKS_PER_TASK: usize = 1;
 /// Draws from one large same-batch-key window assigned to one worker chunk.

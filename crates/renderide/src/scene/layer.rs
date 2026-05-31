@@ -91,7 +91,7 @@ pub(crate) fn apply_layer_update_extracted(
 }
 
 /// Renderer count assigned to one layer-resolve worker chunk.
-const LAYER_RESOLVE_PARALLEL_CHUNK_RENDERERS: usize = 64;
+const LAYER_RESOLVE_PARALLEL_CHUNK_RENDERERS: usize = 32;
 
 /// Renderer count above which one renderer table's layer resolve fans out to the rayon pool.
 ///
@@ -269,7 +269,7 @@ fn resolve_layer_for_node(
 }
 
 /// Layer assignments assigned to one fixup worker chunk.
-const LAYER_FIXUP_PARALLEL_CHUNK_ASSIGNMENTS: usize = 64;
+const LAYER_FIXUP_PARALLEL_CHUNK_ASSIGNMENTS: usize = 32;
 
 /// Layer-assignment count above which the per-removal fixup sweep fans out to the rayon pool.
 ///

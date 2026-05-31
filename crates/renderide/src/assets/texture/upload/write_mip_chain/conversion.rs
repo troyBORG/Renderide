@@ -12,7 +12,7 @@ use super::super::mip_write_common::{
 };
 
 /// Destination texels assigned to one downsample worker chunk.
-const DOWNSAMPLE_PARALLEL_CHUNK_TEXELS: usize = 4_096;
+const DOWNSAMPLE_PARALLEL_CHUNK_TEXELS: usize = 2_048;
 /// Destination texel count above which downsampling may use Rayon.
 const DOWNSAMPLE_PARALLEL_MIN_TEXELS: usize = DOWNSAMPLE_PARALLEL_CHUNK_TEXELS * 2;
 /// Destination rows required before row-parallel downsampling can produce multiple chunks.
@@ -241,8 +241,8 @@ mod tests {
 
     #[test]
     fn downsample_parallel_gate_starts_at_medium_mips() {
-        assert!(!should_parallelize_downsample(127, 64));
-        assert!(should_parallelize_downsample(128, 64));
+        assert!(!should_parallelize_downsample(63, 64));
+        assert!(should_parallelize_downsample(64, 64));
     }
 
     #[test]

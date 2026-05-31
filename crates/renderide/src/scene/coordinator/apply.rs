@@ -75,7 +75,7 @@ const APPLY_PARALLEL_CHUNK_SPACES: usize = 1;
 const MIN_SPACES_FOR_PARALLEL_APPLY: usize = APPLY_PARALLEL_CHUNK_SPACES * 2;
 
 /// Minimum extracted row count before Phase B may fan out across render-space slots.
-const MIN_APPLY_PARALLEL_WORK_UNITS: usize = VISIBILITY_CULL_CHUNK_ITEMS;
+const MIN_APPLY_PARALLEL_WORK_UNITS: usize = VISIBILITY_CULL_CHUNK_ITEMS * 2;
 
 macro_rules! extract_optional_render_space_update {
     ($shm:expr, $update:expr, $field:ident, $scope:literal, $extract:path $(, $extra:expr)* $(,)?) => {{
