@@ -14,23 +14,26 @@
 //!
 //! 1. **Wall-clock prologue** -- [`RendererRuntime::tick_frame_wall_clock_begin`]; resets per-tick flags.
 //! 2. **IPC poll** -- [`RendererRuntime::poll_ipc`]; drains incoming `RendererCommand`s before any work runs.
-//! 3. **Asset integration** -- [`RendererRuntime::run_asset_integration`]; time-sliced cooperative
+//! 3. **GPU/offscreen completion** -- [`RendererRuntime::maintain_nonblocking_gpu_jobs`],
+//!    [`RendererRuntime::drain_reflection_probe_render_tasks`], and
+//!    [`RendererRuntime::drain_camera_render_tasks`] collect completed host-visible GPU work.
+//! 4. **Idle lock-step begin** -- [`RendererRuntime::pre_frame`] emits
+//!    [`FrameStartData`](crate::shared::FrameStartData) before renderer wait-work when no submitted
+//!    frame is renderable yet, matching the host-overlap order expected by the frame protocol.
+//! 5. **Asset integration** -- [`RendererRuntime::run_asset_integration`]; time-sliced cooperative
 //!    mesh/texture/material uploads via [`crate::backend::RenderBackend::drain_asset_tasks`].
-//! 4. **Offscreen readback tasks** -- [`RendererRuntime::drain_reflection_probe_render_tasks`]
-//!    and [`RendererRuntime::drain_camera_render_tasks`] render host-requested captures and write
-//!    the resulting bytes to shared memory.
-//! 5. **Optional XR begin** -- `xr_begin_tick` in `app/`; VR waits for coupled host submits before
+//! 6. **Optional XR begin** -- `xr_begin_tick` in `app/`; VR waits for coupled host submits before
 //!    this point so `xrBeginFrame` is not opened for a frame that cannot render.
-//! 6. **Lock-step exchange** -- [`RendererRuntime::pre_frame`] emits
-//!    [`FrameStartData`](crate::shared::FrameStartData) when allowed. Desktop sends before render;
-//!    VR sends before XR only when it needs an initial host submit, then sends the next begin-frame
-//!    after the HMD render attempt so the sampled pose is current. The gating predicate
+//! 7. **Lock-step exchange** -- [`RendererRuntime::pre_frame`] emits
+//!    [`FrameStartData`](crate::shared::FrameStartData) when still allowed. Desktop renderable
+//!    frames send before render; VR renderable frames send the next begin-frame after the HMD
+//!    render attempt so the sampled pose is current. The gating predicate
 //!    [`RendererFrontend::should_send_begin_frame`] keeps the lock-step *state* in
 //!    [`RendererFrontend`] (this module owns no lock-step counters).
-//! 7. **Render** -- desktop multi-view, HMD, and offscreen paths run the explicit CPU render
+//! 8. **Render** -- desktop multi-view, HMD, and offscreen paths run the explicit CPU render
 //!    schedule in [`frame::schedule`]: extract, asset prepare, view planning, draw queueing,
 //!    sort, resource prepare, command record, cleanup.
-//! 8. **Present + HUD** -- present surface, blit VR mirror, capture ImGui debug snapshots.
+//! 9. **Present + HUD** -- present surface, blit VR mirror, capture ImGui debug snapshots.
 //!
 //! Lock-step is driven by the `last_frame_index` field of [`FrameStartData`](crate::shared::FrameStartData)
 //! on the **outgoing** `frame_start_data` the renderer sends from [`RendererRuntime::pre_frame`].

@@ -2,9 +2,9 @@
 //!
 //! Owns the prologue, the lock-step / output forwards the app driver invokes inside one
 //! redraw iteration, and the two top-level tick entry points that compose [`Self::poll_ipc`],
-//! [`Self::run_asset_integration`], [`Self::maintain_nonblocking_gpu_jobs`],
-//! [`Self::drain_reflection_probe_render_tasks`], [`Self::drain_camera_render_tasks`],
-//! [`Self::pre_frame`], and [`Self::render_desktop_frame`] in their fixed order.
+//! [`Self::maintain_nonblocking_gpu_jobs`], [`Self::drain_reflection_probe_render_tasks`],
+//! [`Self::drain_camera_render_tasks`], [`Self::pre_frame`],
+//! [`Self::run_asset_integration`], and [`Self::render_desktop_frame`] in their fixed order.
 
 use std::time::{Duration, Instant};
 
@@ -16,6 +16,17 @@ use super::{RendererRuntime, TickOutcome};
 
 /// Longest single semaphore wait while host lock-step is coupled.
 const MAX_COUPLED_LOCKSTEP_WAIT_SLICE: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BeginFrameBeforeWaitWorkInput {
+    awaiting_frame_submit: bool,
+    should_render_frame: bool,
+    should_send_begin_frame: bool,
+}
+
+fn should_send_begin_frame_before_wait_work(input: BeginFrameBeforeWaitWorkInput) -> bool {
+    input.should_send_begin_frame && !input.awaiting_frame_submit && !input.should_render_frame
+}
 
 impl RendererRuntime {
     /// Whether the next tick should build [`InputState`] and call [`Self::pre_frame`].
@@ -31,6 +42,15 @@ impl RendererRuntime {
     /// Whether a `FrameStartData` has been sent and the matching host submit is still outstanding.
     pub fn awaiting_frame_submit(&self) -> bool {
         self.frontend.awaiting_frame_submit()
+    }
+
+    /// Whether idle lock-step should send `FrameStartData` before renderer wait-work this tick.
+    pub(crate) fn should_send_begin_frame_before_wait_work(&self) -> bool {
+        should_send_begin_frame_before_wait_work(BeginFrameBeforeWaitWorkInput {
+            awaiting_frame_submit: self.awaiting_frame_submit(),
+            should_render_frame: self.should_render_frame(),
+            should_send_begin_frame: self.should_send_begin_frame(),
+        })
     }
 
     /// Marks any processed host frame submit as having had a renderer-side draw attempt.
@@ -62,12 +82,12 @@ impl RendererRuntime {
         self.tick_state.drain_frame_timing_excluded_wait()
     }
 
-    /// Per-tick decoupling activation check. Call **after** [`Self::poll_ipc`] (so a
+    /// Per-tick decoupling activation check. Call **after** [`Self::poll_ipc`] so a
     /// `FrameSubmitData` already drained this tick clears the awaiting flag and prevents a
-    /// stale-wait spurious activation) and **before** [`Self::run_asset_integration`] (so the
-    /// decoupled-mode asset budget reflects the latest state). Do not call after
-    /// [`Self::pre_frame`]: a fresh BeginFrame send would zero the elapsed wait and the check
-    /// would never fire.
+    /// stale-wait spurious activation. Also call it before [`Self::run_asset_integration`] so the
+    /// decoupled-mode asset budget reflects the latest state. Do not call after
+    /// [`Self::pre_frame`] when the goal is checking an existing wait: a fresh BeginFrame send
+    /// would zero the elapsed wait.
     pub fn update_decoupling_activation(&mut self, now: Instant) {
         self.frontend.update_decoupling_activation(now);
     }
@@ -195,11 +215,11 @@ impl RendererRuntime {
     /// Runs the canonical per-frame phase order shared between the winit-driven
     /// app-driver redraw tick (non-VR) and the headless interval driver.
     ///
-    /// Phases: drain IPC, dispatch asset integration, drain reflection-probe and camera readbacks,
-    /// emit lock-step `FrameStartData` via [`Self::pre_frame`] (when allowed), and call
-    /// [`Self::render_frame`] with the main camera included. Mode-specific epilogue (HUD overlay
-    /// encode + present in winit, PNG readback in headless) happens on the caller side after this
-    /// returns.
+    /// Phases: drain IPC, drain completed GPU/offscreen results, emit idle lock-step
+    /// `FrameStartData` via [`Self::pre_frame`] before wait-work when allowed, dispatch asset
+    /// integration, emit any still-allowed frame-start, and call [`Self::render_frame`] with the
+    /// main camera included. Mode-specific epilogue (HUD overlay encode + present in winit, PNG
+    /// readback in headless) happens on the caller side after this returns.
     pub fn tick_one_frame(&mut self, gpu: &mut GpuContext, inputs: InputState) -> TickOutcome {
         profiling::scope!("tick::one_frame");
         crash_context::set_tick_phase(TickPhase::IpcPoll);
@@ -216,11 +236,17 @@ impl RendererRuntime {
                 ..Default::default()
             };
         }
-        crash_context::set_tick_phase(TickPhase::AssetIntegration);
-        self.run_asset_integration();
+        self.update_decoupling_activation(Instant::now());
         self.maintain_nonblocking_gpu_jobs(gpu);
         self.drain_reflection_probe_render_tasks(gpu);
         self.drain_camera_render_tasks(gpu);
+        crash_context::set_tick_phase(TickPhase::Lockstep);
+        if self.should_send_begin_frame_before_wait_work() {
+            self.pre_frame(inputs.clone());
+        }
+        self.update_decoupling_activation(Instant::now());
+        crash_context::set_tick_phase(TickPhase::AssetIntegration);
+        self.run_asset_integration();
         crash_context::set_tick_phase(TickPhase::Lockstep);
         if self.should_send_begin_frame() {
             self.pre_frame(inputs);
@@ -264,17 +290,61 @@ impl RendererRuntime {
                 ..Default::default()
             };
         }
-        crash_context::set_tick_phase(TickPhase::AssetIntegration);
-        self.run_asset_integration();
+        self.update_decoupling_activation(Instant::now());
         if let Some(gpu) = gpu {
             self.maintain_nonblocking_gpu_jobs(gpu);
             self.drain_reflection_probe_render_tasks(gpu);
             self.drain_camera_render_tasks(gpu);
         }
         crash_context::set_tick_phase(TickPhase::Lockstep);
+        if self.should_send_begin_frame_before_wait_work() {
+            self.pre_frame(inputs.clone());
+        }
+        self.update_decoupling_activation(Instant::now());
+        crash_context::set_tick_phase(TickPhase::AssetIntegration);
+        self.run_asset_integration();
+        crash_context::set_tick_phase(TickPhase::Lockstep);
         if self.should_send_begin_frame() {
             self.pre_frame(inputs);
         }
         TickOutcome::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BeginFrameBeforeWaitWorkInput, should_send_begin_frame_before_wait_work};
+
+    fn input() -> BeginFrameBeforeWaitWorkInput {
+        BeginFrameBeforeWaitWorkInput {
+            awaiting_frame_submit: false,
+            should_render_frame: false,
+            should_send_begin_frame: true,
+        }
+    }
+
+    #[test]
+    fn idle_lockstep_sends_begin_before_wait_work() {
+        assert!(should_send_begin_frame_before_wait_work(input()));
+    }
+
+    #[test]
+    fn awaiting_submit_does_not_send_another_begin_before_wait_work() {
+        assert!(!should_send_begin_frame_before_wait_work(
+            BeginFrameBeforeWaitWorkInput {
+                awaiting_frame_submit: true,
+                ..input()
+            }
+        ));
+    }
+
+    #[test]
+    fn renderable_frames_defer_begin_to_the_existing_render_path() {
+        assert!(!should_send_begin_frame_before_wait_work(
+            BeginFrameBeforeWaitWorkInput {
+                should_render_frame: true,
+                ..input()
+            }
+        ));
     }
 }

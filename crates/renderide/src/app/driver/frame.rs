@@ -141,16 +141,20 @@ impl AppDriver {
             return FrameTickOutcome::ExitRequested;
         }
         self.runtime.update_decoupling_activation(Instant::now());
-        {
-            profiling::scope!("tick::asset_integration");
-            self.runtime.run_asset_integration();
-        };
         if let Some(target) = self.target.as_mut() {
             let gpu = target.gpu_mut();
             self.runtime.maintain_nonblocking_gpu_jobs(gpu);
             self.runtime.drain_reflection_probe_render_tasks(gpu);
             self.runtime.drain_camera_render_tasks(gpu);
         }
+        if self.runtime.should_send_begin_frame_before_wait_work() {
+            self.lock_step_exchange();
+        }
+        self.runtime.update_decoupling_activation(Instant::now());
+        {
+            profiling::scope!("tick::asset_integration");
+            self.runtime.run_asset_integration();
+        };
         let mut vr_active = self.runtime.vr_active();
         let pre_xr_action = pre_xr_lockstep_action(PreXrLockstepInput {
             vr_active,
@@ -719,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn desktop_idle_lockstep_uses_post_begin_wait_path() {
+    fn desktop_idle_lockstep_reaches_non_vr_begin_path() {
         assert_eq!(
             pre_xr_lockstep_action(PreXrLockstepInput {
                 vr_active: false,
