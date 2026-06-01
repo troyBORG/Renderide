@@ -10,8 +10,10 @@ use crate::diagnostics::PerViewHudOutputs;
 use crate::gpu::GpuLimits;
 use crate::graph_inputs::{GraphPassFrame, PerViewFramePlan};
 use crate::passes::{
-    PreparedWorldMeshForwardFrame, WorldMeshForwardPrepareContext, WorldMeshForwardPrepareScratch,
-    WorldMeshForwardSkyboxRenderer, prepare_world_mesh_forward_frame,
+    PreparedWorldMeshForwardFrame, WorldMeshForwardInstancePlanCache,
+    WorldMeshForwardInstancePlanCacheStats, WorldMeshForwardPrepareContext,
+    WorldMeshForwardPrepareScratch, WorldMeshForwardSkyboxRenderer,
+    prepare_world_mesh_forward_frame,
 };
 use crate::render_graph::blackboard::{
     Blackboard, GraphCommandStats, GraphCommandStatsSlot, blackboard_slot,
@@ -28,6 +30,8 @@ blackboard_slot! {
 pub(crate) struct BackendWorldMeshFramePlanner {
     /// Skybox/background preparation cache shared across frame plans.
     skybox: WorldMeshForwardSkyboxRenderer,
+    /// Retained forward instance plans keyed by draw and resolved material submission identity.
+    instance_plan_cache: WorldMeshForwardInstancePlanCache,
     /// Per-view CPU scratch used while building forward draw packets.
     prepare_scratch: Mutex<HashMap<ViewId, Arc<Mutex<WorldMeshForwardPrepareScratch>>>>,
 }
@@ -45,6 +49,7 @@ impl BackendWorldMeshFramePlanner {
     pub(crate) fn new() -> Self {
         Self {
             skybox: WorldMeshForwardSkyboxRenderer::default(),
+            instance_plan_cache: WorldMeshForwardInstancePlanCache::default(),
             prepare_scratch: Mutex::new(HashMap::new()),
         }
     }
@@ -59,6 +64,11 @@ impl BackendWorldMeshFramePlanner {
         for &view_id in retired_views {
             scratch.remove(&view_id);
         }
+    }
+
+    /// Retained forward instance-plan cache counters for diagnostics.
+    pub(crate) fn instance_plan_cache_stats(&self) -> WorldMeshForwardInstancePlanCacheStats {
+        self.instance_plan_cache.stats()
     }
 
     /// Builds one per-view world-mesh packet from an explicit draw plan.
@@ -91,6 +101,7 @@ impl BackendWorldMeshFramePlanner {
                     frame,
                     frame_plan: &frame_plan,
                     skybox_renderer: &self.skybox,
+                    instance_plan_cache: &self.instance_plan_cache,
                 },
                 prefetched,
                 &mut scratch,
