@@ -26,7 +26,7 @@ mod tests;
 use onchanges::same_onchanges_probe;
 pub(in crate::runtime) use onchanges::{
     ActiveOnChangesReflectionProbeCapture, ActiveRealtimeReflectionProbeCapture,
-    OnChangesCaptureThrottle,
+    OnChangesCaptureThrottle, RealtimeCaptureThrottle,
 };
 use readback::{
     compute_probe_readback_layout, readback_reflection_probe_cube, write_probe_task_result,

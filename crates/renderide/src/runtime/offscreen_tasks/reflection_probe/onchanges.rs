@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 
 use crate::backend::RenderBackend;
 use crate::camera::{HostCameraFrame, ViewId};
@@ -40,6 +40,49 @@ const ONCHANGES_MIN_RECAPTURE_INTERVAL: Duration = Duration::from_millis(400);
 /// the throttle stops waiting so a fresh capture can be attempted instead of stalling indefinitely.
 const ONCHANGES_CAPTURE_SETTLE_FALLBACK: Duration = Duration::from_secs(2);
 
+/// Realtime minimum recapture interval when the host probe runs with no time slicing.
+///
+/// This follows a ~60 Hz cadence target for the "render whole probe each frame" path.
+const REALTIME_MIN_RECAPTURE_INTERVAL_NO_TIME_SLICING: Duration = Duration::from_nanos(16_666_667);
+
+/// Realtime minimum recapture interval when the host probe slices all faces in one step.
+///
+/// Unity documents `AllFacesAtOnce` as a 9-frame full update; at 60 FPS this is ~150 ms.
+const REALTIME_MIN_RECAPTURE_INTERVAL_ALL_FACES_AT_ONCE: Duration =
+    Duration::from_nanos(150_000_000);
+
+/// Realtime minimum recapture interval when the host probe slices one face per step.
+///
+/// Unity documents `IndividualFaces` as a 14-frame full update; at 60 FPS this is ~233.33 ms.
+const REALTIME_MIN_RECAPTURE_INTERVAL_INDIVIDUAL_FACES: Duration =
+    Duration::from_nanos(233_333_333);
+
+/// Lower bound for measured wall-frame time used when deriving adaptive realtime probe cadence.
+///
+/// We clamp to avoid ultra-short spikes forcing an unrealistically aggressive probe cadence.
+const REALTIME_ADAPTIVE_MIN_FRAME_TIME_MS: f64 = 1000.0 / 240.0;
+
+/// Upper bound for measured wall-frame time used when deriving adaptive realtime probe cadence.
+///
+/// We clamp to avoid long hitch outliers overly delaying subsequent realtime probe updates.
+const REALTIME_ADAPTIVE_MAX_FRAME_TIME_MS: f64 = 1000.0 / 30.0;
+
+/// EMA alpha for per-probe adaptive realtime frame-time smoothing.
+///
+/// Lower values smooth more aggressively (less jitter, slower response); higher values react faster.
+const REALTIME_ADAPTIVE_FRAME_TIME_EMA_ALPHA: f64 = 0.25;
+
+/// Relative hysteresis threshold for accepting adaptive realtime cadence changes.
+///
+/// Small cadence changes under this threshold are ignored to avoid "nervous" interval thrashing.
+const REALTIME_ADAPTIVE_INTERVAL_HYSTERESIS_RATIO: f64 = 0.08;
+
+/// Upper bound on how long a realtime probe waits for its sharp bake before re-capturing anyway.
+const REALTIME_CAPTURE_SETTLE_FALLBACK: Duration = Duration::from_secs(2);
+
+/// Minimum spacing between emitted realtime timing logs for one probe.
+const REALTIME_TIMING_LOG_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Per-probe capture pacing state for OnChanges reflection probes.
 ///
 /// While an entry exists the runtime coalesces incoming host re-bake requests for that probe
@@ -55,6 +98,21 @@ pub(in crate::runtime) struct OnChangesCaptureThrottle {
     started_at: Instant,
     /// Whether the sharp (final) bake for [`Self::started_generation`] is still pending.
     awaiting_final: bool,
+}
+
+/// Per-probe capture pacing state for Realtime reflection probes.
+///
+/// A realtime probe may start a new capture only after its previous capture's sharp bake has
+/// landed (or fallback elapsed) and the realtime minimum recapture interval has elapsed.
+pub(in crate::runtime) struct RealtimeCaptureThrottle {
+    /// Capture generation started for this probe and awaiting its sharp bake.
+    started_generation: u64,
+    /// Instant the most recent capture was started, for cadence and settle fallback.
+    started_at: Instant,
+    /// Whether the sharp (final) bake for [`Self::started_generation`] is still pending.
+    awaiting_final: bool,
+    /// Time-slicing-dependent minimum spacing before this probe may start another capture.
+    min_recapture_interval: Duration,
 }
 
 /// Active OnChanges probe capture, retained across ticks when host time slicing requests it.
@@ -87,6 +145,8 @@ pub(crate) struct ActiveRealtimeReflectionProbeCapture {
     targets: ProbeTaskTargets,
     /// Face rendering and post-render time-slice progress.
     progress: RuntimeProbeCaptureProgress,
+    /// Host-configured mode used when this capture started.
+    time_slicing_mode: ReflectionProbeTimeSlicingMode,
     /// Wall-clock instant the renderer began this capture, for `probe-timing` diagnostics.
     requested_at: Instant,
 }
@@ -219,6 +279,63 @@ fn onchanges_face_slicing_mode(
             ReflectionProbeTimeSlicingMode::AllFacesAtOnce
         }
         other => other,
+    }
+}
+
+/// Returns the realtime recapture pacing interval for a host time-slicing mode.
+fn realtime_min_recapture_interval_for(
+    mode: ReflectionProbeTimeSlicingMode,
+    wall_frame_time_ms: f64,
+) -> Duration {
+    let fallback = match mode {
+        ReflectionProbeTimeSlicingMode::NoTimeSlicing => {
+            REALTIME_MIN_RECAPTURE_INTERVAL_NO_TIME_SLICING
+        }
+        ReflectionProbeTimeSlicingMode::AllFacesAtOnce => {
+            REALTIME_MIN_RECAPTURE_INTERVAL_ALL_FACES_AT_ONCE
+        }
+        ReflectionProbeTimeSlicingMode::IndividualFaces => {
+            REALTIME_MIN_RECAPTURE_INTERVAL_INDIVIDUAL_FACES
+        }
+    };
+    let multiplier = match mode {
+        ReflectionProbeTimeSlicingMode::NoTimeSlicing => 1.0,
+        ReflectionProbeTimeSlicingMode::AllFacesAtOnce => 9.0,
+        ReflectionProbeTimeSlicingMode::IndividualFaces => 14.0,
+    };
+    if !wall_frame_time_ms.is_finite() || wall_frame_time_ms <= 0.0 {
+        return fallback;
+    }
+    let clamped_frame_ms = wall_frame_time_ms.clamp(
+        REALTIME_ADAPTIVE_MIN_FRAME_TIME_MS,
+        REALTIME_ADAPTIVE_MAX_FRAME_TIME_MS,
+    );
+    Duration::from_secs_f64((clamped_frame_ms * multiplier) / 1000.0)
+}
+
+/// Updates per-probe smoothed frame time and returns the value to use for cadence.
+fn update_realtime_smoothed_frame_time_ms(
+    smoothed_values: &mut HashMap<RuntimeReflectionProbeCaptureKey, f64>,
+    key: RuntimeReflectionProbeCaptureKey,
+    sampled_frame_time_ms: f64,
+) -> f64 {
+    let clamped = sampled_frame_time_ms.clamp(
+        REALTIME_ADAPTIVE_MIN_FRAME_TIME_MS,
+        REALTIME_ADAPTIVE_MAX_FRAME_TIME_MS,
+    );
+    let previous = smoothed_values.get(&key).copied().unwrap_or(clamped);
+    let ema = previous + (clamped - previous) * REALTIME_ADAPTIVE_FRAME_TIME_EMA_ALPHA;
+    if previous <= f64::EPSILON {
+        smoothed_values.insert(key, ema);
+        return ema;
+    }
+    let relative_change = (ema - previous).abs() / previous;
+    if relative_change < REALTIME_ADAPTIVE_INTERVAL_HYSTERESIS_RATIO {
+        smoothed_values.insert(key, previous);
+        previous
+    } else {
+        smoothed_values.insert(key, ema);
+        ema
     }
 }
 
@@ -441,9 +558,22 @@ impl RendererRuntime {
                 capture: &mut capture,
             }) {
                 Ok(RuntimeProbeCaptureStep::Pending) => still_active.push(capture),
-                Ok(RuntimeProbeCaptureStep::Complete) => self
-                    .backend
-                    .register_runtime_reflection_probe_capture(capture.into_runtime_capture()),
+                Ok(RuntimeProbeCaptureStep::Complete) => {
+                    if should_log_realtime_timing(
+                        &mut self.tick_state.realtime_timing_last_log_at,
+                        capture.key,
+                    ) {
+                        logger::info!(
+                            "probe-timing: realtime capture published render_space={} renderable_index={} generation={} capture_ms={:.1}",
+                            capture.key.space_id.0,
+                            capture.key.renderable_index,
+                            capture.generation,
+                            capture.requested_at.elapsed().as_secs_f64() * 1000.0,
+                        );
+                    }
+                    self.backend
+                        .register_runtime_reflection_probe_capture(capture.into_runtime_capture());
+                }
                 Err(error) => {
                     logger::debug!(
                         "Realtime reflection probe capture failed for render_space_id={} renderable_index={} generation={}: {error}",
@@ -451,6 +581,9 @@ impl RendererRuntime {
                         capture.key.renderable_index,
                         capture.generation
                     );
+                    self.tick_state
+                        .realtime_capture_throttle
+                        .remove(&capture.key);
                 }
             }
         }
@@ -461,6 +594,16 @@ impl RendererRuntime {
     fn start_missing_realtime_reflection_probe_captures(&mut self, gpu: &GpuContext) {
         profiling::scope!("reflection_probe_realtime::start_missing");
         let active_keys = active_realtime_probe_keys(&self.scene);
+        self.advance_realtime_capture_throttle();
+        self.tick_state
+            .realtime_capture_throttle
+            .retain(|key, _throttle| active_keys.contains(key));
+        self.tick_state
+            .realtime_adaptive_frame_time_ms
+            .retain(|key, _smoothed| active_keys.contains(key));
+        self.tick_state
+            .realtime_timing_last_log_at
+            .retain(|key, _last| active_keys.contains(key));
         self.tick_state
             .active_realtime_reflection_probe_captures
             .retain(|capture| {
@@ -476,16 +619,49 @@ impl RendererRuntime {
             if already_active {
                 continue;
             }
+            if self.tick_state.realtime_capture_throttle.contains_key(&key) {
+                continue;
+            }
             let generation = self.tick_state.next_realtime_reflection_probe_generation;
             self.tick_state.next_realtime_reflection_probe_generation = self
                 .tick_state
                 .next_realtime_reflection_probe_generation
                 .saturating_add(1);
             match start_realtime_reflection_probe_capture(gpu, &self.scene, key, generation) {
-                Ok(capture) => self
-                    .tick_state
-                    .active_realtime_reflection_probe_captures
-                    .push(*capture),
+                Ok(capture) => {
+                    let wall_frame_time_ms = self.backend.debug_frame_time_ms();
+                    let smoothed_frame_time_ms = if wall_frame_time_ms.is_finite()
+                        && wall_frame_time_ms > 0.0
+                    {
+                        update_realtime_smoothed_frame_time_ms(
+                            &mut self.tick_state.realtime_adaptive_frame_time_ms,
+                            key,
+                            wall_frame_time_ms,
+                        )
+                    } else {
+                        self.tick_state
+                            .realtime_adaptive_frame_time_ms
+                            .get(&key)
+                            .copied()
+                            .unwrap_or(REALTIME_ADAPTIVE_MAX_FRAME_TIME_MS)
+                    };
+                    let min_recapture_interval = realtime_min_recapture_interval_for(
+                        capture.time_slicing_mode,
+                        smoothed_frame_time_ms,
+                    );
+                    self.tick_state.realtime_capture_throttle.insert(
+                        key,
+                        RealtimeCaptureThrottle {
+                            started_generation: generation,
+                            started_at: Instant::now(),
+                            awaiting_final: true,
+                            min_recapture_interval,
+                        },
+                    );
+                    self.tick_state
+                        .active_realtime_reflection_probe_captures
+                        .push(*capture);
+                }
                 Err(error) => {
                     logger::debug!(
                         "Realtime reflection probe capture could not start for render_space_id={} renderable_index={}: {error}",
@@ -496,6 +672,54 @@ impl RendererRuntime {
             }
         }
     }
+
+    /// Advances per-probe realtime capture pacing and drops gates that have fully settled.
+    fn advance_realtime_capture_throttle(&mut self) {
+        if self.tick_state.realtime_capture_throttle.is_empty() {
+            return;
+        }
+        let mut settled: Vec<RuntimeReflectionProbeCaptureKey> = Vec::new();
+        for (key, throttle) in &self.tick_state.realtime_capture_throttle {
+            if !throttle.awaiting_final {
+                continue;
+            }
+            let final_ready = self
+                .backend
+                .reflection_probe_final_ready_generation(key.space_id.0, key.renderable_index)
+                .is_some_and(|generation| generation >= throttle.started_generation);
+            if final_ready || throttle.started_at.elapsed() >= REALTIME_CAPTURE_SETTLE_FALLBACK {
+                settled.push(*key);
+            }
+        }
+        for key in settled {
+            if let Some(throttle) = self.tick_state.realtime_capture_throttle.get_mut(&key) {
+                throttle.awaiting_final = false;
+            }
+        }
+        self.tick_state
+            .realtime_capture_throttle
+            .retain(|_key, throttle| {
+                throttle.awaiting_final
+                    || throttle.started_at.elapsed() < throttle.min_recapture_interval
+            });
+    }
+}
+
+/// Returns whether a realtime timing event should emit now.
+fn should_log_realtime_timing(
+    last_logs: &mut HashMap<RuntimeReflectionProbeCaptureKey, Instant>,
+    key: RuntimeReflectionProbeCaptureKey,
+) -> bool {
+    let now = Instant::now();
+    let Some(last) = last_logs.get(&key).copied() else {
+        last_logs.insert(key, now);
+        return true;
+    };
+    if now.duration_since(last) < REALTIME_TIMING_LOG_INTERVAL {
+        return false;
+    }
+    last_logs.insert(key, now);
+    true
 }
 
 /// Result of attempting to start an OnChanges capture.
@@ -617,6 +841,7 @@ fn start_realtime_reflection_probe_capture(
         extent,
         targets,
         progress: RuntimeProbeCaptureProgress::default(),
+        time_slicing_mode: state.time_slicing_mode,
         requested_at: Instant::now(),
     }))
 }

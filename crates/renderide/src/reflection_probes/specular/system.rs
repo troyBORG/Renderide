@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
 
@@ -29,6 +29,8 @@ use super::source::{metadata_for_spatial, resolve_probe_source, spatial_probe_fo
 const DEFAULT_REFLECTION_PROBE_FACE_SIZE: u32 = 256;
 /// First atlas slot is reserved as a non-sampled black fallback.
 const FIRST_PROBE_ATLAS_SLOT: u16 = 1;
+/// Minimum spacing between emitted realtime IBL timing logs for one probe.
+const REALTIME_IBL_TIMING_LOG_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Inputs for advancing specular reflection-probe IBL and selection state.
 pub(crate) struct ReflectionProbeSpecularMaintainParams<'a> {
@@ -64,6 +66,8 @@ pub struct ReflectionProbeSpecularSystem {
     /// Read by the runtime capture throttle to coalesce host re-bake floods: a new OnChanges
     /// capture is held until the previously started generation's final bake lands here.
     runtime_final_ready_generation: HashMap<ProbeIdentity, u64>,
+    /// Last emission time for low-noise realtime `probe-timing` logs.
+    realtime_log_last_emit_at: HashMap<ProbeIdentity, Instant>,
     version: u64,
 }
 
@@ -86,6 +90,7 @@ impl ReflectionProbeSpecularSystem {
             last_ready: HashMap::new(),
             bake_timings: HashMap::new(),
             runtime_final_ready_generation: HashMap::new(),
+            realtime_log_last_emit_at: HashMap::new(),
             version: 1,
         }
     }
@@ -135,6 +140,8 @@ impl ReflectionProbeSpecularSystem {
             .retain(|identity, _timing| !spaces.contains(&identity.space_id));
         self.runtime_final_ready_generation
             .retain(|identity, _generation| !spaces.contains(&identity.space_id));
+        self.realtime_log_last_emit_at
+            .retain(|identity, _last| !spaces.contains(&identity.space_id));
         let ibl = self
             .ibl_cache
             .purge_where(|key| specular_ibl_key_matches_closed_spaces(key, spaces));
@@ -162,6 +169,8 @@ impl ReflectionProbeSpecularSystem {
             .retain(|identity, _timing| collected.active_identities.contains(identity));
         self.runtime_final_ready_generation
             .retain(|identity, _generation| collected.active_identities.contains(identity));
+        self.realtime_log_last_emit_at
+            .retain(|identity, _last| collected.active_identities.contains(identity));
         self.ibl_cache
             .prune_completed_except(&collected.active_keys);
         collected.ready.sort_unstable_by_key(|probe| {
@@ -214,7 +223,11 @@ impl ReflectionProbeSpecularSystem {
                     ProbeBakeRequest {
                         identity,
                         capture_key,
-                        track_timing: probe.state.r#type == ReflectionProbeType::OnChanges,
+                        timing_mode: match probe.state.r#type {
+                            ReflectionProbeType::OnChanges => ProbeTimingMode::OnChanges,
+                            ReflectionProbeType::Realtime => ProbeTimingMode::Realtime,
+                            ReflectionProbeType::Baked => ProbeTimingMode::None,
+                        },
                     },
                     source,
                     face_size,
@@ -301,14 +314,15 @@ impl ReflectionProbeSpecularSystem {
             .captures
             .get(request.capture_key)
             .map(|capture| capture.generation);
-        if request.track_timing {
+        if request.timing_mode != ProbeTimingMode::None {
             self.refresh_bake_timing(request.identity, request.capture_key);
         }
         // Anti-strobe: once a probe has shown a sharp (final) cube, never swap back to a blurry
         // draft -- that sharp->blurry->sharp flicker is a seizure risk during rapid changes.
         // Drafts are only used for the first (cold) appearance; afterwards we hold the previous
         // sharp result until the next sharp bake lands.
-        let has_shown_final = request.track_timing
+        let hold_sharp_after_first_final = request.timing_mode != ProbeTimingMode::None;
+        let has_shown_final = hold_sharp_after_first_final
             && self
                 .runtime_final_ready_generation
                 .contains_key(&request.identity);
@@ -318,12 +332,12 @@ impl ReflectionProbeSpecularSystem {
             .completed_cube(&final_key)
             .map(|cube| (cube.texture.clone(), cube.mip_levels))
         {
-            if request.track_timing {
+            if request.timing_mode != ProbeTimingMode::None {
                 if let Some(generation) = generation {
                     self.runtime_final_ready_generation
                         .insert(request.identity, generation);
                 }
-                self.log_probe_bake_ready(request.identity, true);
+                self.log_probe_bake_ready(request.identity, request.timing_mode, true);
             }
             return Some((final_key, texture, mip_levels));
         }
@@ -338,8 +352,8 @@ impl ReflectionProbeSpecularSystem {
             .completed_cube(&draft_key)
             .map(|cube| (cube.texture.clone(), cube.mip_levels))
         {
-            if request.track_timing {
-                self.log_probe_bake_ready(request.identity, false);
+            if request.timing_mode != ProbeTimingMode::None {
+                self.log_probe_bake_ready(request.identity, request.timing_mode, false);
             }
             collected.active_keys.insert(draft_key.clone());
             self.ibl_cache.ensure_source(gpu, final_key, source);
@@ -381,7 +395,12 @@ impl ReflectionProbeSpecularSystem {
     }
 
     /// Logs the first time a draft or final runtime bake becomes ready for a capture generation.
-    fn log_probe_bake_ready(&mut self, identity: ProbeIdentity, is_final: bool) {
+    fn log_probe_bake_ready(
+        &mut self,
+        identity: ProbeIdentity,
+        timing_mode: ProbeTimingMode,
+        is_final: bool,
+    ) {
         let Some(timing) = self.bake_timings.get_mut(&identity) else {
             return;
         };
@@ -398,10 +417,28 @@ impl ReflectionProbeSpecularSystem {
         } else {
             timing.draft_logged = true;
         }
+        if timing_mode == ProbeTimingMode::Realtime && !is_final {
+            // Realtime probes run continuously; draft logs are noisy and less actionable.
+            return;
+        }
+        if timing_mode == ProbeTimingMode::Realtime {
+            let now = Instant::now();
+            if let Some(last) = self.realtime_log_last_emit_at.get(&identity).copied()
+                && now.duration_since(last) < REALTIME_IBL_TIMING_LOG_INTERVAL
+            {
+                return;
+            }
+            self.realtime_log_last_emit_at.insert(identity, now);
+        }
         let elapsed_ms = timing.requested_at.elapsed().as_secs_f64() * 1000.0;
         let generation = timing.generation;
         logger::info!(
-            "probe-timing: {} IBL ready render_space={} renderable_index={} generation={} total_ms={:.1}",
+            "probe-timing: {} {} IBL ready render_space={} renderable_index={} generation={} total_ms={:.1}",
+            match timing_mode {
+                ProbeTimingMode::OnChanges => "onchanges",
+                ProbeTimingMode::Realtime => "realtime",
+                ProbeTimingMode::None => "runtime",
+            },
             if is_final { "final" } else { "draft" },
             identity.space_id.0,
             identity.renderable_index,
@@ -702,8 +739,19 @@ struct ProbeBakeRequest {
     identity: ProbeIdentity,
     /// Runtime capture slot identity for this probe.
     capture_key: RuntimeReflectionProbeCaptureKey,
-    /// Whether to emit `probe-timing` diagnostics (OnChanges probes only).
-    track_timing: bool,
+    /// Timing/logging mode for this probe type.
+    timing_mode: ProbeTimingMode,
+}
+
+/// Probe-type specific timing behavior for runtime IBL diagnostics and policies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProbeTimingMode {
+    /// No runtime probe timing behavior required.
+    None,
+    /// Host-triggered discrete probe updates.
+    OnChanges,
+    /// Continuous realtime probe updates (rate-limited logging).
+    Realtime,
 }
 
 /// `probe-timing` stopwatch state for one runtime reflection probe.
