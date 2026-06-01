@@ -10,7 +10,7 @@ use crate::shared::ReflectionProbeRenderResult;
 
 use crate::runtime::offscreen_tasks::reflection_probe::{
     ActiveOnChangesReflectionProbeCapture, ActiveRealtimeReflectionProbeCapture,
-    OnChangesCaptureThrottle,
+    OnChangesCaptureThrottle, RealtimeCaptureThrottle,
 };
 use crate::runtime::offscreen_tasks::submit_completion::SubmitCompletionWorkQueue;
 
@@ -55,6 +55,17 @@ pub(in crate::runtime) struct RuntimeTickState {
     /// Realtime reflection-probe captures that may span multiple ticks.
     pub(in crate::runtime) active_realtime_reflection_probe_captures:
         Vec<ActiveRealtimeReflectionProbeCapture>,
+    /// Per-probe realtime capture pacing keyed by runtime probe identity. An entry coalesces
+    /// continuous recapture loops until the previous capture's sharp bake has landed and the
+    /// realtime minimum recapture interval has elapsed.
+    pub(in crate::runtime) realtime_capture_throttle:
+        HashMap<crate::reflection_probes::specular::RuntimeReflectionProbeCaptureKey, RealtimeCaptureThrottle>,
+    /// Per-probe smoothed wall-frame-time samples (ms) for adaptive realtime pacing.
+    pub(in crate::runtime) realtime_adaptive_frame_time_ms:
+        HashMap<crate::reflection_probes::specular::RuntimeReflectionProbeCaptureKey, f64>,
+    /// Last emission time for low-noise realtime `probe-timing` logs keyed by probe identity.
+    pub(in crate::runtime) realtime_timing_last_log_at:
+        HashMap<crate::reflection_probes::specular::RuntimeReflectionProbeCaptureKey, Instant>,
     /// Next renderer-side realtime cubemap capture generation.
     pub(in crate::runtime) next_realtime_reflection_probe_generation: u64,
 }
@@ -80,6 +91,9 @@ impl RuntimeTickState {
             active_onchanges_reflection_probe_captures: Vec::new(),
             next_onchanges_reflection_probe_generation: 1,
             active_realtime_reflection_probe_captures: Vec::new(),
+            realtime_capture_throttle: HashMap::new(),
+            realtime_adaptive_frame_time_ms: HashMap::new(),
+            realtime_timing_last_log_at: HashMap::new(),
             next_realtime_reflection_probe_generation: 1,
         }
     }

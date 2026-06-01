@@ -22,8 +22,11 @@ use super::resources::{
     create_full_array_sample_view, create_ibl_cube,
 };
 
-/// Maximum concurrent in-flight bakes; matches the analytic-only ceiling we used previously.
-const MAX_IN_FLIGHT_IBL_BAKES: usize = 2;
+/// Maximum concurrent in-flight bakes.
+///
+/// A small bump helps realtime-heavy scenes avoid long bake queues while staying conservative
+/// enough to avoid swamping background GPU work.
+const MAX_IN_FLIGHT_IBL_BAKES: usize = 3;
 /// Tick budget after which a missing submit-completion callback is treated as lost.
 const MAX_PENDING_IBL_BAKE_AGE_FRAMES: u32 = 120;
 
