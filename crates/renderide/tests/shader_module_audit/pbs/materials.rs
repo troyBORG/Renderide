@@ -368,6 +368,21 @@ fn pbs_metallic_uses_uvsec_for_detail_uvs() -> io::Result<()> {
     Ok(())
 }
 
+/// Verifies PBS detail albedo uses Unity's linear `unity_ColorSpaceDouble` value.
+#[test]
+fn pbs_detail_albedo_uses_unity_linear_color_space_double() -> io::Result<()> {
+    let detail = module_source("pbs/detail.wgsl")?;
+    assert!(
+        detail.contains("const COLOR_SPACE_DOUBLE: f32 = 4.59479380;"),
+        "pbs/detail.wgsl must use Unity's linear `unity_ColorSpaceDouble` detail multiplier"
+    );
+    assert!(
+        !detail.contains("4.67199902667"),
+        "pbs/detail.wgsl must not use exact sRGB midpoint inversion for Unity detail albedo"
+    );
+    Ok(())
+}
+
 /// Verifies alpha clip paths in this material slice preserve Unity `clip(x)` equality behavior.
 #[test]
 fn pbs_materials_81_to_90_use_strict_alpha_clip_thresholds() -> io::Result<()> {

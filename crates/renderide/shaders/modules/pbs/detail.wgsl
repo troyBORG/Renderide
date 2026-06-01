@@ -4,9 +4,8 @@
 #import renderide::core::texture_sampling as ts
 #import renderide::core::uv as uvu
 
-/// Coefficient required to double brightness in sRGB space,
-/// i.e. 1 / srgb_to_linear(0.5)
-const COLOR_SPACE_DOUBLE: f32 = 4.67199902667;
+/// Unity's linear-space detail-albedo x2 multiplier (`unity_ColorSpaceDouble.rgb`).
+const COLOR_SPACE_DOUBLE: f32 = 4.59479380;
 
 fn detail_uv(uv0: vec2<f32>, uv1: vec2<f32>, uv_sec: f32, detail_st: vec4<f32>) -> vec2<f32> {
     return uvu::apply_st(select(uv0, uv1, uv_sec >= 0.5), detail_st);
