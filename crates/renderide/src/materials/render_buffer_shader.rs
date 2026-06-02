@@ -7,21 +7,22 @@
 pub(crate) const BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT: u32 = 1u32 << 18;
 /// Billboard/Unlit variant bit that enables per-particle color and alpha.
 pub(crate) const BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT: u32 = 1u32 << 17;
+/// Billboard/Unlit variant bit that enables texture sampling.
+pub(crate) const BILLBOARD_RENDER_BUFFER_TEXTURE_BIT: u32 = 1u32 << 12;
+/// Billboard/Unlit variant bit that enables base color.
+pub(crate) const BILLBOARD_RENDER_BUFFER_COLOR_BIT: u32 = 1u32 << 1;
+/// Billboard variant bit that enables simple lighting for non-unlit source materials.
+pub(crate) const BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT: u32 = 1u32 << 19;
 
-/// Returns whether `stem` names an embedded Unlit-family shader other than Billboard/Unlit.
-pub(crate) fn is_unlit_family_embedded_stem(stem: &str) -> bool {
-    let lower = stem.to_ascii_lowercase();
-    (lower.starts_with("unlit") || lower.contains("_unlit") || lower.contains("unlit_"))
-        && !lower.contains("billboard")
-}
-
-/// Returns whether an embedded draw should remap Unlit keyword bits to Billboard/Unlit bits.
-pub(crate) fn should_remap_unlit_variant_bits_for_billboard_draw(
-    draw_stem: &str,
-    source_shader_stem: Option<&str>,
-) -> bool {
-    draw_stem.starts_with("billboardunlit")
-        && source_shader_stem.is_some_and(is_unlit_family_embedded_stem)
+pub(crate) fn remap_variant_bits_for_billboard(stem: &str, source_bits: u32) -> u32 {
+    if is_unlit_family_embedded_stem(stem) {
+        remap_unlit_variant_bits_for_billboard(source_bits)
+    } else {
+        BILLBOARD_RENDER_BUFFER_TEXTURE_BIT
+            | BILLBOARD_RENDER_BUFFER_COLOR_BIT
+            | BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT
+            | map_billboard_alpha_clip_variant_bits(stem, source_bits)
+    }
 }
 
 /// Enables render-buffer sizing and particle color semantics for synthetic billboard draws.
@@ -29,8 +30,15 @@ pub(crate) fn ensure_render_buffer_billboard_variant_bits(bits: u32) -> u32 {
     bits | BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT | BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT
 }
 
+/// Returns whether `stem` names an embedded Unlit-family shader other than Billboard/Unlit.
+fn is_unlit_family_embedded_stem(stem: &str) -> bool {
+    let lower = stem.to_ascii_lowercase();
+    (lower.starts_with("unlit") || lower.contains("_unlit") || lower.contains("unlit_"))
+        && !lower.contains("billboard")
+}
+
 /// Remaps Froox Unlit keyword bits to Billboard/Unlit keyword bits for material binding.
-pub(crate) fn remap_unlit_variant_bits_for_billboard(unlit_bits: u32) -> u32 {
+fn remap_unlit_variant_bits_for_billboard(unlit_bits: u32) -> u32 {
     const PAIRS: &[(u32, u32)] = &[
         (0, 0),
         (1, 1),
@@ -55,6 +63,43 @@ pub(crate) fn remap_unlit_variant_bits_for_billboard(unlit_bits: u32) -> u32 {
     out
 }
 
+/// Remaps Froox AlphaClip or Cutoff keyword bits to Billboard/Unlit keyword bits
+/// for material binding with non-Unlit materials.
+fn map_billboard_alpha_clip_variant_bits(stem: &str, source_bits: u32) -> u32 {
+    let lower = stem.to_ascii_lowercase();
+    const ALPHA_CLIP_ZERO: &[&str] = &["fresnel_", "pbsmultiuv", "reflection"];
+    if ALPHA_CLIP_ZERO
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return source_bits & 1;
+    }
+    const ALPHA_CLIP_ONE: &[&str] = &[
+        "pbsdisplace",
+        "pbsdualsided_",
+        "pbsdualsidedspecular_",
+        "pbslerp",
+        "pbsslice_",
+        "pbsslicespecular_",
+        "pbsvertexcolortransparent",
+        "xstoon",
+    ];
+    if ALPHA_CLIP_ONE
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return (source_bits >> 1) & 1;
+    }
+    const ALPHA_CLIP_TWO: &[&str] = &["pbsmetallic", "pbsspecular"];
+    if ALPHA_CLIP_TWO
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return (source_bits >> 2) & 1;
+    }
+    0u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,11 +114,38 @@ mod tests {
     #[test]
     fn remaps_unlit_texture_and_color_bits() {
         let unlit = (1u32 << 1) | (1u32 << 9);
-        let billboard = remap_unlit_variant_bits_for_billboard(unlit);
+        let billboard = remap_variant_bits_for_billboard("unlit_default", unlit);
 
         assert_eq!(billboard & (1u32 << 1), 1u32 << 1);
         assert_eq!(billboard & (1u32 << 12), 1u32 << 12);
         assert_eq!(billboard & (1u32 << 11), 0);
+    }
+
+    #[test]
+    fn remaps_pbs_alphaclip_bits() {
+        let pbs = (1u32 << 2) | (1u32 << 7);
+        let billboard = remap_variant_bits_for_billboard("pbsmetallic_default", pbs);
+
+        assert_eq!(
+            billboard,
+            BILLBOARD_RENDER_BUFFER_COLOR_BIT
+                | BILLBOARD_RENDER_BUFFER_TEXTURE_BIT
+                | BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT
+                | 1u32
+        );
+    }
+
+    #[test]
+    fn remaps_pbs_no_alphaclip_bits() {
+        let pbs = 1u32 << 7;
+        let billboard = remap_variant_bits_for_billboard("pbsmetallic_default", pbs);
+
+        assert_eq!(
+            billboard,
+            BILLBOARD_RENDER_BUFFER_COLOR_BIT
+                | BILLBOARD_RENDER_BUFFER_TEXTURE_BIT
+                | BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT
+        );
     }
 
     #[test]
