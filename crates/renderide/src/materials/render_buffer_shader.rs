@@ -16,18 +16,20 @@ pub(crate) const BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT: u32 = 1u32 << 19;
 
 pub(crate) fn remap_variant_bits_for_billboard(stem: &str, source_bits: u32) -> u32 {
     if is_unlit_family_embedded_stem(stem) {
-        remap_unlit_variant_bits_for_billboard(source_bits)
+        BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT
+            | remap_unlit_variant_bits_for_billboard(source_bits)
     } else {
         BILLBOARD_RENDER_BUFFER_TEXTURE_BIT
             | BILLBOARD_RENDER_BUFFER_COLOR_BIT
             | BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT
+            | map_billboard_vertex_color_variant_bits(stem, source_bits)
             | map_billboard_alpha_clip_variant_bits(stem, source_bits)
     }
 }
 
 /// Enables render-buffer sizing and particle color semantics for synthetic billboard draws.
 pub(crate) fn ensure_render_buffer_billboard_variant_bits(bits: u32) -> u32 {
-    bits | BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT | BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT
+    bits | BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT
 }
 
 /// Returns whether `stem` names an embedded Unlit-family shader other than Billboard/Unlit.
@@ -81,7 +83,7 @@ fn map_billboard_alpha_clip_variant_bits(stem: &str, source_bits: u32) -> u32 {
         "pbslerp",
         "pbsslice_",
         "pbsslicespecular_",
-        "pbsvertexcolortransparent",
+        "pbsvertexcolor",
         "xstoon",
     ];
     if ALPHA_CLIP_ONE
@@ -96,6 +98,25 @@ fn map_billboard_alpha_clip_variant_bits(stem: &str, source_bits: u32) -> u32 {
         .any(|prefix| lower.starts_with(prefix))
     {
         return (source_bits >> 2) & 1;
+    }
+    0u32
+}
+
+/// Remaps Froox Vertex Colors keyword bits to Billboard/Unlit keyword bits
+/// for material binding with non-Unlit materials.
+fn map_billboard_vertex_color_variant_bits(stem: &str, source_bits: u32) -> u32 {
+    let lower = stem.to_ascii_lowercase();
+    if lower.starts_with("fresnel_") {
+        return ((source_bits >> 10) & 1) << 17;
+    }
+    if lower.starts_with("pbsdualsidedtransparent") {
+        return ((source_bits >> 5) & 1) << 17;
+    }
+    if lower.starts_with("pbsvertexcolor") || lower.starts_with("pbsdualsided") {
+        return ((source_bits >> 6) & 1) << 17;
+    }
+    if lower.starts_with("xstoon") {
+        return ((source_bits >> 8) & 1) << 17;
     }
     0u32
 }
@@ -152,7 +173,7 @@ mod tests {
     fn render_buffer_variant_bit_is_reserved() {
         assert_eq!(
             ensure_render_buffer_billboard_variant_bits(0),
-            BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT | BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT
+            BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT
         );
     }
 }

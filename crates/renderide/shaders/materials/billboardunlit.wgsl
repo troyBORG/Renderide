@@ -485,7 +485,8 @@ fn fs_main(
 
     if (kw_SIMPLE_LIT()) {
         let n = two_sided_geometric_normal(in.n, front_facing);
-        let lit = dl::shade_clustered_diffuse(in.clip_pos.xy, in.world_p, n, col.rgb, in.view_layer);
+        let base = saturate(col.rgb);
+        let lit = dl::shade_clustered_diffuse(in.clip_pos.xy, in.world_p, n, base, in.view_layer);
         col = vec4<f32>(lit, col.a);
     }
 
