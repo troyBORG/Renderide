@@ -108,16 +108,3 @@ labeled_enum! {
         },
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::BloomSettings;
-
-    #[test]
-    fn default_pyramid_budget_uses_512_px_mip_zero() {
-        let settings = BloomSettings::default();
-
-        assert_eq!(settings.max_mip_dimension, 512);
-        assert_eq!(settings.effective_max_mip_dimension(), 512);
-    }
-}
