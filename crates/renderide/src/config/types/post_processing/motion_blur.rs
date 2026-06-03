@@ -63,8 +63,8 @@ impl Default for MotionBlurSettings {
         Self {
             enabled: true,
             allow_vr: false,
-            shutter_angle: 0.35,
-            sample_count: 8,
+            shutter_angle: 0.5,
+            sample_count: 16,
             max_velocity_pixels: 256.0,
         }
     }

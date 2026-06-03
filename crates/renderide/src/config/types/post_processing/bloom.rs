@@ -46,7 +46,7 @@ pub struct BloomSettings {
     /// Target height (in pixels) of the largest bloom mip. Each subsequent mip halves the
     /// resolution; smaller values are faster but less wide-spread. Arbitrary values are accepted
     /// in config/UI, then clamped and rounded down to a power of two by
-    /// [`Self::effective_max_mip_dimension`]. The default is 256.
+    /// [`Self::effective_max_mip_dimension`].
     pub max_mip_dimension: u32,
 }
 
@@ -80,7 +80,7 @@ impl Default for BloomSettings {
             prefilter_threshold: 1.0,
             prefilter_threshold_softness: 0.5,
             composite_mode: BloomCompositeMode::EnergyConserving,
-            max_mip_dimension: 256,
+            max_mip_dimension: 512,
         }
     }
 }
