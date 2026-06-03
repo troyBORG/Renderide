@@ -34,6 +34,8 @@ pub(crate) fn remap_unlit_variant_bits_for_billboard(unlit_bits: u32) -> u32 {
     const PAIRS: &[(u32, u32)] = &[
         (0, 0),
         (1, 1),
+        (2, 17),
+        (3, 18),
         (4, 2),
         (5, 3),
         (6, 4),
@@ -57,6 +59,9 @@ pub(crate) fn remap_unlit_variant_bits_for_billboard(unlit_bits: u32) -> u32 {
 mod tests {
     use super::*;
 
+    const BILLBOARD_UNLIT_MASK_TEXTURE_CLIP_BIT: u32 = 1u32 << 17;
+    const BILLBOARD_UNLIT_MASK_TEXTURE_MUL_BIT: u32 = 1u32 << 18;
+
     #[test]
     fn detects_unlit_family_stems() {
         assert!(is_unlit_family_embedded_stem("unlit_default"));
@@ -72,6 +77,23 @@ mod tests {
         assert_eq!(billboard & (1u32 << 1), 1u32 << 1);
         assert_eq!(billboard & (1u32 << 10), 1u32 << 10);
         assert_eq!(billboard & (1u32 << 9), 0);
+    }
+
+    #[test]
+    fn remaps_unlit_mask_bits_to_billboard_compatibility_bits() {
+        let unlit = (1u32 << 2) | (1u32 << 3);
+        let billboard = remap_unlit_variant_bits_for_billboard(unlit);
+
+        assert_eq!(
+            billboard & BILLBOARD_UNLIT_MASK_TEXTURE_CLIP_BIT,
+            BILLBOARD_UNLIT_MASK_TEXTURE_CLIP_BIT
+        );
+        assert_eq!(
+            billboard & BILLBOARD_UNLIT_MASK_TEXTURE_MUL_BIT,
+            BILLBOARD_UNLIT_MASK_TEXTURE_MUL_BIT
+        );
+        assert_eq!(billboard & (1u32 << 2), 0);
+        assert_eq!(billboard & (1u32 << 3), 0);
     }
 
     #[test]
