@@ -4,15 +4,15 @@
 ///
 /// When set, `billboardunlit.wgsl` treats per-vertex point sizes as final particle sizes instead
 /// of multiplying them by the material `_PointSize`.
-pub(crate) const BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT: u32 = 1u32 << 18;
+pub(crate) const BILLBOARD_RENDER_BUFFER_ABSOLUTE_SIZE_BIT: u32 = 1u32 << 16;
 /// Billboard/Unlit variant bit that enables per-particle color and alpha.
-pub(crate) const BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT: u32 = 1u32 << 17;
+pub(crate) const BILLBOARD_RENDER_BUFFER_VERTEX_COLORS_BIT: u32 = 1u32 << 15;
 /// Billboard/Unlit variant bit that enables texture sampling.
-pub(crate) const BILLBOARD_RENDER_BUFFER_TEXTURE_BIT: u32 = 1u32 << 12;
+pub(crate) const BILLBOARD_RENDER_BUFFER_TEXTURE_BIT: u32 = 1u32 << 10;
 /// Billboard/Unlit variant bit that enables base color.
 pub(crate) const BILLBOARD_RENDER_BUFFER_COLOR_BIT: u32 = 1u32 << 1;
 /// Billboard variant bit that enables simple lighting for non-unlit source materials.
-pub(crate) const BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT: u32 = 1u32 << 19;
+pub(crate) const BILLBOARD_RENDER_BUFFER_SIMPLE_LIT_BIT: u32 = 1u32 << 17;
 
 pub(crate) fn remap_variant_bits_for_billboard(stem: &str, source_bits: u32) -> u32 {
     if is_unlit_family_embedded_stem(stem) {
@@ -44,17 +44,17 @@ fn remap_unlit_variant_bits_for_billboard(unlit_bits: u32) -> u32 {
     const PAIRS: &[(u32, u32)] = &[
         (0, 0),
         (1, 1),
-        (2, 2),
-        (3, 3),
-        (4, 4),
-        (5, 5),
-        (6, 6),
-        (7, 10),
-        (8, 11),
-        (9, 12),
-        (11, 15),
-        (12, 16),
-        (13, 17),
+        (2, 18),
+        (3, 19),
+        (4, 2),
+        (5, 3),
+        (6, 4),
+        (7, 8),
+        (8, 9),
+        (9, 10),
+        (11, 13),
+        (12, 14),
+        (13, 15),
     ];
     let mut out = 0u32;
     for &(from, to) in PAIRS {
@@ -128,6 +128,9 @@ fn map_billboard_vertex_color_variant_bits(stem: &str, source_bits: u32) -> u32 
 mod tests {
     use super::*;
 
+    const BILLBOARD_UNLIT_MASK_TEXTURE_CLIP_BIT: u32 = 1u32 << 18;
+    const BILLBOARD_UNLIT_MASK_TEXTURE_MUL_BIT: u32 = 1u32 << 19;
+
     #[test]
     fn detects_unlit_family_stems() {
         assert!(is_unlit_family_embedded_stem("unlit_default"));
@@ -141,8 +144,25 @@ mod tests {
         let billboard = remap_variant_bits_for_billboard("unlit_default", unlit);
 
         assert_eq!(billboard & (1u32 << 1), 1u32 << 1);
-        assert_eq!(billboard & (1u32 << 12), 1u32 << 12);
-        assert_eq!(billboard & (1u32 << 11), 0);
+        assert_eq!(billboard & (1u32 << 10), 1u32 << 10);
+        assert_eq!(billboard & (1u32 << 9), 0);
+    }
+
+    #[test]
+    fn remaps_unlit_mask_bits_to_billboard_compatibility_bits() {
+        let unlit = (1u32 << 2) | (1u32 << 3);
+        let billboard = remap_unlit_variant_bits_for_billboard(unlit);
+
+        assert_eq!(
+            billboard & BILLBOARD_UNLIT_MASK_TEXTURE_CLIP_BIT,
+            BILLBOARD_UNLIT_MASK_TEXTURE_CLIP_BIT
+        );
+        assert_eq!(
+            billboard & BILLBOARD_UNLIT_MASK_TEXTURE_MUL_BIT,
+            BILLBOARD_UNLIT_MASK_TEXTURE_MUL_BIT
+        );
+        assert_eq!(billboard & (1u32 << 2), 0);
+        assert_eq!(billboard & (1u32 << 3), 0);
     }
 
     #[test]

@@ -88,7 +88,7 @@ impl Default for GtaoSettings {
             radius_meters: 1.0,
             radius_multiplier: 1.457,
             intensity: 0.5,
-            max_pixel_radius: 1024.0,
+            max_pixel_radius: 256.0,
             step_count: 1,
             falloff_range: 1.0,
             sample_distribution_power: 2.0,
@@ -96,7 +96,7 @@ impl Default for GtaoSettings {
             final_value_power: 2.2,
             depth_mip_sampling_offset: 3.3,
             albedo_multibounce: 0.0,
-            denoise_passes: 6,
+            denoise_passes: 3,
             denoise_blur_beta: 1.2,
         }
     }

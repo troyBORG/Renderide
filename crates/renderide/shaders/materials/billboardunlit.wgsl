@@ -55,24 +55,24 @@ struct BillboardUnlitMaterial {
 
 const BILLBOARDUNLIT_KW_ALPHATEST: u32 = 1u << 0u;
 const BILLBOARDUNLIT_KW_COLOR: u32 = 1u << 1u;
-const BILLBOARDUNLIT_KW_MASK_TEXTURE_CLIP: u32 = 1u << 2u;
-const BILLBOARDUNLIT_KW_MASK_TEXTURE_MUL: u32 = 1u << 3u;
-const BILLBOARDUNLIT_KW_MUL_ALPHA_INTENSITY: u32 = 1u << 4u;
-const BILLBOARDUNLIT_KW_MUL_RGB_BY_ALPHA: u32 = 1u << 5u;
-const BILLBOARDUNLIT_KW_OFFSET_TEXTURE: u32 = 1u << 6u;
-const BILLBOARDUNLIT_KW_POINT_ROTATION: u32 = 1u << 7u;
-const BILLBOARDUNLIT_KW_POINT_SIZE: u32 = 1u << 8u;
-const BILLBOARDUNLIT_KW_POINT_UV: u32 = 1u << 9u;
-const BILLBOARDUNLIT_KW_POLARUV: u32 = 1u << 10u;
-const BILLBOARDUNLIT_KW_RIGHT_EYE_ST: u32 = 1u << 11u;
-const BILLBOARDUNLIT_KW_TEXTURE: u32 = 1u << 12u;
-const BILLBOARDUNLIT_KW_VERTEX_HDRSRGB_COLOR: u32 = 1u << 13u;
-const BILLBOARDUNLIT_KW_VERTEX_HDRSRGBALPHA_COLOR: u32 = 1u << 14u;
-const BILLBOARDUNLIT_KW_VERTEX_LINEAR_COLOR: u32 = 1u << 15u;
-const BILLBOARDUNLIT_KW_VERTEX_SRGB_COLOR: u32 = 1u << 16u;
-const BILLBOARDUNLIT_KW_VERTEXCOLORS: u32 = 1u << 17u;
-const BILLBOARDUNLIT_KW_RENDER_BUFFER: u32 = 1u << 18u;
-const BILLBOARDUNLIT_KW_SIMPLE_LIT: u32 = 1u << 19u;
+const BILLBOARDUNLIT_KW_MUL_ALPHA_INTENSITY: u32 = 1u << 2u;
+const BILLBOARDUNLIT_KW_MUL_RGB_BY_ALPHA: u32 = 1u << 3u;
+const BILLBOARDUNLIT_KW_OFFSET_TEXTURE: u32 = 1u << 4u;
+const BILLBOARDUNLIT_KW_POINT_ROTATION: u32 = 1u << 5u;
+const BILLBOARDUNLIT_KW_POINT_SIZE: u32 = 1u << 6u;
+const BILLBOARDUNLIT_KW_POINT_UV: u32 = 1u << 7u;
+const BILLBOARDUNLIT_KW_POLARUV: u32 = 1u << 8u;
+const BILLBOARDUNLIT_KW_RIGHT_EYE_ST: u32 = 1u << 9u;
+const BILLBOARDUNLIT_KW_TEXTURE: u32 = 1u << 10u;
+const BILLBOARDUNLIT_KW_VERTEX_HDRSRGB_COLOR: u32 = 1u << 11u;
+const BILLBOARDUNLIT_KW_VERTEX_HDRSRGBALPHA_COLOR: u32 = 1u << 12u;
+const BILLBOARDUNLIT_KW_VERTEX_LINEAR_COLOR: u32 = 1u << 13u;
+const BILLBOARDUNLIT_KW_VERTEX_SRGB_COLOR: u32 = 1u << 14u;
+const BILLBOARDUNLIT_KW_VERTEXCOLORS: u32 = 1u << 15u;
+const BILLBOARDUNLIT_KW_RENDER_BUFFER: u32 = 1u << 16u;
+const BILLBOARDUNLIT_KW_SIMPLE_LIT: u32 = 1u << 17u;
+const BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_CLIP: u32 = 1u << 18u;
+const BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_MUL: u32 = 1u << 19u;
 
 @group(1) @binding(0) var<uniform> mat: BillboardUnlitMaterial;
 @group(1) @binding(1) var _Tex: texture_2d<f32>;
@@ -94,12 +94,12 @@ fn kw_COLOR() -> bool {
     return bb_kw(BILLBOARDUNLIT_KW_COLOR);
 }
 
-fn kw_MASK_TEXTURE_CLIP() -> bool {
-    return bb_kw(BILLBOARDUNLIT_KW_MASK_TEXTURE_CLIP);
+fn kw_UNLIT_MASK_TEXTURE_CLIP() -> bool {
+    return bb_kw(BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_CLIP);
 }
 
-fn kw_MASK_TEXTURE_MUL() -> bool {
-    return bb_kw(BILLBOARDUNLIT_KW_MASK_TEXTURE_MUL);
+fn kw_UNLIT_MASK_TEXTURE_MUL() -> bool {
+    return bb_kw(BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_MUL);
 }
 
 fn kw_MUL_ALPHA_INTENSITY() -> bool {
@@ -212,28 +212,38 @@ fn facing_basis(center_world: vec3<f32>, view_layer: u32, roll: f32, allow_roll:
     return RenderBufferBillboardBasis(right, up);
 }
 
-fn local_particle_basis(
+fn direction_stretch_particle_basis(
     d: dt::PerDrawUniforms,
     center_world: vec3<f32>,
+    point_forward_upz: vec4<f32>,
+    view_layer: u32,
+) -> RenderBufferBillboardBasis {
+    let to_camera = rg::view_dir_for_world_pos(center_world, view_layer);
+    let velocity_world = mv::model_vector(d, point_forward_upz.xyz);
+    let velocity_in_plane = velocity_world - to_camera * dot(velocity_world, to_camera);
+    let view_up = rg::view_to_world_y_coeffs_for_view(view_layer).xyz;
+    let view_up_in_plane = view_up - to_camera * dot(view_up, to_camera);
+    var up = rmath::safe_normalize(
+        velocity_in_plane,
+        rmath::safe_normalize(view_up_in_plane, vec3<f32>(0.0, 1.0, 0.0)),
+    );
+    let right = rmath::safe_normalize(cross(up, to_camera), vec3<f32>(1.0, 0.0, 0.0));
+    up = rmath::safe_normalize(cross(to_camera, right), up);
+    return RenderBufferBillboardBasis(right, up);
+}
+
+fn local_particle_basis(
+    d: dt::PerDrawUniforms,
     pointdata: vec3<f32>,
     point_forward_upz: vec4<f32>,
     point_up_xy: vec2<f32>,
-    view_layer: u32,
-    direction_stretch: bool,
 ) -> RenderBufferBillboardBasis {
     let raw_forward = rmath::safe_normalize(point_forward_upz.xyz, vec3<f32>(0.0, 0.0, 1.0));
     let raw_up = rmath::safe_normalize(vec3<f32>(point_up_xy, point_forward_upz.w), vec3<f32>(0.0, 1.0, 0.0));
     let world_forward = rmath::safe_normalize(mv::model_vector(d, raw_forward), vec3<f32>(0.0, 0.0, 1.0));
     let world_up = rmath::safe_normalize(mv::model_vector(d, raw_up), vec3<f32>(0.0, 1.0, 0.0));
-    if (direction_stretch) {
-        let to_camera = rg::view_dir_for_world_pos(center_world, view_layer);
-        let up = world_forward;
-        let right = rmath::safe_normalize(cross(to_camera, up), vec3<f32>(1.0, 0.0, 0.0));
-        return RenderBufferBillboardBasis(right, up);
-    }
-
-    var right = rmath::safe_normalize(cross(world_up, world_forward), vec3<f32>(1.0, 0.0, 0.0));
-    var up = rmath::safe_normalize(cross(world_forward, right), world_up);
+    var right = rmath::safe_normalize(cross(world_forward, world_up), vec3<f32>(1.0, 0.0, 0.0));
+    var up = rmath::safe_normalize(cross(right, world_forward), world_up);
     if (abs(pointdata.z) > 1e-4) {
         let rotated = rotate_render_buffer_axes(pointdata.z, right, up);
         right = rotated.right;
@@ -255,10 +265,10 @@ fn render_buffer_billboard_basis(
         return facing_basis(center_world, view_layer, pointdata.z, false);
     }
     if (alignment == 2u || alignment == 3u) {
-        return local_particle_basis(d, center_world, pointdata, point_forward_upz, point_up_xy, view_layer, false);
+        return local_particle_basis(d, pointdata, point_forward_upz, point_up_xy);
     }
     if (alignment == 4u) {
-        return local_particle_basis(d, center_world, pointdata, point_forward_upz, point_up_xy, view_layer, true);
+        return direction_stretch_particle_basis(d, center_world, point_forward_upz, view_layer);
     }
     return view_plane_basis(view_layer, pointdata.z, true);
 }
@@ -452,8 +462,8 @@ fn fs_main(
         col = vec4<f32>(1.0);
     }
 
-    let mask_clip = kw_MASK_TEXTURE_CLIP();
-    let mask_mul = kw_MASK_TEXTURE_MUL();
+    let mask_clip = kw_UNLIT_MASK_TEXTURE_CLIP();
+    let mask_mul = kw_UNLIT_MASK_TEXTURE_MUL();
     if (mask_mul || mask_clip) {
         let uv_mask = uvu::apply_st(in.uv, mat._MaskTex_ST);
         let mask_sample = ts::sample_tex_2d(_MaskTex, _MaskTex_sampler, uv_mask, mat._MaskTex_LodBias);
@@ -462,7 +472,7 @@ fn fs_main(
         if (mask_mul) {
             col.a = col.a * mask_lum;
         }
-        if (mask_clip && mask_lum < mat._Cutoff) {
+        if (mask_clip && mask_lum <= mat._Cutoff) {
             discard;
         }
     }

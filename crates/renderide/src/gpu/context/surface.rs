@@ -142,6 +142,7 @@ impl GpuContext {
         self.config.height = height.max(1);
         self.depth_attachment = None;
         self.depth_extent_px = (0, 0);
+        self.invalidate_primary_offscreen_targets();
         if let Err(error) = self.configure_current_surface() {
             self.record_surface_reconfigure(
                 GpuFlightSurfaceReconfigureSite::Resize,
@@ -282,9 +283,12 @@ impl GpuContext {
 fn timed_surface_get_current_texture(
     surface: &wgpu::Surface<'_>,
 ) -> (wgpu::CurrentSurfaceTexture, Duration) {
+    profiling::scope!("gpu::surface_get_current_texture");
     let start = Instant::now();
     let texture = surface.get_current_texture();
-    (texture, start.elapsed())
+    let wait = start.elapsed();
+    crate::profiling::plot_surface_get_current_texture_ms(wait);
+    (texture, wait)
 }
 
 fn format_wgpu_error(error: wgpu::Error) -> String {
