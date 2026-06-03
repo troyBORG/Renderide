@@ -405,8 +405,12 @@ fn billboard_render_buffer_uses_indexed_corner_separate_from_sample_uv() -> io::
         );
     }
     assert!(
-        src.contains("const BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_CLIP: u32 = 1u << 17u;")
-            && src.contains("const BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_MUL: u32 = 1u << 18u;"),
+        src.contains("const BILLBOARDUNLIT_KW_SIMPLE_LIT: u32 = 1u << 17u;"),
+        "Non-Unlit shading support for render-buffer billboards must use compatibility bit after native Billboard/Unlit keywords"
+    );
+    assert!(
+        src.contains("const BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_CLIP: u32 = 1u << 18u;")
+            && src.contains("const BILLBOARDUNLIT_KW_UNLIT_MASK_TEXTURE_MUL: u32 = 1u << 19u;"),
         "Unlit mask support for render-buffer billboards must use compatibility bits after native Billboard/Unlit keywords"
     );
     assert!(
@@ -439,6 +443,12 @@ fn billboard_render_buffer_uses_indexed_corner_separate_from_sample_uv() -> io::
             && src.contains("out.fog_coord = rfog::coord_from_world_pos(world_p, layer);")
             && src.contains("rfog::apply_rgba(col, in.fog_coord)"),
         "Billboard/Unlit must preserve the source-authored UNITY_APPLY_FOG hook"
+    );
+    assert!(
+        src.contains("if (kw_SIMPLE_LIT())")
+            && src.contains("out.n = ")
+            && src.contains("dl::shade_clustered_diffuse"),
+        "Billboard/Unlit must offer simple shading capabilities for non-Unlit source materials"
     );
 
     Ok(())
