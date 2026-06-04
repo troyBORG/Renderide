@@ -59,11 +59,13 @@ pub enum RenderTextureSelfSampling {
 
 impl OffscreenWriteTarget {
     /// Builds a host render-texture target using the default same-target sampling suppression.
+    #[inline]
     pub const fn host_render_texture(asset_id: i32) -> Self {
         Self::host_render_texture_with_self_sampling(asset_id, RenderTextureSelfSampling::Suppress)
     }
 
     /// Builds a host render-texture target with an explicit same-target sampling policy.
+    #[inline]
     pub const fn host_render_texture_with_self_sampling(
         asset_id: i32,
         self_sampling: RenderTextureSelfSampling,
@@ -75,6 +77,7 @@ impl OffscreenWriteTarget {
     }
 
     /// Returns `true` when the view writes to any offscreen target.
+    #[inline]
     pub const fn is_offscreen(self) -> bool {
         !matches!(self, Self::None)
     }
@@ -85,6 +88,7 @@ impl OffscreenWriteTarget {
     /// clip-space projection gets a Y flip. Screen-space consumers built from the view projection,
     /// including clustered-light froxels and frame unprojection constants, must use the same
     /// adjusted projection as the forward draw path.
+    #[inline]
     pub(crate) fn render_projection(self, projection: glam::Mat4) -> glam::Mat4 {
         if self.is_offscreen() {
             offscreen_projection_y_flip() * projection
@@ -94,6 +98,7 @@ impl OffscreenWriteTarget {
     }
 
     /// Returns the host render-texture asset id for this write target.
+    #[inline]
     pub const fn host_render_texture_asset_id(self) -> Option<i32> {
         match self {
             Self::HostRenderTexture { asset_id, .. } => Some(asset_id),
@@ -102,6 +107,7 @@ impl OffscreenWriteTarget {
     }
 
     /// Returns the same-target material sampling policy for this write target.
+    #[inline]
     pub const fn render_texture_self_sampling(self) -> Option<RenderTextureSelfSampling> {
         match self {
             Self::HostRenderTexture { self_sampling, .. } => Some(self_sampling),
@@ -110,12 +116,14 @@ impl OffscreenWriteTarget {
     }
 
     /// Returns `true` when material bindings should mask this render texture while rendering.
+    #[inline]
     pub fn suppresses_render_texture_sampling(self, sampled_asset_id: i32) -> bool {
         self.host_render_texture_asset_id() == Some(sampled_asset_id)
             && self.render_texture_self_sampling() == Some(RenderTextureSelfSampling::Suppress)
     }
 }
 
+#[inline]
 fn offscreen_projection_y_flip() -> glam::Mat4 {
     glam::Mat4::from_diagonal(glam::Vec4::new(1.0, -1.0, 1.0, 1.0))
 }
@@ -131,6 +139,7 @@ pub struct FrameViewClear {
 
 impl FrameViewClear {
     /// Main-view clear mode: render the active render-space skybox.
+    #[inline]
     pub fn skybox() -> Self {
         Self {
             mode: CameraClearMode::Skybox,
@@ -139,6 +148,7 @@ impl FrameViewClear {
     }
 
     /// Color clear mode with the supplied linear RGBA background.
+    #[inline]
     pub fn color(color: glam::Vec4) -> Self {
         Self {
             mode: CameraClearMode::Color,
@@ -147,6 +157,7 @@ impl FrameViewClear {
     }
 
     /// Converts host camera state into a frame-view clear descriptor.
+    #[inline]
     pub fn from_camera_state(state: &crate::shared::CameraState) -> Self {
         Self {
             mode: state.clear_mode,
@@ -155,6 +166,7 @@ impl FrameViewClear {
     }
 
     /// Converts host camera readback parameters into a frame-view clear descriptor.
+    #[inline]
     pub fn from_camera_render_parameters(
         parameters: &crate::shared::CameraRenderParameters,
     ) -> Self {
@@ -166,6 +178,7 @@ impl FrameViewClear {
 }
 
 impl Default for FrameViewClear {
+    #[inline]
     fn default() -> Self {
         Self::skybox()
     }
@@ -332,6 +345,7 @@ pub struct GraphPassFrame<'a> {
 
 impl GraphPassFrame<'_> {
     /// Output depth layout for Hi-Z and occlusion ([`OutputDepthMode::from_multiview_stereo`]).
+    #[inline]
     pub fn output_depth_mode(&self) -> OutputDepthMode {
         OutputDepthMode::from_multiview_stereo(self.view.multiview_stereo)
     }
