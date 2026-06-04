@@ -26,7 +26,7 @@ mod sort;
 
 pub(crate) use collect::queue_prepared_draws_for_views_with_parallelism;
 pub use collect::{
-    DrawCollectionContext, QueuedWorldMeshDraws, WorldMeshDrawArrangeParallelism,
+    DrawCollectionContext, QueuedWorldMeshDraws, ViewLayerPolicy, WorldMeshDrawArrangeParallelism,
     WorldMeshDrawCollectParallelism, queue_draws_with_parallelism,
 };
 pub use command_cache::WorldMeshCommandCacheStats;

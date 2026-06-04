@@ -12,7 +12,7 @@ use crate::materials::{
     MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace, RasterPipelineKind,
 };
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId, SceneCoordinator};
-use crate::shared::{RenderTransform, RenderingContext};
+use crate::shared::{LayerType, RenderTransform, RenderingContext};
 use crate::world_mesh::CameraTransformDrawFilter;
 
 /// Builds a unit-scale transform for draw-prep tests.
@@ -58,6 +58,7 @@ fn transform_scale_filter_result(scale: Vec3) -> bool {
         mesh_lod_bias: 2.0,
         transform_filter: None,
         render_space_filter: None,
+        layer_policy: ViewLayerPolicy::MainView,
         material_cache: None,
         reflection_probes: None,
         prepared: None,
@@ -66,8 +67,12 @@ fn transform_scale_filter_result(scale: Vec3) -> bool {
     transform_chain_has_degenerate_scale(&ctx, space_id, 0)
 }
 
-/// Evaluates the Hidden-layer view policy for one optional camera transform filter.
-fn hidden_visibility_for_filter(filter: Option<&CameraTransformDrawFilter>) -> bool {
+/// Evaluates the special-layer view policy for one optional camera transform filter.
+fn special_layer_visibility_for_filter(
+    filter: Option<&CameraTransformDrawFilter>,
+    layer_policy: ViewLayerPolicy,
+    special_layer: LayerType,
+) -> bool {
     let scene = SceneCoordinator::new();
     let mesh_pool = MeshPool::default_pool();
     let store = MaterialPropertyStore::new();
@@ -89,11 +94,49 @@ fn hidden_visibility_for_filter(filter: Option<&CameraTransformDrawFilter>) -> b
         mesh_lod_bias: 2.0,
         transform_filter: filter,
         render_space_filter: None,
+        layer_policy,
         material_cache: None,
         reflection_probes: None,
         prepared: None,
     };
-    hidden_layers_visible_in_view(&ctx)
+    special_layer_visible_in_view(&ctx, Some(special_layer))
+}
+
+/// Evaluates whether a private render space is visible under one draw context.
+fn private_space_visibility_for_filter(
+    filter: Option<&CameraTransformDrawFilter>,
+    layer_policy: ViewLayerPolicy,
+) -> bool {
+    let mut scene = SceneCoordinator::new();
+    let space_id = RenderSpaceId(29);
+    scene.test_seed_space_identity_worlds(space_id, vec![identity_transform()], vec![-1]);
+    scene.test_set_space_private(space_id, true);
+    let mesh_pool = MeshPool::default_pool();
+    let store = MaterialPropertyStore::new();
+    let material_dict = MaterialDictionary::new(&store);
+    let router = MaterialRouter::new(RasterPipelineKind::Null);
+    let registry = PropertyIdRegistry::new();
+    let property_ids = MaterialPipelinePropertyIds::new(&registry);
+    let ctx = DrawCollectionContext {
+        scene: &scene,
+        mesh_pool: &mesh_pool,
+        material_dict: &material_dict,
+        material_router: &router,
+        pipeline_property_ids: &property_ids,
+        shader_perm: ShaderPermutation::default(),
+        render_context: RenderingContext::UserView,
+        head_output_transform: Mat4::IDENTITY,
+        view_origin_world: Vec3::ZERO,
+        culling: None,
+        mesh_lod_bias: 2.0,
+        transform_filter: filter,
+        render_space_filter: Some(space_id),
+        layer_policy,
+        material_cache: None,
+        reflection_probes: None,
+        prepared: None,
+    };
+    render_space_visible_in_view(&ctx, space_id)
 }
 
 /// Minimal prepared draw used to exercise transform-scale filtering before mesh lookup.
@@ -182,7 +225,21 @@ fn draw_transform_scale_filter_rejects_point_scale() {
 }
 
 #[test]
-fn hidden_layer_visibility_requires_non_empty_selective_filter() {
+fn camera_layer_policy_hides_hidden_and_overlay_without_selective_roots() {
+    assert!(!special_layer_visibility_for_filter(
+        None,
+        ViewLayerPolicy::camera(false),
+        LayerType::Hidden
+    ));
+    assert!(!special_layer_visibility_for_filter(
+        None,
+        ViewLayerPolicy::camera(false),
+        LayerType::Overlay
+    ));
+}
+
+#[test]
+fn camera_layer_policy_shows_hidden_and_overlay_for_selective_roots() {
     let exclude_only = CameraTransformDrawFilter {
         only: None,
         exclude: HashSet::from_iter([1]),
@@ -196,10 +253,83 @@ fn hidden_layer_visibility_requires_non_empty_selective_filter() {
         exclude: HashSet::new(),
     };
 
-    assert!(!hidden_visibility_for_filter(None));
-    assert!(!hidden_visibility_for_filter(Some(&exclude_only)));
-    assert!(!hidden_visibility_for_filter(Some(&empty_selective)));
-    assert!(hidden_visibility_for_filter(Some(&selective)));
+    assert!(!special_layer_visibility_for_filter(
+        Some(&exclude_only),
+        ViewLayerPolicy::camera(false),
+        LayerType::Hidden
+    ));
+    assert!(!special_layer_visibility_for_filter(
+        Some(&empty_selective),
+        ViewLayerPolicy::camera(false),
+        LayerType::Hidden
+    ));
+    assert!(special_layer_visibility_for_filter(
+        Some(&selective),
+        ViewLayerPolicy::camera(false),
+        LayerType::Hidden
+    ));
+    assert!(special_layer_visibility_for_filter(
+        Some(&selective),
+        ViewLayerPolicy::camera(false),
+        LayerType::Overlay
+    ));
+}
+
+#[test]
+fn selected_camera_overlay_renders_as_non_overlay() {
+    let scene = SceneCoordinator::new();
+    let mesh_pool = MeshPool::default_pool();
+    let store = MaterialPropertyStore::new();
+    let material_dict = MaterialDictionary::new(&store);
+    let router = MaterialRouter::new(RasterPipelineKind::Null);
+    let registry = PropertyIdRegistry::new();
+    let property_ids = MaterialPipelinePropertyIds::new(&registry);
+    let filter = CameraTransformDrawFilter {
+        only: Some(HashSet::from_iter([1])),
+        exclude: HashSet::new(),
+    };
+    let ctx = DrawCollectionContext {
+        scene: &scene,
+        mesh_pool: &mesh_pool,
+        material_dict: &material_dict,
+        material_router: &router,
+        pipeline_property_ids: &property_ids,
+        shader_perm: ShaderPermutation::default(),
+        render_context: RenderingContext::UserView,
+        head_output_transform: Mat4::IDENTITY,
+        view_origin_world: Vec3::ZERO,
+        culling: None,
+        mesh_lod_bias: 2.0,
+        transform_filter: Some(&filter),
+        render_space_filter: None,
+        layer_policy: ViewLayerPolicy::camera(false),
+        material_cache: None,
+        reflection_probes: None,
+        prepared: None,
+    };
+
+    assert!(!effective_overlay_in_view(&ctx, true));
+}
+
+#[test]
+fn camera_layer_policy_filters_private_spaces_without_private_ui() {
+    let selective = CameraTransformDrawFilter {
+        only: Some(HashSet::from_iter([0])),
+        exclude: HashSet::new(),
+    };
+
+    assert!(!private_space_visibility_for_filter(
+        None,
+        ViewLayerPolicy::camera(false)
+    ));
+    assert!(private_space_visibility_for_filter(
+        None,
+        ViewLayerPolicy::camera(true)
+    ));
+    assert!(private_space_visibility_for_filter(
+        Some(&selective),
+        ViewLayerPolicy::camera(false)
+    ));
 }
 
 #[test]
