@@ -66,8 +66,11 @@ fn host_window_icon_from_bgra(size: IVec2, bgra: &[u8]) -> Result<Icon, HostWind
 fn bgra_to_rgba(size: IVec2, bgra: &[u8]) -> Result<(Vec<u8>, u32, u32), HostWindowIconError> {
     let (width, height, expected) = validate_bgra_icon_shape(size, bgra.len())?;
     let mut rgba = Vec::with_capacity(expected);
-    for pixel in bgra.chunks_exact(4) {
-        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+    let row_stride = width as usize * 4;
+    for row in bgra.chunks_exact(row_stride).rev() {
+        for pixel in row.chunks_exact(4) {
+            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+        }
     }
     Ok((rgba, width, height))
 }
@@ -119,6 +122,27 @@ mod tests {
         assert_eq!(width, 2);
         assert_eq!(height, 1);
         assert_eq!(rgba, vec![0x30, 0x20, 0x10, 0x40, 0x70, 0x60, 0x50, 0x80,]);
+    }
+
+    #[test]
+    fn bgra_payload_flips_rows_while_converting_to_rgba() {
+        let bgra = [
+            0x01, 0x02, 0x03, 0x04, 0x11, 0x12, 0x13, 0x14, 0x21, 0x22, 0x23, 0x24, 0x31, 0x32,
+            0x33, 0x34,
+        ];
+
+        let (rgba, width, height) =
+            bgra_to_rgba(IVec2::new(2, 2), &bgra).expect("valid BGRA icon should convert");
+
+        assert_eq!(width, 2);
+        assert_eq!(height, 2);
+        assert_eq!(
+            rgba,
+            vec![
+                0x23, 0x22, 0x21, 0x24, 0x33, 0x32, 0x31, 0x34, 0x03, 0x02, 0x01, 0x04, 0x13, 0x12,
+                0x11, 0x14,
+            ]
+        );
     }
 
     #[test]
