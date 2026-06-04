@@ -109,7 +109,7 @@ fn clip_pos_from_view_ray(
         return vec4<f32>(view_ray.xy, 2.0, 1.0);
     }
     if (orthographic) {
-        return vec4<f32>(sign(view_ray.xy), 0.0, 1.0);
+        return vec4<f32>(sign(view_ray.xy * proj_params.xy), 0.0, 1.0);
     }
     return vec4<f32>(view_ray.xy * proj_params.xy / (-view_ray.z) - proj_params.zw, 0.0, 1.0);
 }
