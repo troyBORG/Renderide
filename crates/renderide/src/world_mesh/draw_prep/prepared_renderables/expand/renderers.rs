@@ -14,7 +14,7 @@ use crate::world_mesh::culling::{
     MeshCullGeometry, MeshCullTarget, mesh_world_geometry_for_cull_with_head,
 };
 
-use super::super::super::item::stacked_material_submesh_range;
+use super::super::super::item::{MaterialStackOrder, stacked_material_submesh_range};
 use super::super::FramePreparedDraw;
 use super::context::ExpandCtx;
 
@@ -370,6 +370,11 @@ fn expand_renderer_slots(
             blendshape_deformed,
             tangent_blendshape_deform_active,
             slot_index,
+            material_stack_order: MaterialStackOrder::from_slot_counts(
+                slot_index,
+                slots.len(),
+                submeshes.len(),
+            ),
             first_index,
             index_count,
             material_asset_id,

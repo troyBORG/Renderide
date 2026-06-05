@@ -92,6 +92,8 @@ pub(super) struct FramePreparedDraw {
     pub tangent_blendshape_deform_active: bool,
     /// Material-slot index within the renderer's slot / primary fallback list.
     pub slot_index: usize,
+    /// Material-stack ordering marker when this slot reuses the final submesh.
+    pub material_stack_order: Option<super::item::MaterialStackOrder>,
     /// First index in the mesh index buffer for the selected submesh range.
     pub first_index: u32,
     /// Number of indices for this submesh draw (always `> 0`).

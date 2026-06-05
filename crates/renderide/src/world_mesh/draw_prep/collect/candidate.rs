@@ -13,7 +13,7 @@ use crate::world_mesh::materials::{
     batch_key_for_slot_cached, compute_batch_key_hash,
 };
 
-use super::super::item::WorldMeshDrawItem;
+use super::super::item::{MaterialStackOrder, WorldMeshDrawItem};
 use super::DrawCollectionInputs;
 
 /// View-local material-slot draw candidate shared by scene-walk and prepared collection.
@@ -30,6 +30,8 @@ pub(super) struct DrawCandidate {
     pub(super) mesh_asset_id: i32,
     /// Material slot index within the source renderer.
     pub(super) slot_index: usize,
+    /// Material-stack ordering marker when this slot reuses the final submesh.
+    pub(super) material_stack_order: Option<MaterialStackOrder>,
     /// First index in the mesh index buffer.
     pub(super) first_index: u32,
     /// Number of indices emitted by the draw.
@@ -149,6 +151,7 @@ pub(super) fn evaluate_draw_candidate(
         instance_id: candidate.instance_id,
         mesh_asset_id: candidate.mesh_asset_id,
         slot_index: candidate.slot_index,
+        material_stack_order: candidate.material_stack_order,
         first_index: candidate.first_index,
         index_count: candidate.index_count,
         is_overlay: candidate.is_overlay,
@@ -274,6 +277,7 @@ mod tests {
             instance_id: MeshRendererInstanceId(99),
             mesh_asset_id: 7,
             slot_index: 0,
+            material_stack_order: None,
             first_index: 0,
             index_count: 3,
             is_overlay: false,
@@ -322,6 +326,7 @@ mod tests {
             instance_id: MeshRendererInstanceId(99),
             mesh_asset_id: 7,
             slot_index: 0,
+            material_stack_order: None,
             first_index: 0,
             index_count: 3,
             is_overlay: true,
@@ -381,6 +386,7 @@ mod tests {
             instance_id: MeshRendererInstanceId(99),
             mesh_asset_id: 7,
             slot_index: 0,
+            material_stack_order: None,
             first_index: 0,
             index_count: 3,
             is_overlay: false,
@@ -453,6 +459,7 @@ mod tests {
             instance_id: MeshRendererInstanceId(99),
             mesh_asset_id: 7,
             slot_index: 0,
+            material_stack_order: None,
             first_index: 0,
             index_count: 3,
             is_overlay: false,

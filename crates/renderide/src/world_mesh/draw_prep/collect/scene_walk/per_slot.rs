@@ -43,6 +43,7 @@ pub(super) fn push_one_slot_draw(
 ) {
     let SubmeshSlotIndices {
         slot_index,
+        material_stack_order,
         first_index,
         index_count,
     } = indices;
@@ -99,6 +100,7 @@ pub(super) fn push_one_slot_draw(
         instance_id: draw.instance_id,
         mesh_asset_id: draw.renderer.mesh_asset_id,
         slot_index,
+        material_stack_order,
         first_index,
         index_count,
         is_overlay,

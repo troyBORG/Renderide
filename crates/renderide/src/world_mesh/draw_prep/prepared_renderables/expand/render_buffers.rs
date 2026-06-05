@@ -157,6 +157,7 @@ fn try_expand_render_buffer_renderer(
         blendshape_deformed: false,
         tangent_blendshape_deform_active: false,
         slot_index: 0,
+        material_stack_order: None,
         first_index,
         index_count,
         material_asset_id,

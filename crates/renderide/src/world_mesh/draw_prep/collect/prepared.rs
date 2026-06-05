@@ -227,6 +227,7 @@ fn append_prepared_run_draws(
             instance_id: d.instance_id,
             mesh_asset_id: d.mesh_asset_id,
             slot_index: d.slot_index,
+            material_stack_order: d.material_stack_order,
             first_index: d.first_index,
             index_count: d.index_count,
             is_overlay,

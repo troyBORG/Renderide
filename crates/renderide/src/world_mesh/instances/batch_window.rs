@@ -52,6 +52,7 @@ pub(super) fn draw_requires_singleton(
     let order_dependent = !item.batch_key.transparent_class.allows_relaxed_batching();
     !supports_base_instance
         || item.skinned
+        || item.material_stack_order.is_some()
         || (classification.strict_order && order_dependent)
         || classification.grab_pass
 }
