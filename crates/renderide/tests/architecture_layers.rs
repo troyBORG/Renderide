@@ -107,11 +107,18 @@ const REFACTORED_MODULE_FILES: &[&str] = &[
     "assets/mesh/gpu_mesh/upload/generated.rs",
     "backend/facade/graph_access.rs",
     "backend/facade/graph_access/warmup.rs",
+    "passes/world_mesh_forward/prepare.rs",
+    "passes/world_mesh_forward/prepare/cache.rs",
     "render_graph/compiled/exec.rs",
     "render_graph/compiled/exec/command_recording.rs",
     "render_graph/compiled/exec/prepare.rs",
     "render_graph/compiled/exec/recording_path.rs",
     "render_graph/compiled/exec/swapchain.rs",
+    "render_graph/compiled/frame_view.rs",
+    "render_graph/compiled/frame_view/profile.rs",
+    "render_graph/schedule.rs",
+    "render_graph/schedule/hud.rs",
+    "render_graph/schedule/tests.rs",
     "runtime/frame/extract.rs",
     "runtime/frame/extract/cull.rs",
     "runtime/frame/extract/queue.rs",
@@ -120,14 +127,9 @@ const REFACTORED_MODULE_FILES: &[&str] = &[
     "world_mesh/draw_prep/prepared_renderables.rs",
     "world_mesh/draw_prep/prepared_renderables/lod.rs",
     "world_mesh/draw_prep/prepared_renderables/tests.rs",
-];
-
-const REFACTORED_PARENT_MODULE_FILES: &[&str] = &[
-    "assets/mesh/gpu_mesh/upload.rs",
-    "backend/facade/graph_access.rs",
-    "render_graph/compiled/exec.rs",
-    "runtime/frame/extract.rs",
-    "world_mesh/draw_prep/prepared_renderables.rs",
+    "world_mesh/instances.rs",
+    "world_mesh/instances/builder.rs",
+    "world_mesh/instances/prepass.rs",
 ];
 
 #[test]
@@ -173,21 +175,21 @@ fn refactored_renderer_modules_stay_split() {
 }
 
 #[test]
-fn refactored_parent_modules_stay_under_line_limit() {
+fn renderer_source_modules_stay_under_line_limit() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let oversized = REFACTORED_PARENT_MODULE_FILES
-        .iter()
-        .filter_map(|relative| {
-            let path = src.join(relative);
+    let oversized = rust_files(&src)
+        .into_iter()
+        .filter_map(|path| {
             let source = fs::read_to_string(&path).ok()?;
             let line_count = source.lines().count();
-            (line_count > 1_000).then(|| format!("{relative}: {line_count} lines"))
+            (line_count > 1_000)
+                .then(|| format!("{}: {line_count} lines", relative_path(&src, &path)))
         })
         .collect::<Vec<_>>();
 
     assert!(
         oversized.is_empty(),
-        "refactored parent module(s) exceeded the 1,000-line limit:\n{}",
+        "renderer source module(s) exceeded the 1,000-line limit:\n{}",
         oversized.join("\n")
     );
 }

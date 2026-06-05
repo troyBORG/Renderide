@@ -8,6 +8,11 @@
 //! to. The executor consumes these waves while preserving deterministic pass order inside each
 //! wave.
 
+mod hud;
+
+#[cfg(test)]
+mod tests;
+
 use super::compiled::CompiledPassInfo;
 use super::frame_upload_batch::FrameUploadScope;
 use super::pass::{PassPhase, PassWorkloadFlags};
@@ -15,6 +20,8 @@ use super::resources::{
     BufferAccess, BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureAccess,
     TextureHandle,
 };
+
+pub use hud::ScheduleHudSnapshot;
 
 /// Scheduler-facing upload phase for one pass step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -788,214 +795,4 @@ pub enum ScheduleValidationError {
         /// Total step count.
         steps_len: usize,
     },
-}
-
-/// CPU-side snapshot of a [`FrameSchedule`] for the debug HUD.
-///
-/// Captured once per graph build/rebuild and surfaced in the diagnostics overlay so developers
-/// can see pass count, wave layout, and phase distribution at a glance.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ScheduleHudSnapshot {
-    /// Total retained pass count.
-    pub pass_count: usize,
-    /// Total Kahn waves.
-    pub wave_count: usize,
-    /// Number of [`PassPhase::FrameGlobal`] passes.
-    pub frame_global_count: usize,
-    /// Number of [`PassPhase::PerView`] passes.
-    pub per_view_count: usize,
-    /// Pass count per wave (`waves[w].len()`).
-    pub passes_per_wave: Vec<usize>,
-    /// Retained dependency edge count between scheduled steps.
-    pub dependency_edge_count: usize,
-    /// Conservative merge groups detected at compile time.
-    pub render_pass_merge_group_count: usize,
-    /// Merge groups planned for materialized recording.
-    pub render_pass_materialization_group_count: usize,
-    /// Scheduler units that can record in a worker batch.
-    pub parallel_recording_unit_count: usize,
-    /// Scheduler batches that record more than one unit in parallel.
-    pub parallel_recording_batch_count: usize,
-}
-
-impl ScheduleHudSnapshot {
-    /// Builds a snapshot from a [`FrameSchedule`].
-    pub fn from_schedule(schedule: &FrameSchedule) -> Self {
-        Self {
-            pass_count: schedule.pass_count(),
-            wave_count: schedule.wave_count(),
-            frame_global_count: schedule.frame_global_steps().count(),
-            per_view_count: schedule.per_view_steps().count(),
-            passes_per_wave: schedule.wave_steps().map(<[ScheduleStep]>::len).collect(),
-            dependency_edge_count: schedule.dependency_edges.len(),
-            render_pass_merge_group_count: schedule.render_pass_merge_groups.len(),
-            render_pass_materialization_group_count: schedule
-                .render_pass_materialization_plan
-                .groups
-                .len(),
-            parallel_recording_unit_count: schedule.recording_plan.parallel_unit_count(),
-            parallel_recording_batch_count: schedule.recording_plan.parallel_batch_count(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn step(phase: PassPhase, pass_idx: usize, wave_idx: usize) -> ScheduleStep {
-        let upload_phase = match phase {
-            PassPhase::FrameGlobal => ScheduleUploadPhase::FrameGlobal,
-            PassPhase::PerView => ScheduleUploadPhase::PerView,
-        };
-        ScheduleStep {
-            phase,
-            pass_idx,
-            wave_idx,
-            upload_phase,
-        }
-    }
-
-    fn schedule(steps: Vec<ScheduleStep>, waves: Vec<std::ops::Range<usize>>) -> FrameSchedule {
-        FrameSchedule::new(steps, waves, Vec::new(), Vec::new(), Vec::new(), Vec::new())
-    }
-
-    #[test]
-    fn frame_global_steps_filters_correctly() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 0),
-                step(PassPhase::PerView, 1, 1),
-                step(PassPhase::FrameGlobal, 2, 0),
-                step(PassPhase::PerView, 3, 1),
-            ],
-            vec![0..2, 2..4],
-        );
-        let global: Vec<_> = sched.frame_global_steps().collect();
-        assert_eq!(global.len(), 2);
-        assert_eq!(global[0].pass_idx, 0);
-        assert_eq!(global[1].pass_idx, 2);
-        assert_eq!(sched.frame_global_pass_indices(), &[0usize, 2]);
-        assert_eq!(sched.per_view_pass_indices(), &[1usize, 3]);
-    }
-
-    #[test]
-    fn per_view_steps_filters_correctly() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 0),
-                step(PassPhase::PerView, 1, 1),
-                step(PassPhase::PerView, 2, 1),
-            ],
-            vec![0..1, 1..3],
-        );
-        let per_view: Vec<_> = sched.per_view_steps().collect();
-        assert_eq!(per_view.len(), 2);
-        assert_eq!(per_view[0].pass_idx, 1);
-        assert_eq!(per_view[1].pass_idx, 2);
-    }
-
-    #[test]
-    fn pass_count_and_wave_count() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 0),
-                step(PassPhase::PerView, 1, 1),
-                step(PassPhase::PerView, 2, 2),
-            ],
-            vec![0..1, 1..2, 2..3],
-        );
-        assert_eq!(sched.pass_count(), 3);
-        assert_eq!(sched.wave_count(), 3);
-    }
-
-    #[test]
-    fn empty_schedule() {
-        let sched = FrameSchedule::empty();
-        assert_eq!(sched.pass_count(), 0);
-        assert_eq!(sched.wave_count(), 0);
-        assert_eq!(sched.frame_global_steps().count(), 0);
-        assert_eq!(sched.per_view_steps().count(), 0);
-        assert!(sched.frame_global_pass_indices().is_empty());
-        assert!(sched.per_view_pass_indices().is_empty());
-    }
-
-    #[test]
-    fn validate_accepts_well_formed_schedule() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 0),
-                step(PassPhase::PerView, 1, 1),
-                step(PassPhase::PerView, 2, 1),
-            ],
-            vec![0..1, 1..3],
-        );
-        assert!(sched.validate().is_ok());
-    }
-
-    #[test]
-    fn validate_rejects_per_view_before_frame_global() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::PerView, 0, 0),
-                step(PassPhase::FrameGlobal, 1, 0),
-            ],
-            core::iter::once(0..2).collect(),
-        );
-        let err = sched.validate().unwrap_err();
-        assert!(matches!(
-            err,
-            ScheduleValidationError::FrameGlobalAfterPerView { .. }
-        ));
-    }
-
-    #[test]
-    fn validate_rejects_wave_inversion() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 1),
-                step(PassPhase::PerView, 1, 0),
-            ],
-            core::iter::once(0..2).collect(),
-        );
-        // Step 1 is PerView after a FrameGlobal -- that part is fine -- but wave_idx 0 < 1.
-        let err = sched.validate().unwrap_err();
-        assert!(matches!(
-            err,
-            ScheduleValidationError::WaveOrderInverted { .. }
-        ));
-    }
-
-    #[test]
-    fn validate_rejects_wave_range_gap() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 0),
-                step(PassPhase::PerView, 1, 1),
-            ],
-            vec![0..1, 2..2], // gap at index 1
-        );
-        let err = sched.validate().unwrap_err();
-        assert!(matches!(err, ScheduleValidationError::WaveRangeGap { .. }));
-    }
-
-    #[test]
-    fn hud_snapshot_counts_phases_and_wave_sizes() {
-        let sched = schedule(
-            vec![
-                step(PassPhase::FrameGlobal, 0, 0),
-                step(PassPhase::FrameGlobal, 1, 0),
-                step(PassPhase::PerView, 2, 1),
-                step(PassPhase::PerView, 3, 1),
-                step(PassPhase::PerView, 4, 2),
-            ],
-            vec![0..2, 2..4, 4..5],
-        );
-        let snap = ScheduleHudSnapshot::from_schedule(&sched);
-        assert_eq!(snap.pass_count, 5);
-        assert_eq!(snap.wave_count, 3);
-        assert_eq!(snap.frame_global_count, 2);
-        assert_eq!(snap.per_view_count, 3);
-        assert_eq!(snap.passes_per_wave, vec![2, 2, 1]);
-    }
 }
