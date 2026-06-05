@@ -210,26 +210,15 @@ pub(super) fn compile_shader_job(
         ShaderVariant::Default,
     )?;
 
-    let targets = if job.source_class == ShaderSourceClass::Compute {
-        vec![compiled_target_from_module(
-            &default_module,
-            stem,
-            stem,
-            ShaderVariant::Default,
-            job.source_class,
-            &pass_directives,
-        )?]
-    } else {
-        compile_raster_targets(
-            modules,
-            &source,
-            &file_path,
-            stem,
-            job,
-            &pass_directives,
-            &default_module,
-        )?
-    };
+    let targets = compile_variant_targets(
+        modules,
+        &source,
+        &file_path,
+        stem,
+        job,
+        &pass_directives,
+        &default_module,
+    )?;
 
     Ok(CompiledShader {
         compile_order: job.compile_order,
@@ -251,7 +240,7 @@ fn shader_source_stem(job: &ShaderJob) -> Result<&str, BuildError> {
         .ok_or_else(|| BuildError::Message(format!("invalid stem: {}", source_path.display())))
 }
 
-fn compile_raster_targets(
+fn compile_variant_targets(
     modules: &ShaderModuleSources,
     source: &str,
     file_path: &str,
@@ -326,26 +315,56 @@ fn compile_raster_targets(
     Ok(targets)
 }
 
-fn compiled_target_from_module(
-    module: &naga::Module,
-    source_stem: &str,
-    target_stem: &str,
-    variant: ShaderVariant,
-    source_class: ShaderSourceClass,
-    pass_directives: &[BuildPassDirective],
-) -> Result<CompiledShaderTarget, BuildError> {
-    let wgsl = flattened_wgsl_for_job(module, source_stem, variant, source_class)?;
-    let pass_directives = remapped_pass_directives_for_output(
-        module,
-        &wgsl,
-        pass_directives,
-        &format!("{source_stem} ({})", variant.label()),
-    )?;
-    let reflection = reflect_embedded_target(target_stem, &wgsl, &pass_directives, source_class)?;
-    Ok(CompiledShaderTarget {
-        target_stem: target_stem.to_string(),
-        wgsl,
-        pass_directives,
-        reflection,
-    })
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    fn shader_job(source_path: std::path::PathBuf, source_class: ShaderSourceClass) -> ShaderJob {
+        ShaderJob {
+            compile_order: 0,
+            source_class,
+            source_path,
+            validation: source_class.validation(),
+        }
+    }
+
+    #[test]
+    fn compute_shader_with_multiview_defs_emits_suffixed_targets() -> Result<(), BuildError> {
+        let root = tempfile::tempdir()?;
+        let source_path = root.path().join("variant_compute.wgsl");
+        fs::write(
+            &source_path,
+            r#"
+@group(0) @binding(0)
+var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(1, 1, 1)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+#ifdef MULTIVIEW
+    output[gid.x] = 2u;
+#else
+    output[gid.x] = 1u;
+#endif
+}
+"#,
+        )?;
+
+        let compiled = compile_shader_job(
+            &Vec::new(),
+            &shader_job(source_path, ShaderSourceClass::Compute),
+        )?;
+        let stems = compiled
+            .targets
+            .iter()
+            .map(|target| target.target_stem.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            stems,
+            ["variant_compute_default", "variant_compute_multiview"]
+        );
+        Ok(())
+    }
 }
