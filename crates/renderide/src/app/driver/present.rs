@@ -27,7 +27,7 @@ pub(super) enum PresentationPlan {
     VrMirrorBlit,
     /// Clear the VR mirror surface because no HMD frame was submitted.
     VrClear,
-    /// Run the desktop display blit pass for the desktop window's display index.
+    /// Run the desktop display blit pass for an explicit host `BlitToDisplay`.
     ///
     /// Implies that the world-camera path skipped the main desktop view this tick (`render_views`
     /// routed only secondary RTs to the GPU); this stage acquires the swapchain, clears it to
@@ -49,6 +49,17 @@ impl PresentationPlan {
     }
 }
 
+fn presentation_plan_from_frame_and_desktop_blit(
+    vr_active: bool,
+    hmd_projection_ended: bool,
+    explicit_desktop_blit: Option<BlitToDisplayState>,
+) -> PresentationPlan {
+    if !vr_active && let Some(state) = explicit_desktop_blit {
+        return PresentationPlan::DesktopBlitToDisplay { state };
+    }
+    PresentationPlan::from_frame(vr_active, hmd_projection_ended)
+}
+
 impl AppDriver {
     pub(super) fn present_and_diagnostics(
         &mut self,
@@ -64,19 +75,17 @@ impl AppDriver {
         }
     }
 
-    /// Builds this tick's [`PresentationPlan`] from VR state, HMD submission, and the active
+    /// Builds this tick's [`PresentationPlan`] from VR state, HMD submission, and any explicit
     /// desktop display blit source.
     fn compute_presentation_plan(&self, hmd_projection_ended: bool) -> PresentationPlan {
         let vr_active = self.runtime.vr_active();
-        if !vr_active
-            && let Some(state) = self
-                .runtime
+        presentation_plan_from_frame_and_desktop_blit(
+            vr_active,
+            hmd_projection_ended,
+            self.runtime
                 .scene()
-                .desktop_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
-        {
-            return PresentationPlan::DesktopBlitToDisplay { state };
-        }
-        PresentationPlan::from_frame(vr_active, hmd_projection_ended)
+                .active_blit_for_display(super::DESKTOP_DISPLAY_INDEX),
+        )
     }
 
     fn present_plan(&mut self, plan: PresentationPlan) {
@@ -258,7 +267,20 @@ fn blit_flag_set(flags: u8, bit_index: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::PresentationPlan;
+    use super::{PresentationPlan, presentation_plan_from_frame_and_desktop_blit};
+    use crate::shared::BlitToDisplayState;
+    use glam::Vec4;
+
+    fn test_blit_state(texture_id: i32) -> BlitToDisplayState {
+        BlitToDisplayState {
+            renderable_index: 0,
+            texture_id,
+            background_color: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            display_index: 0,
+            flags: 0,
+            _padding: [0; 1],
+        }
+    }
 
     #[test]
     fn desktop_uses_final_blit_presentation() {
@@ -284,6 +306,33 @@ mod tests {
     fn vr_without_hmd_submission_clears_mirror() {
         assert!(matches!(
             PresentationPlan::from_frame(true, false),
+            PresentationPlan::VrClear
+        ));
+    }
+
+    #[test]
+    fn desktop_explicit_blit_owns_presentation() {
+        let plan =
+            presentation_plan_from_frame_and_desktop_blit(false, false, Some(test_blit_state(42)));
+
+        assert!(matches!(
+            plan,
+            PresentationPlan::DesktopBlitToDisplay { state } if state.texture_id == 42
+        ));
+    }
+
+    #[test]
+    fn desktop_without_explicit_blit_uses_final_target() {
+        assert!(matches!(
+            presentation_plan_from_frame_and_desktop_blit(false, false, None),
+            PresentationPlan::DesktopFinalBlit
+        ));
+    }
+
+    #[test]
+    fn vr_ignores_desktop_blit_for_presentation() {
+        assert!(matches!(
+            presentation_plan_from_frame_and_desktop_blit(true, false, Some(test_blit_state(42))),
             PresentationPlan::VrClear
         ));
     }
