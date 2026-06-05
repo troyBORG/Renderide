@@ -482,10 +482,7 @@ impl<'a> BackendGraphAccess<'a> {
                     use_multiview: target.pass_desc.multiview_mask.is_some(),
                     pass_desc: target.pass_desc,
                     shader_perm: target.shader_perm,
-                    front_face_flip: front_face_flip_for_warmup_target(
-                        view.view_winding,
-                        target,
-                    ),
+                    front_face_flip: front_face_flip_for_warmup_target(view.view_winding, target),
                 };
                 for item in &collection.items {
                     keys.record_item(item, &pipeline);
