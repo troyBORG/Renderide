@@ -9,11 +9,12 @@ use crate::gpu::{GpuContext, OutputDepthMode};
 use crate::graph_inputs::{FrameViewClear, OffscreenWriteTarget};
 use crate::shared::RenderingContext;
 
-pub use profile::{
-    FrameViewResourceHints, RenderPathProfile, ViewFamilyGraphRequirements, ViewPostProcessing,
-};
 #[cfg(test)]
-pub(crate) use profile::{RenderPathProfileId, RenderPathSampleCountPolicy};
+pub(crate) use profile::RenderPathSampleCountPolicy;
+pub use profile::{
+    FrameViewResourceHints, RenderPathProfile, RenderPathProfileId, ViewFamilyGraphRequirements,
+    ViewPostProcessing,
+};
 
 /// Single-view color + depth for rendering into an externally owned offscreen target.
 pub struct ExternalOffscreenTargets<'a> {
