@@ -111,6 +111,7 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         instance_id: MeshRendererInstanceId(node.max(0) as u64 + 1),
         mesh_asset_id: mesh,
         slot_index: slot,
+        material_stack_order: None,
         first_index: 0,
         index_count: 3,
         is_overlay: false,
