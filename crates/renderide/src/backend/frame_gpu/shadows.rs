@@ -640,6 +640,7 @@ fn shadow_pipeline_state() -> WorldMeshForwardPipelineState {
             multiview_mask: None,
         },
         shader_perm: ShaderPermutation::default(),
+        front_face_flip: false,
     }
 }
 
