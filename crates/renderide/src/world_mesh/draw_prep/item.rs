@@ -12,6 +12,7 @@ use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 #[cfg(test)]
 use crate::scene::MeshMaterialSlot;
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId, StaticMeshRenderer};
+use crate::shared::ShadowCastMode;
 use crate::world_mesh::materials::MaterialDrawBatchKey;
 
 /// CPU arrangement counters captured while preparing one view's draw list.
@@ -126,6 +127,8 @@ pub struct WorldMeshDrawItem {
     pub is_overlay: bool,
     /// Host sorting order for transparent draw ordering.
     pub sorting_order: i32,
+    /// Host shadow-caster mode for this renderer.
+    pub shadow_cast_mode: ShadowCastMode,
     /// Whether the mesh uses skinning / deform paths.
     pub skinned: bool,
     /// Whether the position/normal stream selected by the forward pass is already in world space.

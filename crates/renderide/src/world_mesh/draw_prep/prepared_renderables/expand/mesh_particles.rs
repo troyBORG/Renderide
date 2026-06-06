@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::particles::{ParticleDrawParams, PointParticle, PointRenderBufferAsset};
 use crate::scene::{MeshRenderBufferEntry, MeshRendererInstanceId, RenderSpaceId};
-use crate::shared::LayerType;
+use crate::shared::{LayerType, ShadowCastMode};
 
 use super::super::FramePreparedDraw;
 use super::context::ExpandCtx;
@@ -188,6 +188,7 @@ fn append_mesh_particle_draws_serial(
                 is_overlay: input.is_overlay,
                 is_hidden: input.is_hidden,
                 sorting_order: 0,
+                shadow_cast_mode: ShadowCastMode::Off,
                 skinned: false,
                 world_space_deformed: false,
                 blendshape_deformed: false,
@@ -235,6 +236,7 @@ fn build_mesh_particle_draw_chunk(input: MeshParticleDrawChunkInput<'_>) -> Vec<
                 is_overlay: input.is_overlay,
                 is_hidden: input.is_hidden,
                 sorting_order: 0,
+                shadow_cast_mode: ShadowCastMode::Off,
                 skinned: false,
                 world_space_deformed: false,
                 blendshape_deformed: false,
