@@ -65,7 +65,7 @@ fn vs_main(
 #endif
 }
 
-//#pass type=forward
+//#pass type=forward a2c=cutout
 @fragment
 fn fs_forward_base(
     @builtin(position) frag_pos: vec4<f32>,

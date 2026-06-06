@@ -1,9 +1,9 @@
 //! Material batch-key identity for world-mesh draw ordering and binding.
 
 use crate::materials::{
-    EmbeddedTangentFallbackMode, MaterialBlendMode, MaterialRenderState,
+    EmbeddedTangentFallbackMode, MaterialBlendMode, MaterialPassRouting, MaterialRenderState,
     MaterialShaderSpecializationKey, RasterFrontFace, RasterPipelineKind, RasterPrimitiveTopology,
-    SceneColorSnapshotMode, UNITY_TRANSPARENT_RENDER_QUEUE_MIN,
+    SceneColorSnapshotMode, UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_TRANSPARENT_RENDER_QUEUE_MIN,
 };
 
 use super::transparent::TransparentMaterialClass;
@@ -94,12 +94,26 @@ impl MaterialDrawBatchKey {
     pub fn requires_strict_order(&self) -> bool {
         self.uses_transparent_sorting() || self.embedded_uses_scene_color_snapshot
     }
+
+    /// Returns runtime pass routing flags derived from the effective material queue and state.
+    #[inline]
+    pub fn pass_routing(&self) -> MaterialPassRouting {
+        MaterialPassRouting {
+            alpha_test: render_queue_uses_alpha_test_routing(self.render_queue),
+        }
+    }
 }
 
 /// Returns whether a render queue should use Unity transparent distance sorting.
 #[inline]
 pub(super) fn render_queue_uses_transparent_sorting(render_queue: i32) -> bool {
     render_queue >= UNITY_TRANSPARENT_RENDER_QUEUE_MIN
+}
+
+/// Returns whether a render queue should route alpha-test-specific pass state.
+#[inline]
+pub(super) fn render_queue_uses_alpha_test_routing(render_queue: i32) -> bool {
+    (UNITY_RENDER_QUEUE_ALPHA_TEST..UNITY_TRANSPARENT_RENDER_QUEUE_MIN).contains(&render_queue)
 }
 
 /// Computes a 64-bit content hash for `key` used by the draw-sort comparator's primary tiebreaker.
@@ -117,7 +131,7 @@ pub fn compute_batch_key_hash(key: &MaterialDrawBatchKey) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::MaterialBlendMode;
-    use crate::materials::UNITY_TRANSPARENT_RENDER_QUEUE_MIN;
+    use crate::materials::{UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_TRANSPARENT_RENDER_QUEUE_MIN};
     use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     fn key(alpha_blended: bool) -> crate::world_mesh::MaterialDrawBatchKey {
@@ -176,5 +190,22 @@ mod tests {
         assert!(!key.uses_transparent_sorting());
         assert!(!key.records_after_skybox());
         assert!(!key.requires_strict_order());
+    }
+
+    #[test]
+    fn alpha_test_routing_uses_cutout_queue_range_only() {
+        let mut key = key(false);
+
+        key.render_queue = UNITY_RENDER_QUEUE_ALPHA_TEST - 1;
+        assert!(!key.pass_routing().alpha_test);
+
+        key.render_queue = UNITY_RENDER_QUEUE_ALPHA_TEST;
+        assert!(key.pass_routing().alpha_test);
+
+        key.render_queue = UNITY_TRANSPARENT_RENDER_QUEUE_MIN - 1;
+        assert!(key.pass_routing().alpha_test);
+
+        key.render_queue = UNITY_TRANSPARENT_RENDER_QUEUE_MIN;
+        assert!(!key.pass_routing().alpha_test);
     }
 }

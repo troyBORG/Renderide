@@ -30,9 +30,9 @@ use crate::materials::raster_pipeline::{
 #[cfg(test)]
 use crate::materials::render_queue::UNITY_RENDER_QUEUE_GEOMETRY;
 use crate::materials::{
-    MaterialBlendMode, MaterialPassDesc, MaterialRenderState, RasterFrontFace,
+    MaterialBlendMode, MaterialPassDesc, MaterialPassRouting, MaterialRenderState, RasterFrontFace,
     RasterPrimitiveTopology, SceneColorSnapshotMode, SnapshotRequirements,
-    materialized_embedded_pass_for_blend_mode,
+    materialized_embedded_pass_for_blend_mode_with_routing,
 };
 
 use self::tangent_fallback::tangent_fallback_mode_for_stem;
@@ -52,6 +52,8 @@ pub(in crate::materials) struct EmbeddedRasterPipelineSource {
     pub blend_mode: MaterialBlendMode,
     /// Runtime depth/stencil/color overrides.
     pub render_state: MaterialRenderState,
+    /// Runtime material routing decisions for per-pass pipeline state.
+    pub pass_routing: MaterialPassRouting,
     /// Front-face winding selected from draw transform handedness.
     pub front_face: RasterFrontFace,
     /// Primitive topology selected from the mesh's per-submesh topology.
@@ -423,6 +425,7 @@ pub(in crate::materials) fn create_embedded_render_pipelines(
         permutation,
         blend_mode,
         render_state,
+        pass_routing,
         front_face,
         primitive_topology,
     } = source;
@@ -443,10 +446,11 @@ pub(in crate::materials) fn create_embedded_render_pipelines(
     let materialized_passes = declared_passes
         .iter()
         .map(|p| {
-            materialized_embedded_pass_for_blend_mode(
+            materialized_embedded_pass_for_blend_mode_with_routing(
                 stem.as_ref(),
                 p,
                 effective_blend_mode_for_stem(stem.as_ref(), blend_mode),
+                pass_routing,
             )
         })
         .collect::<Vec<_>>();

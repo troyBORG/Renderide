@@ -115,11 +115,12 @@ pub(crate) use embedded::{
 };
 
 pub(crate) use material_passes::{
-    COLOR_WRITES_NONE, MaterialBlendMode, MaterialPassDesc, MaterialPassState,
-    MaterialPipelinePropertyIds, MaterialRenderStatePolicy, PASS_BLEND_ONE_ONE,
-    PASS_BLEND_ONE_ONE_MINUS_SRC_ALPHA, PASS_BLEND_OVERLAY_NOOP_COLOR_MAX_ALPHA,
-    PASS_BLEND_SRC_ALPHA_ONE_MINUS_SRC_ALPHA, PassType, material_blend_mode_from_maps,
-    materialized_embedded_pass_for_blend_mode, materialized_pass_for_blend_mode,
+    COLOR_WRITES_NONE, MaterialAlphaToCoverageMode, MaterialBlendMode, MaterialPassDesc,
+    MaterialPassRouting, MaterialPassState, MaterialPipelinePropertyIds, MaterialRenderStatePolicy,
+    PASS_BLEND_ONE_ONE, PASS_BLEND_ONE_ONE_MINUS_SRC_ALPHA,
+    PASS_BLEND_OVERLAY_NOOP_COLOR_MAX_ALPHA, PASS_BLEND_SRC_ALPHA_ONE_MINUS_SRC_ALPHA, PassType,
+    material_blend_mode_from_maps, materialized_embedded_pass_for_blend_mode_with_routing,
+    materialized_pass_for_blend_mode,
 };
 pub(crate) use material_passes::{PropertyMapRef, first_float_from_maps, first_vec4_from_maps};
 pub(crate) use pipeline_build_error::PipelineBuildError;

@@ -477,10 +477,10 @@ pub const COMPILED_MATERIAL_STEMS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use crate::shader::directives::{
-        BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare, BuildDepthCompareDomain,
-        BuildMaterialPassState, BuildPassDirective, BuildPassType, BuildRenderStatePolicy,
-        MaterialDefaultDirective, MaterialDefaultValue, TextureDefaultDirective,
-        TextureDefaultKind, WgpuFeatureDirective,
+        BuildAlphaToCoverageMode, BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare,
+        BuildDepthCompareDomain, BuildMaterialPassState, BuildPassDirective, BuildPassType,
+        BuildRenderStatePolicy, MaterialDefaultDirective, MaterialDefaultValue,
+        TextureDefaultDirective, TextureDefaultKind, WgpuFeatureDirective,
     };
     use crate::shader::model::{
         BuildShaderReflection, CompiledShader, CompiledShaderTarget, ShaderSourceClass,
@@ -536,7 +536,7 @@ mod tests {
                         name: "forward".to_string(),
                         fragment_entry: "fs_main".to_string(),
                         vertex_entry: "vs_main".to_string(),
-                        alpha_to_coverage: true,
+                        alpha_to_coverage: BuildAlphaToCoverageMode::Always,
                         depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
                         depth_compare: BuildDepthCompare::Main,
                         depth_write: true,
@@ -553,7 +553,7 @@ mod tests {
                         name: "outline".to_string(),
                         fragment_entry: "fs_outline".to_string(),
                         vertex_entry: "vs_outline".to_string(),
-                        alpha_to_coverage: false,
+                        alpha_to_coverage: BuildAlphaToCoverageMode::Off,
                         depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
                         depth_compare: BuildDepthCompare::Main,
                         depth_write: true,
@@ -598,7 +598,11 @@ mod tests {
         let embedded = render_embedded_shaders_rs(&composed);
 
         assert!(embedded.contains("pass_type: crate::materials::PassType::Forward"));
-        assert!(embedded.contains("alpha_to_coverage: true"));
+        assert!(
+            embedded.contains(
+                "alpha_to_coverage: crate::materials::MaterialAlphaToCoverageMode::Always"
+            )
+        );
         assert!(embedded.contains(
             "name: \"outline\", pass_type: crate::materials::PassType::Forward, vertex_entry: \"vs_outline\", fragment_entry: \"fs_outline\""
         ));

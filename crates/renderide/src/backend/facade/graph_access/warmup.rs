@@ -443,6 +443,7 @@ impl<'a> BackendGraphAccess<'a> {
                     shader_specialization: item.batch_key.shader_specialization,
                     blend_mode: item.batch_key.blend_mode,
                     render_state: item.batch_key.render_state,
+                    pass_routing: item.batch_key.pass_routing(),
                     front_face,
                     primitive_topology: item.batch_key.primitive_topology,
                 };
