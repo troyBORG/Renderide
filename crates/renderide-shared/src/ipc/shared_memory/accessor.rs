@@ -3,6 +3,7 @@
 use hashbrown::HashMap;
 
 use bytemuck::{Pod, Zeroable};
+use thiserror::Error;
 
 use crate::buffer::SharedMemoryBufferDescriptor;
 use crate::packing::memory_packable::MemoryPackable;
@@ -31,9 +32,28 @@ use copy::copy_pod_slice;
 use rows::{pack_memory_packable_row, unpack_memory_packable_row};
 use validation::{validate_access_copy_descriptor, validate_memory_packable_row_descriptor};
 
+/// Error returned when host init supplies a shared-memory prefix that cannot be used safely.
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[error("invalid shared-memory prefix length {byte_len}")]
+pub struct InvalidSharedMemoryPrefix {
+    byte_len: usize,
+}
+
+impl InvalidSharedMemoryPrefix {
+    const fn new(byte_len: usize) -> Self {
+        Self { byte_len }
+    }
+
+    /// Number of bytes in the rejected prefix.
+    pub const fn byte_len(self) -> usize {
+        self.byte_len
+    }
+}
+
 /// Lazy mapping cache keyed by `buffer_id` for host shared buffers.
 pub struct SharedMemoryAccessor {
     prefix: String,
+    available: bool,
     views: HashMap<i32, SharedMemoryView>,
 }
 
@@ -43,30 +63,51 @@ impl SharedMemoryAccessor {
 
     /// Builds an accessor with the session prefix from [`RendererInitData::shared_memory_prefix`](crate::shared::RendererInitData::shared_memory_prefix).
     pub fn new(prefix: String) -> Self {
-        if !prefix.is_empty() && !is_valid_shared_memory_prefix(&prefix) {
-            logger::warn!(
-                "shared_memory: rejecting unsafe shared-memory prefix len={}",
-                prefix.len()
-            );
-            return Self {
-                prefix: String::new(),
-                views: HashMap::new(),
-            };
+        match Self::try_new(prefix) {
+            Ok(accessor) => accessor,
+            Err(err) => {
+                logger::error!(
+                    "shared_memory: invalid shared-memory prefix len={}; accessor unavailable",
+                    err.byte_len()
+                );
+                Self::unavailable()
+            }
         }
+    }
+
+    /// Builds an accessor after validating the host-provided session prefix.
+    pub fn try_new(prefix: String) -> Result<Self, InvalidSharedMemoryPrefix> {
+        if !is_valid_shared_memory_prefix(&prefix) {
+            return Err(InvalidSharedMemoryPrefix::new(prefix.len()));
+        }
+        Ok(Self::available(prefix))
+    }
+
+    /// Builds a disabled accessor for standalone or no-shared-memory modes.
+    pub fn unavailable() -> Self {
         Self {
-            prefix,
+            prefix: String::new(),
+            available: false,
             views: HashMap::new(),
         }
     }
 
-    /// Returns `true` if host buffers can be opened (`prefix` non-empty).
+    fn available(prefix: String) -> Self {
+        Self {
+            prefix,
+            available: true,
+            views: HashMap::new(),
+        }
+    }
+
+    /// Returns `true` if host buffers can be opened.
     pub const fn is_available(&self) -> bool {
-        !self.prefix.is_empty()
+        self.available
     }
 
     /// Diagnostic path (Unix) or mapping name (Windows) for `buffer_id`.
     pub fn shm_path_for_buffer(&self, buffer_id: i32) -> String {
-        if self.prefix.is_empty() {
+        if !self.available {
             return String::from("<shared-memory-unavailable>");
         }
         #[cfg(unix)]
@@ -93,7 +134,7 @@ impl SharedMemoryAccessor {
         f: impl FnOnce(&[u8]) -> Option<R>,
     ) -> Option<R> {
         profiling::scope!("shared_memory::with_read_bytes");
-        if self.prefix.is_empty() {
+        if !self.available {
             return None;
         }
         if descriptor.length <= 0 {
@@ -131,7 +172,7 @@ impl SharedMemoryAccessor {
 
     fn get_view(&mut self, d: &SharedMemoryBufferDescriptor) -> Option<&mut SharedMemoryView> {
         profiling::scope!("shared_memory::get_view");
-        if self.prefix.is_empty() {
+        if !self.available {
             return None;
         }
         let capacity = required_view_capacity(d)?;
@@ -475,8 +516,23 @@ mod access_copy_diagnostic_tests {
     }
 
     #[test]
-    fn with_read_bytes_returns_none_when_prefix_is_empty() {
-        let mut acc = SharedMemoryAccessor::new(String::new());
+    fn empty_prefix_is_available_and_uses_renderite_memory_view_name() {
+        let acc = SharedMemoryAccessor::new(String::new());
+
+        assert!(acc.is_available());
+        #[cfg(unix)]
+        assert!(
+            acc.shm_path_for_buffer(0).ends_with("_0.qu"),
+            "path={}",
+            acc.shm_path_for_buffer(0)
+        );
+        #[cfg(windows)]
+        assert_eq!(acc.shm_path_for_buffer(0), "CT_IP__0");
+    }
+
+    #[test]
+    fn with_read_bytes_returns_none_when_accessor_is_unavailable() {
+        let mut acc = SharedMemoryAccessor::unavailable();
         let d = SharedMemoryBufferDescriptor {
             buffer_id: 0,
             buffer_capacity: 16,
@@ -487,7 +543,17 @@ mod access_copy_diagnostic_tests {
         let read = acc.with_read_bytes(&d, |_bytes| Some(()));
 
         assert!(!acc.is_available());
+        assert_eq!(acc.shm_path_for_buffer(0), "<shared-memory-unavailable>");
         assert!(read.is_none());
+    }
+
+    #[test]
+    fn try_new_rejects_invalid_prefix_without_creating_accessor() {
+        let Err(err) = SharedMemoryAccessor::try_new("../session".into()) else {
+            panic!("path-like prefix should be rejected");
+        };
+
+        assert_eq!(err.byte_len(), "../session".len());
     }
 
     #[test]

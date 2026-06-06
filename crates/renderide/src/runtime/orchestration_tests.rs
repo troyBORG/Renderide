@@ -464,6 +464,33 @@ fn ipc_init_renderer_init_data_moves_to_init_received() {
 }
 
 #[test]
+fn ipc_init_empty_shared_memory_prefix_installs_available_accessor() {
+    let mut rt = test_runtime_ipc_shape();
+    let mut init = test_renderer_init_data();
+    init.shared_memory_prefix = Some(String::new());
+
+    rt.handle_ipc_command(RendererCommand::RendererInitData(init));
+
+    assert_eq!(rt.init_state(), crate::frontend::InitState::InitReceived);
+    assert!(rt.test_shared_memory_available());
+    assert!(!rt.fatal_error());
+}
+
+#[test]
+fn ipc_init_invalid_shared_memory_prefix_is_fatal_before_init_received() {
+    let mut rt = test_runtime_ipc_shape();
+    let mut init = test_renderer_init_data();
+    init.shared_memory_prefix = Some("../session".into());
+
+    rt.handle_ipc_command(RendererCommand::RendererInitData(init));
+
+    assert_eq!(rt.init_state(), crate::frontend::InitState::Uninitialized);
+    assert!(!rt.test_shared_memory_available());
+    assert!(rt.pending_init().is_none());
+    assert!(rt.fatal_error());
+}
+
+#[test]
 fn ipc_init_finalize_then_running_dispatch_unhandled() {
     let mut rt = test_runtime_ipc_shape();
     rt.handle_ipc_command(RendererCommand::RendererInitData(test_renderer_init_data()));
