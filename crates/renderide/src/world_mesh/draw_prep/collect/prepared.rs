@@ -37,6 +37,7 @@ pub(in crate::world_mesh::draw_prep) fn prepared_draws_share_renderer(
         && a.is_overlay == b.is_overlay
         && a.is_hidden == b.is_hidden
         && a.sorting_order == b.sorting_order
+        && a.shadow_cast_mode == b.shadow_cast_mode
         && a.skinned == b.skinned
         && a.world_space_deformed == b.world_space_deformed
         && a.blendshape_deformed == b.blendshape_deformed
@@ -232,6 +233,7 @@ fn append_prepared_run_draws(
             index_count: d.index_count,
             is_overlay,
             sorting_order: d.sorting_order,
+            shadow_cast_mode: d.shadow_cast_mode,
             skinned: d.skinned,
             world_space_deformed: d.world_space_deformed,
             blendshape_deformed: d.blendshape_deformed,

@@ -105,6 +105,7 @@ pub(super) fn push_one_slot_draw(
         index_count,
         is_overlay,
         sorting_order: draw.renderer.sorting_order,
+        shadow_cast_mode: draw.renderer.shadow_cast_mode,
         skinned: draw.skinned,
         world_space_deformed,
         blendshape_deformed,

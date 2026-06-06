@@ -57,12 +57,14 @@ pub(in crate::world_mesh::draw_prep) fn estimated_draw_count(
     scene.space(space_id).map_or(0, |s| {
         s.static_mesh_renderers()
             .iter()
-            .filter(|renderer| renderer.emits_visible_color_draws())
+            .filter(|renderer| renderer.emits_visible_color_draws() || renderer.casts_shadows())
             .count()
             .saturating_add(
                 s.skinned_mesh_renderers()
                     .iter()
-                    .filter(|skinned| skinned.base.emits_visible_color_draws())
+                    .filter(|skinned| {
+                        skinned.base.emits_visible_color_draws() || skinned.base.casts_shadows()
+                    })
                     .count(),
             )
             .saturating_mul(2)
@@ -211,7 +213,10 @@ pub(super) fn try_expand_one_renderer(
     skinned: bool,
     skinned_renderer: Option<&SkinnedMeshRenderer>,
 ) {
-    if !base.emits_visible_color_draws() || base.mesh_asset_id < 0 || base.node_id < 0 {
+    if (!base.emits_visible_color_draws() && !base.casts_shadows())
+        || base.mesh_asset_id < 0
+        || base.node_id < 0
+    {
         return;
     }
     let Some(mesh) = ctx.mesh_pool.get(base.mesh_asset_id) else {
@@ -365,6 +370,7 @@ fn expand_renderer_slots(
             is_overlay,
             is_hidden,
             sorting_order: renderer.sorting_order,
+            shadow_cast_mode: renderer.shadow_cast_mode,
             skinned,
             world_space_deformed,
             blendshape_deformed,

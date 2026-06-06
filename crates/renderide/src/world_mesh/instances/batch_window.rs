@@ -30,7 +30,11 @@ pub(super) fn next_batch_window(
 ) -> BatchWindow {
     let key = &draws[start].batch_key;
     let mut end = start + 1;
-    while end < draws.len() && &draws[end].batch_key == key {
+    let shadow_cast_mode = draws[start].shadow_cast_mode;
+    while end < draws.len()
+        && &draws[end].batch_key == key
+        && draws[end].shadow_cast_mode == shadow_cast_mode
+    {
         end += 1;
     }
 

@@ -7,6 +7,7 @@ use crate::materials::{RasterFrontFace, RasterPrimitiveTopology};
 use crate::particles::ParticleDrawParams;
 use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId};
+use crate::shared::ShadowCastMode;
 use crate::world_mesh::culling::overlay_rect_clip_visible;
 use crate::world_mesh::materials::{
     FrameMaterialBatchCache, MaterialResolveCtx, apply_render_buffer_mesh_pipeline_override,
@@ -40,6 +41,8 @@ pub(super) struct DrawCandidate {
     pub(super) is_overlay: bool,
     /// Renderer sorting order copied into transparent ordering.
     pub(super) sorting_order: i32,
+    /// Host shadow-caster mode copied from the source renderer.
+    pub(super) shadow_cast_mode: ShadowCastMode,
     /// Whether this draw uses skinned vertex streams.
     pub(super) skinned: bool,
     /// Whether skinning writes world-space positions.
@@ -156,6 +159,7 @@ pub(super) fn evaluate_draw_candidate(
         index_count: candidate.index_count,
         is_overlay: candidate.is_overlay,
         sorting_order: candidate.sorting_order,
+        shadow_cast_mode: candidate.shadow_cast_mode,
         skinned: candidate.skinned,
         world_space_deformed: candidate.world_space_deformed,
         blendshape_deformed,
@@ -282,6 +286,7 @@ mod tests {
             index_count: 3,
             is_overlay: false,
             sorting_order: 0,
+            shadow_cast_mode: ShadowCastMode::On,
             skinned: true,
             world_space_deformed: true,
             blendshape_deformed: true,
@@ -331,6 +336,7 @@ mod tests {
             index_count: 3,
             is_overlay: true,
             sorting_order: 0,
+            shadow_cast_mode: ShadowCastMode::On,
             skinned: false,
             world_space_deformed: false,
             blendshape_deformed: false,
@@ -391,6 +397,7 @@ mod tests {
             index_count: 3,
             is_overlay: false,
             sorting_order: 0,
+            shadow_cast_mode: ShadowCastMode::On,
             skinned: false,
             world_space_deformed: false,
             blendshape_deformed: false,
@@ -464,6 +471,7 @@ mod tests {
             index_count: 3,
             is_overlay: false,
             sorting_order: 0,
+            shadow_cast_mode: ShadowCastMode::On,
             skinned: false,
             world_space_deformed: false,
             blendshape_deformed: false,

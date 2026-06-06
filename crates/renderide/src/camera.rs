@@ -10,6 +10,7 @@
 mod frame;
 mod geometry;
 mod host_camera_frame;
+mod portal;
 mod projection;
 mod projection_plan;
 mod render_rect;
@@ -29,6 +30,10 @@ pub use host_camera_frame::{CameraProjectionKind, HostCameraFrame};
 #[cfg(test)]
 pub(crate) use host_camera_frame::{
     OVERLAY_CAMERA_FAR_CLIP, OVERLAY_CAMERA_LOCAL_Z, OVERLAY_CAMERA_NEAR_CLIP,
+};
+pub use portal::{
+    CameraPortalMode, CameraPortalSourceView, CameraPortalSurface,
+    host_camera_frame_for_camera_portal,
 };
 pub use projection::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
