@@ -25,10 +25,7 @@ impl RendererRuntime {
             let accessor = match SharedMemoryAccessor::try_new(prefix.clone()) {
                 Ok(accessor) => accessor,
                 Err(err) => {
-                    logger::error!(
-                        "IPC init data rejected: invalid shared-memory prefix len={}",
-                        err.byte_len()
-                    );
+                    logger::error!("IPC init data rejected: {}", err);
                     self.frontend.set_fatal_error(true);
                     return;
                 }

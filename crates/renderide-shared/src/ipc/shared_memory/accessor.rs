@@ -10,9 +10,9 @@ use crate::packing::memory_packable::MemoryPackable;
 
 #[cfg(windows)]
 use super::naming::compose_memory_view_name;
-use super::naming::is_valid_shared_memory_prefix;
 #[cfg(unix)]
 use super::naming::unix_backing_file_path;
+use super::naming::{SharedMemoryPrefixValidationError, validate_shared_memory_prefix};
 #[cfg(unix)]
 use super::unix::SharedMemoryView;
 #[cfg(windows)]
@@ -34,14 +34,15 @@ use validation::{validate_access_copy_descriptor, validate_memory_packable_row_d
 
 /// Error returned when host init supplies a shared-memory prefix that cannot be used safely.
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
-#[error("invalid shared-memory prefix length {byte_len}")]
+#[error("invalid shared-memory prefix: {reason} (len={byte_len})")]
 pub struct InvalidSharedMemoryPrefix {
     byte_len: usize,
+    reason: SharedMemoryPrefixValidationError,
 }
 
 impl InvalidSharedMemoryPrefix {
-    const fn new(byte_len: usize) -> Self {
-        Self { byte_len }
+    const fn new(byte_len: usize, reason: SharedMemoryPrefixValidationError) -> Self {
+        Self { byte_len, reason }
     }
 
     /// Number of bytes in the rejected prefix.
@@ -66,10 +67,7 @@ impl SharedMemoryAccessor {
         match Self::try_new(prefix) {
             Ok(accessor) => accessor,
             Err(err) => {
-                logger::error!(
-                    "shared_memory: invalid shared-memory prefix len={}; accessor unavailable",
-                    err.byte_len()
-                );
+                logger::error!("shared_memory: {}; accessor unavailable", err);
                 Self::unavailable()
             }
         }
@@ -77,8 +75,8 @@ impl SharedMemoryAccessor {
 
     /// Builds an accessor after validating the host-provided session prefix.
     pub fn try_new(prefix: String) -> Result<Self, InvalidSharedMemoryPrefix> {
-        if !is_valid_shared_memory_prefix(&prefix) {
-            return Err(InvalidSharedMemoryPrefix::new(prefix.len()));
+        if let Err(reason) = validate_shared_memory_prefix(&prefix) {
+            return Err(InvalidSharedMemoryPrefix::new(prefix.len(), reason));
         }
         Ok(Self::available(prefix))
     }
@@ -548,12 +546,25 @@ mod access_copy_diagnostic_tests {
     }
 
     #[test]
+    fn try_new_accepts_renderite_crypto_token_prefix() {
+        let token = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi+jklmnop=";
+        let prefix = format!("abcdefghijklmnop_{token}");
+
+        let acc = SharedMemoryAccessor::try_new(prefix).expect("Renderite token prefix");
+
+        assert!(acc.is_available());
+    }
+
+    #[test]
     fn try_new_rejects_invalid_prefix_without_creating_accessor() {
         let Err(err) = SharedMemoryAccessor::try_new("../session".into()) else {
             panic!("path-like prefix should be rejected");
         };
 
         assert_eq!(err.byte_len(), "../session".len());
+        let message = err.to_string();
+        assert!(message.contains("invalid byte 0x2E at offset 0"));
+        assert!(!message.contains("../session"));
     }
 
     #[test]
