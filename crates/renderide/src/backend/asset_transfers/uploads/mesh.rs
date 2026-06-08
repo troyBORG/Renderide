@@ -89,8 +89,15 @@ pub fn try_process_mesh_upload(
     }
 
     let high = data.high_priority;
+    let asset_id = data.asset_id;
     let task = AssetTask::Mesh(MeshUploadTask::new(data, generation));
-    queue.integrator_mut().enqueue(task, high);
+    if !queue.integrator_mut().enqueue(task, high) {
+        return Some(complete_failed_mesh_upload(
+            asset_id,
+            "asset integration backlog full",
+            &mut ipc,
+        ));
+    }
     None
 }
 

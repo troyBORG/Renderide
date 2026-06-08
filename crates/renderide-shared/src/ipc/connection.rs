@@ -2,7 +2,7 @@
 //!
 //! Matches the managed host's argument convention (see `RenderingManager.GetConnectionParameters`).
 
-use std::env;
+use std::env::{self, VarError};
 use std::mem::size_of;
 use std::net::UdpSocket;
 use std::num::TryFromIntError;
@@ -52,8 +52,8 @@ enum AttachConnectionError {
     /// The attach listener failed while waiting for the host datagram.
     #[error("failed to receive attach renderer parameters: {0}")]
     Receive(#[source] std::io::Error),
-    /// Attach mode was requested without a nonce.
-    #[error("attach renderer requires {ATTACH_RENDERER_NONCE_ENV}")]
+    /// An authenticated v2 attach packet was received without a configured nonce.
+    #[error("attach renderer v2 packet requires {ATTACH_RENDERER_NONCE_ENV}")]
     MissingNonce,
     /// Attach nonce was outside the accepted size range.
     #[error("attach renderer nonce length {len} is outside the accepted range")]
@@ -61,6 +61,9 @@ enum AttachConnectionError {
         /// Nonce byte length.
         len: usize,
     },
+    /// Attach nonce could not be read as a Unicode environment value.
+    #[error("attach renderer nonce is not valid Unicode")]
+    InvalidNonceEncoding,
     /// The packet was not an authenticated v2 attach packet.
     #[error("attach renderer packet is not an authenticated v2 packet")]
     MissingV2Magic,
@@ -183,7 +186,12 @@ fn get_connection_parameters_from_attach_renderer() -> Option<ConnectionParams> 
             return None;
         }
     };
-    match receive_attach_renderer_parameters(&nonce) {
+    if nonce.is_none() {
+        logger::warn!(
+            "Attach renderer nonce not configured; accepting unauthenticated legacy attach payloads"
+        );
+    }
+    match receive_attach_renderer_parameters(nonce.as_deref()) {
         Ok(params) => Some(params),
         Err(error) => {
             logger::warn!("Attach renderer handshake failed: {error}");
@@ -192,12 +200,16 @@ fn get_connection_parameters_from_attach_renderer() -> Option<ConnectionParams> 
     }
 }
 
-fn attach_renderer_nonce_from_env() -> Result<Vec<u8>, AttachConnectionError> {
-    let nonce = env::var(ATTACH_RENDERER_NONCE_ENV)
-        .map_err(|_source| AttachConnectionError::MissingNonce)?
-        .into_bytes();
+fn attach_renderer_nonce_from_env() -> Result<Option<Vec<u8>>, AttachConnectionError> {
+    let nonce = match env::var(ATTACH_RENDERER_NONCE_ENV) {
+        Ok(nonce) => nonce.into_bytes(),
+        Err(VarError::NotPresent) => return Ok(None),
+        Err(VarError::NotUnicode(_nonce)) => {
+            return Err(AttachConnectionError::InvalidNonceEncoding);
+        }
+    };
     validate_attach_renderer_nonce(&nonce)?;
-    Ok(nonce)
+    Ok(Some(nonce))
 }
 
 fn validate_attach_renderer_nonce(nonce: &[u8]) -> Result<(), AttachConnectionError> {
@@ -209,12 +221,12 @@ fn validate_attach_renderer_nonce(nonce: &[u8]) -> Result<(), AttachConnectionEr
 
 /// Receives and parses the debug attach UDP datagram.
 fn receive_attach_renderer_parameters(
-    expected_nonce: &[u8],
+    expected_nonce: Option<&[u8]>,
 ) -> Result<ConnectionParams, AttachConnectionError> {
     let socket = UdpSocket::bind(("127.0.0.1", ATTACH_RENDERER_PORT))
         .map_err(AttachConnectionError::Bind)?;
     logger::info!(
-        "Listening on UDP port {ATTACH_RENDERER_PORT}. Launch Resonite with authenticated -AttachRenderer"
+        "Listening on UDP port {ATTACH_RENDERER_PORT}. Launch Resonite with -AttachRenderer"
     );
 
     let mut buf = [0u8; ATTACH_RENDERER_PACKET_MAX_BYTES];
@@ -227,12 +239,19 @@ fn receive_attach_renderer_parameters(
 /// Parses the authenticated host attach datagram.
 fn parse_attach_renderer_packet(
     packet: &[u8],
-    expected_nonce: &[u8],
+    expected_nonce: Option<&[u8]>,
 ) -> Result<ConnectionParams, AttachConnectionError> {
-    validate_attach_renderer_nonce(expected_nonce)?;
     let Some(rest) = packet.strip_prefix(ATTACH_RENDERER_V2_MAGIC) else {
-        return Err(AttachConnectionError::MissingV2Magic);
+        if expected_nonce.is_some() {
+            return Err(AttachConnectionError::MissingV2Magic);
+        }
+        logger::warn!("Attach renderer accepted unauthenticated legacy payload");
+        return parse_attach_renderer_legacy_payload(packet);
     };
+    let Some(expected_nonce) = expected_nonce else {
+        return Err(AttachConnectionError::MissingNonce);
+    };
+    validate_attach_renderer_nonce(expected_nonce)?;
     let (nonce_len, nonce_offset) = read_7bit_encoded_usize(rest)?;
     let nonce_end = nonce_offset.checked_add(nonce_len).ok_or_else(|| {
         AttachConnectionError::TruncatedQueueName {
@@ -453,8 +472,11 @@ mod tests {
     #[test]
     fn parse_attach_renderer_packet_accepts_authenticated_binary_writer_payload() {
         assert_eq!(
-            parse_attach_renderer_packet(&attach_packet("RenderideQueue", 8_388_608), TEST_NONCE)
-                .expect("attach packet should parse"),
+            parse_attach_renderer_packet(
+                &attach_packet("RenderideQueue", 8_388_608),
+                Some(TEST_NONCE),
+            )
+            .expect("attach packet should parse"),
             ConnectionParams {
                 queue_name: "RenderideQueue".into(),
                 queue_capacity: 8_388_608,
@@ -466,7 +488,7 @@ mod tests {
     fn parse_attach_renderer_packet_accepts_multibyte_string_length() {
         let queue_name = "q".repeat(130);
         assert_eq!(
-            parse_attach_renderer_packet(&attach_packet(&queue_name, 4096), TEST_NONCE)
+            parse_attach_renderer_packet(&attach_packet(&queue_name, 4096), Some(TEST_NONCE))
                 .expect("attach packet should parse"),
             ConnectionParams {
                 queue_name,
@@ -476,20 +498,39 @@ mod tests {
     }
 
     #[test]
-    fn parse_attach_renderer_packet_rejects_legacy_unauthenticated_payload() {
+    fn parse_attach_renderer_packet_rejects_legacy_payload_when_nonce_is_configured() {
         let error = parse_attach_renderer_packet(
             &legacy_attach_packet("RenderideQueue", 8_388_608),
-            TEST_NONCE,
+            Some(TEST_NONCE),
         )
         .expect_err("legacy attach packet should be rejected");
         assert!(matches!(error, AttachConnectionError::MissingV2Magic));
     }
 
     #[test]
+    fn parse_attach_renderer_packet_accepts_legacy_payload_when_nonce_is_absent() {
+        assert_eq!(
+            parse_attach_renderer_packet(&legacy_attach_packet("RenderideQueue", 8_388_608), None,)
+                .expect("legacy attach packet should parse"),
+            ConnectionParams {
+                queue_name: "RenderideQueue".into(),
+                queue_capacity: 8_388_608,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_attach_renderer_packet_rejects_v2_payload_when_nonce_is_absent() {
+        let error = parse_attach_renderer_packet(&attach_packet("RenderideQueue", 8_388_608), None)
+            .expect_err("v2 attach packet without expected nonce should be rejected");
+        assert!(matches!(error, AttachConnectionError::MissingNonce));
+    }
+
+    #[test]
     fn parse_attach_renderer_packet_rejects_nonce_mismatch() {
         let error = parse_attach_renderer_packet(
             &attach_packet("RenderideQueue", 8_388_608),
-            b"fedcba9876543210",
+            Some(b"fedcba9876543210"),
         )
         .expect_err("wrong nonce should be rejected");
         assert!(matches!(error, AttachConnectionError::NonceMismatch));
@@ -497,8 +538,9 @@ mod tests {
 
     #[test]
     fn parse_attach_renderer_packet_rejects_truncated_string_length() {
-        let error = parse_attach_renderer_packet(&v2_packet(&[SEVEN_BIT_CONTINUATION]), TEST_NONCE)
-            .expect_err("length prefix should be incomplete");
+        let error =
+            parse_attach_renderer_packet(&v2_packet(&[SEVEN_BIT_CONTINUATION]), Some(TEST_NONCE))
+                .expect_err("length prefix should be incomplete");
         assert!(matches!(
             error,
             AttachConnectionError::TruncatedStringLength
@@ -507,9 +549,11 @@ mod tests {
 
     #[test]
     fn parse_attach_renderer_packet_rejects_malformed_string_length() {
-        let error =
-            parse_attach_renderer_packet(&v2_packet(&[0xff, 0xff, 0xff, 0xff, 0x08]), TEST_NONCE)
-                .expect_err("length prefix should be malformed");
+        let error = parse_attach_renderer_packet(
+            &v2_packet(&[0xff, 0xff, 0xff, 0xff, 0x08]),
+            Some(TEST_NONCE),
+        )
+        .expect_err("length prefix should be malformed");
         assert!(matches!(
             error,
             AttachConnectionError::MalformedStringLength
@@ -518,7 +562,7 @@ mod tests {
 
     #[test]
     fn parse_attach_renderer_packet_rejects_truncated_queue_name() {
-        let error = parse_attach_renderer_packet(&v2_packet(&[4, b'n']), TEST_NONCE)
+        let error = parse_attach_renderer_packet(&v2_packet(&[4, b'n']), Some(TEST_NONCE))
             .expect_err("queue name should be incomplete");
         assert!(matches!(
             error,
@@ -534,7 +578,7 @@ mod tests {
         let mut packet = vec![1, 0xff];
         packet.extend_from_slice(&4096_i64.to_le_bytes());
 
-        let error = parse_attach_renderer_packet(&v2_packet(&packet), TEST_NONCE)
+        let error = parse_attach_renderer_packet(&v2_packet(&packet), Some(TEST_NONCE))
             .expect_err("queue name should reject invalid UTF-8");
         assert!(matches!(
             error,
@@ -544,9 +588,11 @@ mod tests {
 
     #[test]
     fn parse_attach_renderer_packet_rejects_truncated_queue_capacity() {
-        let error =
-            parse_attach_renderer_packet(&v2_packet(&[4, b'n', b'a', b'm', b'e']), TEST_NONCE)
-                .expect_err("queue capacity should be incomplete");
+        let error = parse_attach_renderer_packet(
+            &v2_packet(&[4, b'n', b'a', b'm', b'e']),
+            Some(TEST_NONCE),
+        )
+        .expect_err("queue capacity should be incomplete");
         assert!(matches!(
             error,
             AttachConnectionError::TruncatedQueueCapacity { remaining: 0 }
@@ -555,14 +601,14 @@ mod tests {
 
     #[test]
     fn parse_attach_renderer_packet_rejects_non_positive_queue_capacity() {
-        let zero = parse_attach_renderer_packet(&attach_packet("queue", 0), TEST_NONCE)
+        let zero = parse_attach_renderer_packet(&attach_packet("queue", 0), Some(TEST_NONCE))
             .expect_err("zero capacity should be invalid");
         assert!(matches!(
             zero,
             AttachConnectionError::InvalidQueueCapacity { queue_capacity: 0 }
         ));
 
-        let negative = parse_attach_renderer_packet(&attach_packet("queue", -1), TEST_NONCE)
+        let negative = parse_attach_renderer_packet(&attach_packet("queue", -1), Some(TEST_NONCE))
             .expect_err("negative capacity should be invalid");
         assert!(matches!(
             negative,
@@ -574,7 +620,7 @@ mod tests {
     fn parse_attach_renderer_packet_rejects_oversized_queue_capacity() {
         let error = parse_attach_renderer_packet(
             &attach_packet("queue", interprocess::QueueOptions::MAX_CAPACITY + 8),
-            TEST_NONCE,
+            Some(TEST_NONCE),
         )
         .expect_err("oversized capacity should be invalid");
         assert!(matches!(

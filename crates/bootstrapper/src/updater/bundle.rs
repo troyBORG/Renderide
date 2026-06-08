@@ -1,5 +1,6 @@
 //! Release archive and extracted bundle validation.
 
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path};
@@ -257,23 +258,163 @@ fn validate_required_file_digests(
         .get("sha256")
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| UpdateError::InvalidManifest("`sha256` missing".to_owned()))?;
-    for entry in required_bundle_entries(platform)
-        .into_iter()
-        .filter(|entry| matches!(entry.kind, EntryKind::File))
-    {
-        let expected = digests
-            .get(entry.relative)
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                UpdateError::InvalidManifest(format!("`sha256` missing `{}`", entry.relative))
-            })?;
+    let required_files = collect_required_regular_files(bundle_root, platform)?;
+    let mut seen = BTreeSet::new();
+
+    for (relative, expected) in digests {
+        validate_digest_entry_name(relative)?;
+        let Some(expected) = expected.as_str() else {
+            return Err(UpdateError::InvalidManifest(format!(
+                "`sha256.{relative}` must be a hex string"
+            )));
+        };
+        if !required_files.contains(relative.as_str()) {
+            return Err(UpdateError::InvalidManifest(format!(
+                "`sha256` contains non-installed file `{relative}`"
+            )));
+        }
         let expected = decode_hex_32(expected)?;
-        let actual = sha256_file(&bundle_root.join(entry.relative))?;
+        let actual = sha256_file(&bundle_root.join(relative))?;
         if actual != expected {
             return Err(UpdateError::InvalidBundle(format!(
-                "{} failed sha256 verification",
-                entry.relative
+                "{relative} failed sha256 verification"
             )));
+        }
+        seen.insert(relative.to_owned());
+    }
+
+    for relative in required_files {
+        if !seen.contains(&relative) {
+            return Err(UpdateError::InvalidManifest(format!(
+                "`sha256` missing `{relative}`"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn collect_required_regular_files(
+    bundle_root: &Path,
+    platform: &str,
+) -> Result<BTreeSet<String>, UpdateError> {
+    let mut files = BTreeSet::new();
+    for entry in required_bundle_entries(platform) {
+        collect_required_regular_files_for_entry(bundle_root, entry, &mut files)?;
+    }
+    Ok(files)
+}
+
+fn collect_required_regular_files_for_entry(
+    bundle_root: &Path,
+    entry: BundleEntry,
+    files: &mut BTreeSet<String>,
+) -> Result<(), UpdateError> {
+    let path = bundle_root.join(entry.relative);
+    match entry.kind {
+        EntryKind::File => {
+            files.insert(entry.relative.to_owned());
+            Ok(())
+        }
+        EntryKind::Directory => collect_regular_files_recursive(bundle_root, &path, files),
+    }
+}
+
+fn collect_regular_files_recursive(
+    bundle_root: &Path,
+    dir: &Path,
+    files: &mut BTreeSet<String>,
+) -> Result<(), UpdateError> {
+    let mut entries: Vec<_> = fs::read_dir(dir)
+        .map_err(|source| UpdateError::Io {
+            context: format!("read bundle directory {}", dir.display()),
+            source,
+        })?
+        .collect::<Result<_, _>>()
+        .map_err(|source| UpdateError::Io {
+            context: format!("read bundle directory entry {}", dir.display()),
+            source,
+        })?;
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        let path = entry.path();
+        let metadata = fs::metadata(&path).map_err(|source| UpdateError::Io {
+            context: format!("inspect bundle entry {}", path.display()),
+            source,
+        })?;
+        if metadata.is_dir() {
+            collect_regular_files_recursive(bundle_root, &path, files)?;
+        } else if metadata.is_file() {
+            files.insert(bundle_relative_file_name(bundle_root, &path)?);
+        }
+    }
+    Ok(())
+}
+
+fn bundle_relative_file_name(bundle_root: &Path, path: &Path) -> Result<String, UpdateError> {
+    let relative = path.strip_prefix(bundle_root).map_err(|source| {
+        UpdateError::InvalidBundle(format!(
+            "{} is outside bundle root {}: {source}",
+            path.display(),
+            bundle_root.display()
+        ))
+    })?;
+    path_to_manifest_name(relative)
+}
+
+fn path_to_manifest_name(path: &Path) -> Result<String, UpdateError> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => {
+                let Some(part) = part.to_str() else {
+                    return Err(UpdateError::InvalidBundle(format!(
+                        "bundle path {} is not valid UTF-8",
+                        path.display()
+                    )));
+                };
+                parts.push(part);
+            }
+            _ => {
+                return Err(UpdateError::InvalidBundle(format!(
+                    "bundle path {} is not relative",
+                    path.display()
+                )));
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err(UpdateError::InvalidBundle(
+            "empty bundle file path".to_owned(),
+        ));
+    }
+    Ok(parts.join("/"))
+}
+
+fn validate_digest_entry_name(name: &str) -> Result<(), UpdateError> {
+    if name.ends_with('/') {
+        return Err(UpdateError::InvalidManifest(format!(
+            "unsafe sha256 path `{name}`"
+        )));
+    }
+    let normalized = name;
+    if normalized.is_empty()
+        || normalized.starts_with('/')
+        || normalized.contains('\\')
+        || normalized.contains(':')
+        || normalized.split('/').any(str::is_empty)
+    {
+        return Err(UpdateError::InvalidManifest(format!(
+            "unsafe sha256 path `{name}`"
+        )));
+    }
+    for component in Path::new(normalized).components() {
+        match component {
+            Component::Normal(part) if !part.is_empty() => {}
+            _ => {
+                return Err(UpdateError::InvalidManifest(format!(
+                    "unsafe sha256 path `{name}`"
+                )));
+            }
         }
     }
     Ok(())
@@ -372,10 +513,20 @@ pub(super) enum EntryKind {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use self_update::update::ReleaseAsset;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::updater::github::asset_name_for;
+
+    const LAUNCHER_SHA256: &str =
+        "ec9a6e9fe278eb1a471fbab6f40367d8548078b651d9c71581c57c2a6ca379e0";
+    const RENDERER_SHA256: &str =
+        "6bd52b204f5b4cffb267597f37d0fa62bae229341394dfec0e5d42439d8b722c";
+    const EMPTY_JSON_SHA256: &str =
+        "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
 
     fn metadata() -> ReleaseBuildMetadata {
         ReleaseBuildMetadata {
@@ -418,8 +569,8 @@ mod tests {
             "platform": metadata.platform,
             "required_files": ["renderide", "renderide-renderer", "xr"],
             "sha256": {
-                "renderide": "ec9a6e9fe278eb1a471fbab6f40367d8548078b651d9c71581c57c2a6ca379e0",
-                "renderide-renderer": "6bd52b204f5b4cffb267597f37d0fa62bae229341394dfec0e5d42439d8b722c"
+                "renderide": LAUNCHER_SHA256,
+                "renderide-renderer": RENDERER_SHA256
             }
         })
         .to_string();
@@ -461,5 +612,92 @@ mod tests {
                 "{platform} should include renderer binary"
             );
         }
+    }
+
+    fn write_linux_bundle(root: &Path, xr_actions: &[u8]) {
+        fs::write(root.join("renderide"), b"launcher").expect("write launcher");
+        fs::write(root.join("renderide-renderer"), b"renderer").expect("write renderer");
+        fs::create_dir_all(root.join("xr")).expect("create xr");
+        fs::write(root.join("xr/actions.toml"), xr_actions).expect("write xr actions");
+    }
+
+    fn linux_manifest_with_sha256(sha256: serde_json::Value) -> String {
+        serde_json::json!({
+            "schema": 1,
+            "channel": RELEASE_CHANNEL,
+            "tag": "nightly-2026-05-27-2222222",
+            "commit": "2222222222222222222222222222222222222222",
+            "platform": "linux-x86_64",
+            "required_files": ["renderide", "renderide-renderer", "xr"],
+            "sha256": sha256
+        })
+        .to_string()
+    }
+
+    fn valid_linux_sha256() -> serde_json::Value {
+        serde_json::json!({
+            "renderide": LAUNCHER_SHA256,
+            "renderide-renderer": RENDERER_SHA256,
+            "xr/actions.toml": EMPTY_JSON_SHA256
+        })
+    }
+
+    #[test]
+    fn required_file_digests_cover_directory_contents() {
+        let tmp = tempdir().expect("tempdir");
+        write_linux_bundle(tmp.path(), b"{}");
+        let manifest = linux_manifest_with_sha256(valid_linux_sha256());
+
+        validate_required_file_digests(tmp.path(), &manifest, "linux-x86_64")
+            .expect("directory file digest should validate");
+    }
+
+    #[test]
+    fn required_file_digests_reject_directory_tampering() {
+        let tmp = tempdir().expect("tempdir");
+        write_linux_bundle(tmp.path(), b"changed");
+        let manifest = linux_manifest_with_sha256(valid_linux_sha256());
+
+        assert!(validate_required_file_digests(tmp.path(), &manifest, "linux-x86_64").is_err());
+    }
+
+    #[test]
+    fn required_file_digests_reject_unsigned_directory_file() {
+        let tmp = tempdir().expect("tempdir");
+        write_linux_bundle(tmp.path(), b"{}");
+        fs::create_dir_all(tmp.path().join("xr/bindings")).expect("create bindings");
+        fs::write(tmp.path().join("xr/bindings/profile.toml"), b"unsigned")
+            .expect("write unsigned file");
+        let manifest = linux_manifest_with_sha256(valid_linux_sha256());
+
+        assert!(validate_required_file_digests(tmp.path(), &manifest, "linux-x86_64").is_err());
+    }
+
+    #[test]
+    fn required_file_digests_reject_extra_digest_entries() {
+        let tmp = tempdir().expect("tempdir");
+        write_linux_bundle(tmp.path(), b"{}");
+        let manifest = linux_manifest_with_sha256(serde_json::json!({
+            "renderide": LAUNCHER_SHA256,
+            "renderide-renderer": RENDERER_SHA256,
+            "xr/actions.toml": EMPTY_JSON_SHA256,
+            "renderide-release.json": EMPTY_JSON_SHA256
+        }));
+
+        assert!(validate_required_file_digests(tmp.path(), &manifest, "linux-x86_64").is_err());
+    }
+
+    #[test]
+    fn required_file_digests_reject_unsafe_digest_paths() {
+        let tmp = tempdir().expect("tempdir");
+        write_linux_bundle(tmp.path(), b"{}");
+        let manifest = linux_manifest_with_sha256(serde_json::json!({
+            "renderide": LAUNCHER_SHA256,
+            "renderide-renderer": RENDERER_SHA256,
+            "xr/actions.toml": EMPTY_JSON_SHA256,
+            "xr/../escape": EMPTY_JSON_SHA256
+        }));
+
+        assert!(validate_required_file_digests(tmp.path(), &manifest, "linux-x86_64").is_err());
     }
 }

@@ -84,8 +84,8 @@ fn high_priority_emergency_deadline_has_minimum_budget_when_normal_deadline_elap
 #[test]
 fn pop_next_prefers_high_priority_queue() {
     let mut integrator = AssetIntegrator::default();
-    integrator.enqueue(texture_task(false), false);
-    integrator.enqueue(texture_task(true), true);
+    assert!(integrator.enqueue(texture_task(false), false));
+    assert!(integrator.enqueue(texture_task(true), true));
 
     let first = integrator.pop_next().unwrap();
     let second = integrator.pop_next().unwrap();
@@ -112,7 +112,7 @@ fn push_front_preserves_priority_lane() {
 fn enqueue_accepts_beyond_warning_threshold() {
     let mut integrator = AssetIntegrator::default();
     for _ in 0..=ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD {
-        integrator.enqueue(texture_task(false), false);
+        assert!(integrator.enqueue(texture_task(false), false));
     }
 
     assert_eq!(

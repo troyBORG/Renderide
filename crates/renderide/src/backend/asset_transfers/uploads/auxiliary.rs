@@ -28,7 +28,12 @@ fn send_desktop_texture_update(
     let Some(ipc) = ipc else {
         return;
     };
-    let _ = ipc.send_background_reliable(RendererCommand::DesktopTexturePropertiesUpdate(update));
+    let asset_id = update.asset_id;
+    if !ipc.send_background_reliable(RendererCommand::DesktopTexturePropertiesUpdate(update)) {
+        logger::warn!(
+            "desktop texture {asset_id}: failed to enqueue reliable DesktopTexturePropertiesUpdate"
+        );
+    }
 }
 
 fn send_gaussian_splat_result(
@@ -39,11 +44,12 @@ fn send_gaussian_splat_result(
     let Some(ipc) = ipc else {
         return;
     };
-    let _ =
-        ipc.send_background_reliable(RendererCommand::GaussianSplatResult(GaussianSplatResult {
-            asset_id,
-            instance_changed,
-        }));
+    if !ipc.send_background_reliable(RendererCommand::GaussianSplatResult(GaussianSplatResult {
+        asset_id,
+        instance_changed,
+    })) {
+        logger::warn!("gaussian splat {asset_id}: failed to enqueue reliable GaussianSplatResult");
+    }
 }
 
 /// Stores desktop texture properties and reports the currently known placeholder size.
@@ -129,10 +135,19 @@ pub fn on_point_render_buffer_upload(
             coalesced.generation
         );
     } else if !queue.point_render_buffer_build_is_active(asset_id) {
-        queue.integrator_mut().enqueue_lane(
+        let enqueued = queue.integrator_mut().enqueue_lane(
             AssetTask::PointRenderBuffer(PointRenderBufferTask::new(asset_id)),
             AssetTaskLane::Particle,
         );
+        if !enqueued {
+            logger::warn!(
+                "point render buffer {asset_id}: rejected upload because asset integrator is full"
+            );
+            if queue.cancel_point_render_buffer_generation(asset_id) {
+                send_point_render_buffer_consumed(&mut ipc, asset_id);
+            }
+            return;
+        }
     }
     logger::trace!(
         "point render buffer {asset_id}: retained upload count={count} generation={}",
@@ -198,10 +213,19 @@ pub fn on_trail_render_buffer_upload(
             coalesced.generation
         );
     } else if !queue.trail_render_buffer_build_is_active(asset_id) {
-        queue.integrator_mut().enqueue_lane(
+        let enqueued = queue.integrator_mut().enqueue_lane(
             AssetTask::TrailRenderBuffer(TrailRenderBufferTask::new(asset_id)),
             AssetTaskLane::Particle,
         );
+        if !enqueued {
+            logger::warn!(
+                "trail render buffer {asset_id}: rejected upload because asset integrator is full"
+            );
+            if queue.cancel_trail_render_buffer_generation(asset_id) {
+                send_trail_render_buffer_consumed(&mut ipc, asset_id);
+            }
+            return;
+        }
     }
     logger::trace!(
         "trail render buffer {asset_id}: retained upload trails={trails_count} points={trail_point_count} generation={}",

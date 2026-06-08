@@ -1,8 +1,6 @@
 //! Host video source normalization for GStreamer playbin.
 
-#[cfg(test)]
-use std::net::IpAddr;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 
 use url::{Host, Url};
 
@@ -24,6 +22,13 @@ pub(super) fn source_uri(source: Option<&str>) -> Result<Option<String>, gstream
 }
 
 fn allowed_network_uri(source: &str) -> Option<String> {
+    allowed_network_uri_with_resolver(source, resolve_domain_host)
+}
+
+fn allowed_network_uri_with_resolver<F>(source: &str, mut resolve_domain: F) -> Option<String>
+where
+    F: FnMut(&str, u16) -> Option<Vec<IpAddr>>,
+{
     let Ok(url) = Url::parse(source) else {
         logger::warn!("video texture URI rejected: malformed URI");
         return None;
@@ -39,25 +44,50 @@ fn allowed_network_uri(source: &str) -> Option<String> {
         logger::warn!("video texture URI rejected: missing host");
         return None;
     };
-    if host_is_blocked(host) {
+    if host_is_blocked(&host) {
         logger::warn!("video texture URI rejected: blocked host");
         return None;
+    }
+    if let Host::Domain(domain) = host {
+        let Some(port) = url.port_or_known_default() else {
+            logger::warn!("video texture URI rejected: missing known port");
+            return None;
+        };
+        let domain = domain.trim_end_matches('.');
+        let Some(resolved) = resolve_domain(domain, port) else {
+            logger::warn!("video texture URI rejected: host resolution failed");
+            return None;
+        };
+        if resolved.is_empty() {
+            logger::warn!("video texture URI rejected: host resolution returned no addresses");
+            return None;
+        }
+        if resolved.iter().copied().any(ip_is_blocked) {
+            logger::warn!("video texture URI rejected: host resolves to a blocked address");
+            return None;
+        }
     }
     Some(url.to_string())
 }
 
-fn host_is_blocked(host: Host<&str>) -> bool {
+fn resolve_domain_host(domain: &str, port: u16) -> Option<Vec<IpAddr>> {
+    (domain, port)
+        .to_socket_addrs()
+        .ok()
+        .map(|addrs| addrs.map(|addr| addr.ip()).collect())
+}
+
+fn host_is_blocked(host: &Host<&str>) -> bool {
     match host {
         Host::Domain(domain) => {
             let domain = domain.trim_end_matches('.').to_ascii_lowercase();
             domain == "localhost" || domain.ends_with(".localhost")
         }
-        Host::Ipv4(ip) => ipv4_is_blocked(ip),
-        Host::Ipv6(ip) => ipv6_is_blocked(ip),
+        Host::Ipv4(ip) => ipv4_is_blocked(*ip),
+        Host::Ipv6(ip) => ipv6_is_blocked(*ip),
     }
 }
 
-#[cfg(test)]
 fn ip_is_blocked(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => ipv4_is_blocked(ip),
@@ -83,6 +113,9 @@ fn ipv4_is_documentation(ip: Ipv4Addr) -> bool {
 }
 
 fn ipv6_is_blocked(ip: Ipv6Addr) -> bool {
+    if let Some(ipv4) = ip.to_ipv4_mapped() {
+        return ipv4_is_blocked(ipv4);
+    }
     ip.is_loopback()
         || ip.is_unspecified()
         || ip.is_unique_local()
@@ -106,8 +139,8 @@ mod tests {
     #[test]
     fn public_http_uri_source_is_preserved_directly() {
         assert_eq!(
-            source_uri(Some("https://example.invalid/movie.mp4")).unwrap(),
-            Some(String::from("https://example.invalid/movie.mp4"))
+            source_uri(Some("https://93.184.216.34/movie.mp4")).unwrap(),
+            Some(String::from("https://93.184.216.34/movie.mp4"))
         );
     }
 
@@ -141,6 +174,10 @@ mod tests {
             source_uri(Some("http://media.localhost/video.mp4")).unwrap(),
             None
         );
+        assert_eq!(
+            source_uri(Some("http://[::ffff:127.0.0.1]/video.mp4")).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -148,6 +185,59 @@ mod tests {
         assert!(ip_is_blocked(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(ip_is_blocked(IpAddr::V4(Ipv4Addr::LOCALHOST)));
         assert!(ip_is_blocked(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(ip_is_blocked(IpAddr::V6(
+            "::ffff:127.0.0.1".parse().unwrap()
+        )));
         assert!(!ip_is_blocked(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))));
+    }
+
+    #[test]
+    fn public_domain_uri_is_allowed_when_resolution_is_public() {
+        assert_eq!(
+            allowed_network_uri_with_resolver("https://media.example/video.mp4", |domain, port| {
+                assert_eq!(domain, "media.example");
+                assert_eq!(port, 443);
+                Some(vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))])
+            }),
+            Some(String::from("https://media.example/video.mp4"))
+        );
+    }
+
+    #[test]
+    fn domain_uri_is_rejected_when_resolution_fails() {
+        assert_eq!(
+            allowed_network_uri_with_resolver(
+                "https://media.example/video.mp4",
+                |_domain, _port| { None }
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn domain_uri_is_rejected_when_resolution_is_private() {
+        assert_eq!(
+            allowed_network_uri_with_resolver(
+                "https://media.example/video.mp4",
+                |_domain, _port| { Some(vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5))]) }
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn domain_uri_is_rejected_when_any_resolution_is_private() {
+        assert_eq!(
+            allowed_network_uri_with_resolver(
+                "https://media.example/video.mp4",
+                |_domain, _port| {
+                    Some(vec![
+                        IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)),
+                        IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)),
+                    ])
+                }
+            ),
+            None
+        );
     }
 }

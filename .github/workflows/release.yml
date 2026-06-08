@@ -268,10 +268,18 @@ jobs:
               "sha256": {},
           }
           dist = Path(os.environ["DIST"])
-          for file in files:
-              path = dist / file
+          def add_file_hash(path):
+              rel = path.relative_to(dist).as_posix()
+              manifest["sha256"][rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          for entry in files:
+              path = dist / entry
               if path.is_file():
-                  manifest["sha256"][file] = hashlib.sha256(path.read_bytes()).hexdigest()
+                  add_file_hash(path)
+              elif path.is_dir():
+                  for child in sorted(path.rglob("*")):
+                      if child.is_file():
+                          add_file_hash(child)
           Path(os.environ["DIST"]).joinpath("renderide-release.json").write_text(
               json.dumps(manifest, indent=2) + "\n",
               encoding="utf-8",
@@ -303,10 +311,20 @@ jobs:
           Copy-Item "$src/openxr_loader.dll" -Destination $dist
           $requiredFiles = @("renderide.exe", "renderide-renderer.exe", "xr", "openxr_loader.dll")
           $sha256 = [ordered]@{}
-          foreach ($file in $requiredFiles) {
-            $path = Join-Path $dist $file
+          $distRoot = (Resolve-Path $dist).Path
+          function Add-FileHash([string]$path) {
+            $resolved = (Resolve-Path $path).Path
+            $relative = $resolved.Substring($distRoot.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).Replace('\', '/')
+            $sha256[$relative] = (Get-FileHash $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          foreach ($entry in $requiredFiles) {
+            $path = Join-Path $dist $entry
             if (Test-Path $path -PathType Leaf) {
-              $sha256[$file] = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              Add-FileHash $path
+            } elseif (Test-Path $path -PathType Container) {
+              Get-ChildItem $path -File -Recurse | Sort-Object FullName | ForEach-Object {
+                Add-FileHash $_.FullName
+              }
             }
           }
           $manifest = [ordered]@{
