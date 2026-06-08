@@ -45,6 +45,18 @@ fn secondary_cameras_use_camera_render_context() {
 }
 
 #[test]
+fn camera_portals_use_mode_specific_render_contexts() {
+    assert_eq!(
+        camera_portal_render_context(CameraPortalMode::Mirror),
+        RenderingContext::Mirror
+    );
+    assert_eq!(
+        camera_portal_render_context(CameraPortalMode::Portal),
+        RenderingContext::Portal
+    );
+}
+
+#[test]
 fn secondary_camera_write_target_uses_double_buffer_policy() {
     let double_buffered = 1u16 << 2;
     let post_processing = 1u16 << 6;

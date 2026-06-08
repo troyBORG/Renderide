@@ -510,6 +510,7 @@ impl SceneCoordinator {
                     id,
                     header_dirty,
                     current_node_count,
+                    Some(&*space),
                     &extracted,
                 );
                 extracted_per_space.push(extracted);
