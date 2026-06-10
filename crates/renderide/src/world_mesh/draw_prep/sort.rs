@@ -139,17 +139,19 @@ pub(super) fn cmp_order_sensitive_draws(a: &WorldMeshDrawItem, b: &WorldMeshDraw
 /// Orders transparent draws after `sorting_order` has already matched.
 #[inline]
 fn cmp_transparent_class_tie(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ordering {
-    if a.batch_key.transparent_class.allows_relaxed_batching()
-        && b.batch_key.transparent_class.allows_relaxed_batching()
-    {
-        return a
-            .batch_key_hash
-            .cmp(&b.batch_key_hash)
-            .then_with(|| a.batch_key.cmp(&b.batch_key))
-            .then_with(|| b.camera_distance_sq.total_cmp(&a.camera_distance_sq));
-    }
-
-    b.camera_distance_sq.total_cmp(&a.camera_distance_sq)
+    b.camera_distance_sq
+        .total_cmp(&a.camera_distance_sq)
+        .then_with(|| {
+            if a.batch_key.transparent_class.allows_relaxed_batching()
+                && b.batch_key.transparent_class.allows_relaxed_batching()
+            {
+                a.batch_key_hash
+                    .cmp(&b.batch_key_hash)
+                    .then_with(|| a.batch_key.cmp(&b.batch_key))
+            } else {
+                Ordering::Equal
+            }
+        })
 }
 
 /// Orders layers of the same material stack by ascending material slot.
