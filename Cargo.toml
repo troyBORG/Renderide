@@ -11,7 +11,7 @@ members = [
 ]
 
 [profile.dev]
-opt-level = 3
+opt-level = 1
 incremental = true
 codegen-units = 256
 debug = "line-tables-only"
