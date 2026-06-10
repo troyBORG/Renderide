@@ -220,8 +220,9 @@ fn supports_generic_depth_prepass(
 mod tests {
     use super::*;
     use crate::shader::directives::{
-        BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare, BuildDepthCompareDomain,
-        BuildMaterialPassState, BuildPassDirective, BuildPassType, BuildRenderStatePolicy,
+        BuildAlphaToCoverageMode, BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare,
+        BuildDepthCompareDomain, BuildMaterialPassState, BuildPassDirective, BuildPassType,
+        BuildRenderStatePolicy,
     };
 
     fn forward_pass() -> BuildPassDirective {
@@ -230,7 +231,7 @@ mod tests {
             name: "forward".to_string(),
             fragment_entry: "fs_main".to_string(),
             vertex_entry: "vs_main".to_string(),
-            alpha_to_coverage: false,
+            alpha_to_coverage: BuildAlphaToCoverageMode::Off,
             depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
             depth_compare: BuildDepthCompare::Main,
             depth_write: true,

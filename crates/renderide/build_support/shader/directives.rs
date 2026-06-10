@@ -22,8 +22,8 @@ pub(super) use features::BuildWgpuFeature;
 pub(super) use features::{WgpuFeatureDirective, parse_wgpu_feature_directives};
 #[cfg(test)]
 pub(super) use passes::{
-    BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare, BuildDepthCompareDomain,
-    BuildMaterialPassState, BuildPassType, BuildRenderStatePolicy,
+    BuildAlphaToCoverageMode, BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare,
+    BuildDepthCompareDomain, BuildMaterialPassState, BuildPassType, BuildRenderStatePolicy,
 };
 pub(super) use passes::{BuildPassDirective, parse_pass_directives, pass_literal};
 pub(super) use render_queue::{RenderQueueDirective, parse_render_queue_directive};

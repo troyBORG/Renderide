@@ -93,7 +93,7 @@ fn vs_main(
     return out;
 }
 
-//#pass type=forward
+//#pass type=forward a2c=cutout
 @fragment
 fn fs_main(
     @location(0) screen_uv: vec3<f32>,

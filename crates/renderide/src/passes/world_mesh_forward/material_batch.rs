@@ -20,8 +20,8 @@ use crate::materials::{
     EmbeddedMaterialBindResources, EmbeddedMaterialBindShader, EmbeddedTexturePools,
 };
 use crate::materials::{
-    MaterialBlendMode, MaterialPipelineDesc, MaterialPipelineResolution, MaterialPipelineSet,
-    MaterialPipelineVariantSpec, MaterialRegistry, MaterialRenderState,
+    MaterialBlendMode, MaterialPassRouting, MaterialPipelineDesc, MaterialPipelineResolution,
+    MaterialPipelineSet, MaterialPipelineVariantSpec, MaterialRegistry, MaterialRenderState,
     MaterialShaderSpecializationKey, RasterFrontFace, RasterPipelineKind, RasterPrimitiveTopology,
     ensure_render_buffer_billboard_variant_bits, remap_variant_bits_for_billboard,
 };
@@ -112,6 +112,8 @@ pub(crate) struct PipelineVariantKeyInput {
     pub blend_mode: MaterialBlendMode,
     /// Resolved material render state.
     pub render_state: MaterialRenderState,
+    /// Runtime material routing decisions for per-pass pipeline state.
+    pub pass_routing: MaterialPassRouting,
     /// Front-face winding selected from the draw transform.
     pub front_face: RasterFrontFace,
     /// Primitive topology selected from the mesh's per-submesh topology.
@@ -139,6 +141,8 @@ pub(crate) struct PipelineVariantKey {
     pub blend_mode: MaterialBlendMode,
     /// Resolved material render state.
     pub render_state: MaterialRenderState,
+    /// Runtime material routing decisions for per-pass pipeline state.
+    pub pass_routing: MaterialPassRouting,
     /// Front-face winding selected from the draw transform.
     pub front_face: RasterFrontFace,
     /// Primitive topology selected from the mesh's per-submesh topology.
@@ -155,6 +159,7 @@ impl PipelineVariantKey {
             shader_asset_id,
             blend_mode,
             render_state,
+            pass_routing,
             front_face,
             primitive_topology,
         } = input;
@@ -168,6 +173,7 @@ impl PipelineVariantKey {
             shader_specialization,
             blend_mode,
             render_state,
+            pass_routing,
             front_face,
             primitive_topology,
         }
@@ -190,6 +196,7 @@ impl PipelineVariantKey {
             shader_specialization: self.shader_specialization,
             blend_mode: self.blend_mode,
             render_state: self.render_state,
+            pass_routing: self.pass_routing,
             front_face: self.front_face,
             primitive_topology: self.primitive_topology,
         }
@@ -209,6 +216,7 @@ impl PipelineVariantKey {
             shader_asset_id: batch_key.shader_asset_id,
             blend_mode: batch_key.blend_mode,
             render_state: batch_key.render_state,
+            pass_routing: batch_key.pass_routing(),
             front_face: batch_key.front_face,
             primitive_topology: batch_key.primitive_topology,
         })
@@ -591,6 +599,7 @@ mod tests {
             shader_asset_id: 42,
             blend_mode: MaterialBlendMode::Opaque,
             render_state: MaterialRenderState::default(),
+            pass_routing: MaterialPassRouting::default(),
             front_face: RasterFrontFace::CounterClockwise,
             primitive_topology: RasterPrimitiveTopology::TriangleList,
         })

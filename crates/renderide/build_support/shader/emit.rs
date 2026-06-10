@@ -477,10 +477,10 @@ pub const COMPILED_MATERIAL_STEMS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use crate::shader::directives::{
-        BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare, BuildDepthCompareDomain,
-        BuildMaterialPassState, BuildPassDirective, BuildPassType, BuildRenderStatePolicy,
-        MaterialDefaultDirective, MaterialDefaultValue, TextureDefaultDirective,
-        TextureDefaultKind, WgpuFeatureDirective,
+        BuildAlphaToCoverageMode, BuildBlend, BuildColorWrites, BuildCullMode, BuildDepthCompare,
+        BuildDepthCompareDomain, BuildMaterialPassState, BuildPassDirective, BuildPassType,
+        BuildRenderStatePolicy, MaterialDefaultDirective, MaterialDefaultValue,
+        TextureDefaultDirective, TextureDefaultKind, WgpuFeatureDirective,
     };
     use crate::shader::model::{
         BuildShaderReflection, CompiledShader, CompiledShaderTarget, ShaderSourceClass,
@@ -530,49 +530,7 @@ mod tests {
             ShaderSourceClass::Material,
             &[("outline_default", "wgsl body")],
             FakeCompiledShaderMetadata {
-                pass_directives: vec![
-                    BuildPassDirective {
-                        pass_type: BuildPassType::Forward,
-                        name: "forward".to_string(),
-                        fragment_entry: "fs_main".to_string(),
-                        vertex_entry: "vs_main".to_string(),
-                        alpha_to_coverage: true,
-                        depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
-                        depth_compare: BuildDepthCompare::Main,
-                        depth_write: true,
-                        cull_mode: BuildCullMode::Back,
-                        blend: BuildBlend::Off,
-                        write_mask: BuildColorWrites::Rgb,
-                        depth_bias_slope_scale_bits: 0.0f32.to_bits(),
-                        depth_bias_constant: 0,
-                        material_state: BuildMaterialPassState::Forward,
-                        render_state_policy: BuildRenderStatePolicy::ALL_MATERIAL,
-                    },
-                    BuildPassDirective {
-                        pass_type: BuildPassType::Forward,
-                        name: "outline".to_string(),
-                        fragment_entry: "fs_outline".to_string(),
-                        vertex_entry: "vs_outline".to_string(),
-                        alpha_to_coverage: false,
-                        depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
-                        depth_compare: BuildDepthCompare::Main,
-                        depth_write: true,
-                        cull_mode: BuildCullMode::Front,
-                        blend: BuildBlend::Off,
-                        write_mask: BuildColorWrites::Rgb,
-                        depth_bias_slope_scale_bits: 0.0f32.to_bits(),
-                        depth_bias_constant: 0,
-                        material_state: BuildMaterialPassState::Static,
-                        render_state_policy: BuildRenderStatePolicy {
-                            color_mask: true,
-                            depth_write: true,
-                            depth_compare: true,
-                            cull: false,
-                            stencil: true,
-                            depth_offset: true,
-                        },
-                    },
-                ],
+                pass_directives: pass_metadata_directives(),
                 texture_defaults: vec![
                     TextureDefaultDirective {
                         property: "_MainTex".to_string(),
@@ -598,7 +556,11 @@ mod tests {
         let embedded = render_embedded_shaders_rs(&composed);
 
         assert!(embedded.contains("pass_type: crate::materials::PassType::Forward"));
-        assert!(embedded.contains("alpha_to_coverage: true"));
+        assert!(
+            embedded.contains(
+                "alpha_to_coverage: crate::materials::MaterialAlphaToCoverageMode::Always"
+            )
+        );
         assert!(embedded.contains(
             "name: \"outline\", pass_type: crate::materials::PassType::Forward, vertex_entry: \"vs_outline\", fragment_entry: \"fs_outline\""
         ));
@@ -623,6 +585,52 @@ mod tests {
         assert!(embedded.contains("\"outline_default\" => \"wgsl body\","));
         assert!(!embedded.contains("pub const OUTLINE_DEFAULT_WGSL"));
         Ok(())
+    }
+
+    fn pass_metadata_directives() -> Vec<BuildPassDirective> {
+        vec![
+            BuildPassDirective {
+                pass_type: BuildPassType::Forward,
+                name: "forward".to_string(),
+                fragment_entry: "fs_main".to_string(),
+                vertex_entry: "vs_main".to_string(),
+                alpha_to_coverage: BuildAlphaToCoverageMode::Always,
+                depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
+                depth_compare: BuildDepthCompare::Main,
+                depth_write: true,
+                cull_mode: BuildCullMode::Back,
+                blend: BuildBlend::Off,
+                write_mask: BuildColorWrites::Rgb,
+                depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                depth_bias_constant: 0,
+                material_state: BuildMaterialPassState::Forward,
+                render_state_policy: BuildRenderStatePolicy::ALL_MATERIAL,
+            },
+            BuildPassDirective {
+                pass_type: BuildPassType::Forward,
+                name: "outline".to_string(),
+                fragment_entry: "fs_outline".to_string(),
+                vertex_entry: "vs_outline".to_string(),
+                alpha_to_coverage: BuildAlphaToCoverageMode::Off,
+                depth_compare_domain: BuildDepthCompareDomain::FrooxZTest,
+                depth_compare: BuildDepthCompare::Main,
+                depth_write: true,
+                cull_mode: BuildCullMode::Front,
+                blend: BuildBlend::Off,
+                write_mask: BuildColorWrites::Rgb,
+                depth_bias_slope_scale_bits: 0.0f32.to_bits(),
+                depth_bias_constant: 0,
+                material_state: BuildMaterialPassState::Static,
+                render_state_policy: BuildRenderStatePolicy {
+                    color_mask: true,
+                    depth_write: true,
+                    depth_compare: true,
+                    cull: false,
+                    stencil: true,
+                    depth_offset: true,
+                },
+            },
+        ]
     }
 
     /// Stale WGSL inspection outputs are removed before current targets are emitted.

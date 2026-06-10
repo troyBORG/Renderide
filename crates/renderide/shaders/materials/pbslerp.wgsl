@@ -153,7 +153,7 @@ fn vs_main(
 #endif
 }
 
-//#pass type=forward ztest=main
+//#pass type=forward ztest=main a2c=cutout
 @fragment
 fn fs_main(
     @builtin(position) frag_pos: vec4<f32>,
