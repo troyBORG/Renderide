@@ -31,6 +31,7 @@ pub(super) struct CommandEncodingDiagnostics {
     pub(super) auto_per_view_record_admitted: bool,
     pub(super) per_view_record_admitted: bool,
     pub(super) frame_global_passes: usize,
+    pub(super) frame_global_command_buffers: usize,
     pub(super) per_view_passes: usize,
     pub(super) scheduler_passes: usize,
     pub(super) scheduler_registered_passes: usize,
@@ -90,6 +91,7 @@ impl CommandEncodingDiagnostics {
             auto_per_view_record_admitted: false,
             per_view_record_admitted: false,
             frame_global_passes: graph.schedule_hud.frame_global_count,
+            frame_global_command_buffers: 0,
             per_view_passes: graph.schedule_hud.per_view_count,
             scheduler_passes: graph.schedule_hud.pass_count,
             scheduler_registered_passes: graph.compile_stats.registered_pass_count,
@@ -152,9 +154,10 @@ impl CommandEncodingDiagnostics {
         }
     }
 
-    pub(super) fn apply_frame_global(&mut self, command: &TimedCommandBuffer) {
-        self.frame_global_encode_ms = command.encode_ms;
-        self.frame_global_finish_ms = command.finish_ms;
+    pub(super) fn apply_frame_global(&mut self, commands: &[TimedCommandBuffer]) {
+        self.frame_global_command_buffers = commands.len();
+        self.frame_global_encode_ms = commands.iter().map(|command| command.encode_ms).sum();
+        self.frame_global_finish_ms = commands.iter().map(|command| command.finish_ms).sum();
     }
 
     pub(super) fn apply_per_view(&mut self, batch: &RecordedPerViewBatch) {
@@ -198,6 +201,7 @@ impl CommandEncodingDiagnostics {
             auto_per_view_record_admitted: plot_bool(self.auto_per_view_record_admitted),
             per_view_record_admitted: plot_bool(self.per_view_record_admitted),
             frame_global_passes: self.frame_global_passes,
+            frame_global_command_buffers: self.frame_global_command_buffers,
             per_view_passes: self.per_view_passes,
             transient_textures: self.transient_texture_count,
             transient_texture_slots: self.transient_texture_slots,

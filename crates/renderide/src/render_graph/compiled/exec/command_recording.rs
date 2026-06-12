@@ -96,7 +96,7 @@ impl CompiledRenderGraph {
         &self,
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         inputs: GraphCommandRecordingInputs<'_, '_>,
-    ) -> Result<(Option<wgpu::CommandBuffer>, RecordedPerViewBatch), GraphExecuteError> {
+    ) -> Result<(Vec<wgpu::CommandBuffer>, RecordedPerViewBatch), GraphExecuteError> {
         let GraphCommandRecordingInputs {
             views,
             frame_global,
@@ -106,9 +106,17 @@ impl CompiledRenderGraph {
             plan,
             command_diagnostics,
         } = inputs;
-        match plan.path {
+        let path = if plan.path == GraphCommandRecordingPath::SingleSwapchainEncoder
+            && self.frame_global_has_split_workload(&*mv_ctx.backend)
+        {
+            command_diagnostics.recording_path = GraphCommandRecordingPath::StandardCommandBuffers;
+            GraphCommandRecordingPath::StandardCommandBuffers
+        } else {
+            plan.path
+        };
+        match path {
             GraphCommandRecordingPath::StandardCommandBuffers => {
-                let frame_global_cmd = self.encode_frame_global_command(
+                let frame_global_cmds = self.encode_frame_global_command(
                     mv_ctx,
                     views,
                     frame_global,
@@ -128,7 +136,7 @@ impl CompiledRenderGraph {
                     command_diagnostics.apply_per_view(&batch);
                     batch
                 };
-                Ok((frame_global_cmd, batch))
+                Ok((frame_global_cmds, batch))
             }
             GraphCommandRecordingPath::SingleSwapchainEncoder => {
                 record_parallel_admission(
@@ -147,8 +155,11 @@ impl CompiledRenderGraph {
                 )?;
                 command_diagnostics.apply_single_swapchain(single.encode_ms, single.finish_ms);
                 command_diagnostics.apply_per_view(&single.per_view_batch);
-                let frame_global_cmd = single.command.map(|command| command.command_buffer);
-                Ok((frame_global_cmd, single.per_view_batch))
+                let frame_global_cmds = single
+                    .command
+                    .map(|command| vec![command.command_buffer])
+                    .unwrap_or_default();
+                Ok((frame_global_cmds, single.per_view_batch))
             }
         }
     }
@@ -162,8 +173,8 @@ impl CompiledRenderGraph {
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
         upload_batch: &FrameUploadBatch,
         command_diagnostics: &mut CommandEncodingDiagnostics,
-    ) -> Result<Option<wgpu::CommandBuffer>, GraphExecuteError> {
-        let frame_global_cmd = {
+    ) -> Result<Vec<wgpu::CommandBuffer>, GraphExecuteError> {
+        let frame_global_cmds = {
             profiling::scope!("graph::encode_frame_global_batch");
             self.encode_frame_global_passes(
                 mv_ctx,
@@ -173,10 +184,11 @@ impl CompiledRenderGraph {
                 upload_batch,
             )?
         };
-        Ok(frame_global_cmd.map(|command| {
-            command_diagnostics.apply_frame_global(&command);
-            command.command_buffer
-        }))
+        command_diagnostics.apply_frame_global(&frame_global_cmds);
+        Ok(frame_global_cmds
+            .into_iter()
+            .map(|command| command.command_buffer)
+            .collect())
     }
 
     /// Records per-view command buffers and resolves per-view profiler queries.

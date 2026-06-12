@@ -11,7 +11,8 @@ use crate::graph_inputs::PreRecordViewResourceLayout;
 use crate::mesh_deform::{PaddedPerDrawUniforms, SkinCacheKey};
 use crate::passes::MaterialBatchBoundary;
 use crate::render_graph::execution_backend::{
-    GraphAssetResources, GraphClusterBufferRefs, GraphFrameResources, ShadowAtlasEncodeParams,
+    FrameGlobalPassSplitWorkload, FrameGlobalSplitPassEncodeParams, GraphAssetResources,
+    GraphClusterBufferRefs, GraphFrameResources, ShadowAtlasEncodeParams,
 };
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
@@ -249,5 +250,48 @@ impl GraphFrameResources for FrameResourceManager {
         if let Some(fgpu) = self.frame_gpu() {
             fgpu.encode_shadow_atlas(self.shadow_frame_plan(), params);
         }
+    }
+
+    fn frame_global_pass_split_workload(
+        &self,
+        pass_name: &str,
+    ) -> Option<FrameGlobalPassSplitWorkload> {
+        if pass_name != SHADOW_ATLAS_PASS_NAME {
+            return None;
+        }
+        self.frame_gpu()
+            .and_then(|fgpu| fgpu.shadow_atlas_split_workload(self.shadow_frame_plan()))
+    }
+
+    fn prepare_frame_global_split_pass(
+        &self,
+        pass_name: &str,
+        gpu_limits: &crate::gpu::GpuLimits,
+        uploads: GraphUploadSink<'_>,
+    ) -> bool {
+        if pass_name != SHADOW_ATLAS_PASS_NAME {
+            return false;
+        }
+        let Some(fgpu) = self.frame_gpu() else {
+            return false;
+        };
+        fgpu.prepare_shadow_atlas_uploads(self.shadow_frame_plan(), gpu_limits, uploads);
+        true
+    }
+
+    fn encode_frame_global_split_pass(
+        &self,
+        pass_name: &str,
+        unit_range: std::ops::Range<usize>,
+        params: FrameGlobalSplitPassEncodeParams<'_, '_>,
+    ) -> bool {
+        if pass_name != SHADOW_ATLAS_PASS_NAME {
+            return false;
+        }
+        let Some(fgpu) = self.frame_gpu() else {
+            return false;
+        };
+        fgpu.record_shadow_atlas_layers(self.shadow_frame_plan(), unit_range, params);
+        true
     }
 }

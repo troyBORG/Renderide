@@ -57,14 +57,36 @@ impl CompiledRenderGraph {
         gpu: PassGpuInputs<'a>,
         upload_batch: &FrameUploadBatch,
     ) -> Result<(), GraphExecuteError> {
-        let mut step_idx = 0usize;
-        while step_idx < self.schedule.steps.len() {
+        self.record_phase_steps_range(
+            scope,
+            0..self.schedule.steps.len(),
+            view,
+            targets.reborrow(),
+            gpu,
+            upload_batch,
+        )
+    }
+
+    /// Records schedule steps for one pass phase inside a flat step range.
+    pub(super) fn record_phase_steps_range<'a>(
+        &self,
+        scope: PhaseRecordingScope,
+        step_range: std::ops::Range<usize>,
+        view: PassViewInputs<'a>,
+        mut targets: PassRecordTargets<'a, '_, '_>,
+        gpu: PassGpuInputs<'a>,
+        upload_batch: &FrameUploadBatch,
+    ) -> Result<(), GraphExecuteError> {
+        let end_step = step_range.end.min(self.schedule.steps.len());
+        let mut step_idx = step_range.start.min(end_step);
+        while step_idx < end_step {
             let step = self.schedule.steps[step_idx];
             if step.phase != scope.phase {
                 step_idx += 1;
                 continue;
             }
             if let Some(group) = self.materialization_group_starting_at(step_idx)
+                && group.end_step <= end_step
                 && self.try_execute_raster_materialization_group(
                     group,
                     scope,

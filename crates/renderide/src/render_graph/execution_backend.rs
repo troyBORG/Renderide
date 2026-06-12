@@ -1,5 +1,6 @@
 //! Graph-facing resource contracts implemented by renderer-owned backend systems.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use hashbrown::HashSet;
@@ -48,6 +49,35 @@ pub struct ShadowAtlasEncodeParams<'a, 'encoder, 'upload> {
     pub gpu_limits: &'a GpuLimits,
     /// Deferred upload sink for the shadow per-draw slab.
     pub uploads: GraphUploadSink<'upload>,
+    /// Optional GPU profiler handle.
+    pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
+}
+
+/// Estimated independent work for a frame-global pass that can record into split command buffers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrameGlobalPassSplitWorkload {
+    /// Number of ordered recording units available to split, such as shadow atlas layers.
+    pub unit_count: usize,
+    /// Estimated draw-equivalent work represented by all units.
+    pub estimated_work: usize,
+    /// Minimum contiguous unit count assigned to one worker encoder.
+    pub chunk_size: usize,
+}
+
+/// Parameters required to record one split frame-global pass range.
+pub struct FrameGlobalSplitPassEncodeParams<'a, 'encoder> {
+    /// WGPU device used for lazy pipeline creation.
+    pub device: &'a wgpu::Device,
+    /// Worker-owned command encoder receiving this unit range.
+    pub encoder: &'encoder mut wgpu::CommandEncoder,
+    /// Material registry, embedded binds, and property store.
+    pub materials: &'a MaterialSystem,
+    /// Resident asset/resource pools.
+    pub asset_resources: &'a dyn GraphAssetResources,
+    /// Optional skin cache populated by earlier frame-global mesh deform work.
+    pub skin_cache: Option<&'a GpuSkinCache>,
+    /// GPU limits snapshot for base-instance and capacity decisions.
+    pub gpu_limits: &'a GpuLimits,
     /// Optional GPU profiler handle.
     pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
@@ -217,6 +247,34 @@ pub trait GraphFrameResources: Send + Sync {
 
     /// Records realtime shadow atlas layers.
     fn encode_shadow_atlas(&self, params: ShadowAtlasEncodeParams<'_, '_, '_>);
+
+    /// Returns split-recording workload for a frame-global pass, when supported this frame.
+    fn frame_global_pass_split_workload(
+        &self,
+        _pass_name: &str,
+    ) -> Option<FrameGlobalPassSplitWorkload> {
+        None
+    }
+
+    /// Performs serial upload prep for a split-recorded frame-global pass.
+    fn prepare_frame_global_split_pass(
+        &self,
+        _pass_name: &str,
+        _gpu_limits: &GpuLimits,
+        _uploads: GraphUploadSink<'_>,
+    ) -> bool {
+        false
+    }
+
+    /// Records one ordered unit range for a split-recorded frame-global pass.
+    fn encode_frame_global_split_pass(
+        &self,
+        _pass_name: &str,
+        _unit_range: Range<usize>,
+        _params: FrameGlobalSplitPassEncodeParams<'_, '_>,
+    ) -> bool {
+        false
+    }
 }
 
 /// Graph-facing access to resident asset/resource pools.
