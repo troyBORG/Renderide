@@ -174,7 +174,7 @@ fn vertex_color_to_linear(color: vec4<f32>) -> vec4<f32> {
     return color;
 }
 
-//#pass type=forward a2c=cutout
+//#pass type=forward name=forward_filter blend=material_filter zwrite=material(on) ztest=material_froox(main) cull=material(back) color_mask=rgba offset=material(0,0) a2c=cutout
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let use_texture = kw_TEXTURE() || kw_TEXTURE_NORMALMAP();

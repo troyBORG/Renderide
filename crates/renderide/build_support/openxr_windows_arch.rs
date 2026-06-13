@@ -1,5 +1,5 @@
 // Maps Rust CARGO_CFG_TARGET_ARCH to Khronos `openxr_loader_windows-*` per-arch directory names.
-// Included from build.rs and `src/xr/openxr_loader_paths.rs`.
+// Included from build-support code and `src/xr/openxr_loader_paths.rs`.
 
 /// Returns the Khronos Windows package subfolder containing `openxr_loader.dll` for `arch`,
 /// or `None` if this project does not ship a matching vendored loader.

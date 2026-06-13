@@ -23,9 +23,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::gpu::{GpuContext, GpuLimits};
+use crate::graph_inputs::GraphSceneView;
 use crate::render_graph::GraphExecutionBackend;
 use crate::render_graph::swapchain_scope::SwapchainScope;
-use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, PostSubmitContext};
 use super::super::error::GraphExecuteError;
@@ -102,7 +102,7 @@ impl CompiledRenderGraph {
     pub(crate) fn execute_multi_view(
         &mut self,
         gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
+        scene: GraphSceneView<'_>,
         backend: &mut dyn GraphExecutionBackend,
         frame_global: &FrameGlobalView,
         views: &mut [FrameView<'_>],
@@ -147,8 +147,20 @@ impl CompiledRenderGraph {
             command_diagnostics.prepare_resources_ms = prepare_resources_ms;
             per_view_work_items
         };
-        let recording_plan = self.graph_command_recording_plan(views, &per_view_work_items);
+        let command_recording_mode = backend.command_recording_mode();
+        let recording_plan =
+            self.graph_command_recording_plan(views, &per_view_work_items, command_recording_mode);
         command_diagnostics.recording_path = recording_plan.path;
+        command_diagnostics.recording_strategy = recording_plan.strategy;
+        command_diagnostics.requested_recording_mode = recording_plan.requested_mode;
+        command_diagnostics.estimated_per_view_draw_count =
+            recording_plan.estimated_per_view_draw_count;
+        command_diagnostics.estimated_per_view_record_work =
+            recording_plan.estimated_per_view_record_work;
+        command_diagnostics.auto_per_view_record_admitted =
+            recording_plan.auto_per_view_record_admission.is_parallel();
+        command_diagnostics.per_view_record_admitted =
+            recording_plan.per_view_record_admission.is_parallel();
 
         let (mut swapchain_scope, backbuffer_view_holder) = match self
             .late_acquire_swapchain_for_prepared_views(gpu, views, &mut per_view_work_items)
@@ -317,7 +329,7 @@ impl CompiledRenderGraph {
     /// Releases pre-acquired transient leases when late swapchain acquire skips or fails.
     fn release_transients_after_early_exit(
         gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
+        scene: GraphSceneView<'_>,
         backend: &mut dyn GraphExecutionBackend,
         device: &wgpu::Device,
         gpu_limits: &GpuLimits,
