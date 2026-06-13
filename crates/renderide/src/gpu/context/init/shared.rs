@@ -19,7 +19,7 @@ use super::super::super::sync::device_health::GpuDeviceHealth;
 use super::super::super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 use super::super::{GpuContext, GpuError, PrimaryOffscreenTargets};
 use crate::config::{GraphicsApiSetting, VsyncMode};
-use crate::diagnostics::gpu_flight_recorder::GpuFlightRecorder;
+use crate::gpu::flight_recorder::GpuFlightRecorder;
 use crate::gpu::submission_state::GpuSubmissionState;
 
 /// Runtime handles derived from a queue and shared by all GPU construction paths.

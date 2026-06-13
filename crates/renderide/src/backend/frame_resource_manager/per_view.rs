@@ -9,15 +9,13 @@ use parking_lot::Mutex;
 
 use crate::backend::cluster_gpu::ClusterBufferRefs;
 use crate::camera::ViewId;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
 use crate::graph_inputs::PreRecordViewResourceLayout;
 use crate::mesh_deform::SkinCacheKey;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
+use crate::reflection_probes::specular::ReflectionProbeSpecularResources;
 
-use super::super::frame_gpu::{
-    EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshots,
-    ReflectionProbeSpecularResources,
-};
+use super::super::frame_gpu::{EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshots};
 use super::super::per_draw_resources::PerDrawResources;
 use super::cluster_layout::{
     cluster_index_capacity_for_layout, make_cluster_params_buffer, per_view_snapshot_sync_params,

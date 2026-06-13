@@ -29,11 +29,11 @@ use crate::render_graph::swapchain_scope::SwapchainScope;
 
 use super::super::context::{GraphResolvedResources, PostSubmitContext};
 use super::super::error::GraphExecuteError;
-use super::super::frame_upload_batch::FrameUploadBatch;
 use super::{
     CompiledRenderGraph, FrameGlobalView, FrameView, FrameViewTarget, MultiViewExecutionContext,
 };
 use crate::camera::{HostCameraFrame, ViewId};
+use crate::frame_upload_batch::FrameUploadBatch;
 
 fn elapsed_ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0

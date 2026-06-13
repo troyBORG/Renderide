@@ -4,22 +4,22 @@ use hashbrown::HashMap;
 use std::sync::Arc;
 
 use crate::camera::{HostCameraFrame, ViewId};
-use crate::diagnostics::PerViewHudOutputs;
+use crate::frame_contract::{FrameViewClear, OffscreenWriteTarget, ViewWinding};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::graph_inputs::{
-    FrameSystemsShared, FrameViewClear, GraphPassFrame, GraphPassFrameView, GraphSceneView,
-    OffscreenWriteTarget, PerViewFramePlan, ViewWinding,
+    FrameSystemsShared, GraphPassFrame, GraphPassFrameView, GraphSceneView, PerViewFramePlan,
 };
+use crate::hud_contract::PerViewHudOutputs;
 use crate::occlusion::gpu::HiZGpuState;
 use crate::shared::RenderingContext;
 
 use super::super::super::blackboard::{Blackboard, GraphCommandStats};
 use super::super::super::context::GraphResolvedResources;
-use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
 use super::super::super::history::HistoryRegistry;
 use super::super::super::{GraphAssetResources, GraphFrameResources};
 use super::super::{FrameGlobalView, FrameView, ResolvedView, ViewPostProcessing};
 use super::recording_path::GraphCommandRecordingStrategy;
+use crate::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -305,7 +305,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Host-owned skin influence mode for mesh deform compute.
     pub(super) skin_weight_mode: crate::shared::SkinWeightMode,
     /// Read-only HUD capture switches for deferred per-view diagnostics.
-    pub(super) debug_hud: crate::diagnostics::PerViewHudConfig,
+    pub(super) debug_hud: crate::hud_contract::PerViewHudConfig,
     /// Scene-color format selected for the frame.
     pub(super) scene_color_format: wgpu::TextureFormat,
 }

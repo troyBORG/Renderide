@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::cpu_parallelism::record_parallel_admission;
-use crate::diagnostics::PerViewHudOutputs;
+use crate::hud_contract::PerViewHudOutputs;
 use crate::render_graph::blackboard::GraphCommandStats;
 
 use super::recording_path::GraphCommandRecordingPlan;

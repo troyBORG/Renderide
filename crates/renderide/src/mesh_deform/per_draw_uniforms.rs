@@ -11,6 +11,7 @@ use crate::cpu_parallelism::{
 };
 
 use super::wgsl_mat3x3::WgslMat3x3;
+use crate::render_contract::ParticleDrawParams;
 
 /// Stride between consecutive draw slots in the uniform slab.
 pub const PER_DRAW_UNIFORM_STRIDE: usize = 512;
@@ -85,7 +86,7 @@ impl PaddedPerDrawUniforms {
             model: model.to_cols_array(),
             normal_matrix: WgslMat3x3::from_model_upper_3x3(model),
             _pad: [0.0; 4],
-            particle: crate::particles::ParticleDrawParams::default().to_uniform_rows(),
+            particle: ParticleDrawParams::default().to_uniform_rows(),
             _pad2: [[0.0; 4]; 13],
         }
     }
@@ -102,7 +103,7 @@ impl PaddedPerDrawUniforms {
             model: model.to_cols_array(),
             normal_matrix: WgslMat3x3::from_model_upper_3x3(model),
             _pad: [0.0; 4],
-            particle: crate::particles::ParticleDrawParams::default().to_uniform_rows(),
+            particle: ParticleDrawParams::default().to_uniform_rows(),
             _pad2: [[0.0; 4]; 13],
         }
     }
@@ -110,7 +111,7 @@ impl PaddedPerDrawUniforms {
     /// Returns a copy with particle draw metadata encoded for WGSL.
     #[inline]
     #[must_use]
-    pub fn with_particle_draw(mut self, particle: crate::particles::ParticleDrawParams) -> Self {
+    pub fn with_particle_draw(mut self, particle: ParticleDrawParams) -> Self {
         self.particle = particle.to_uniform_rows();
         self
     }
@@ -274,7 +275,7 @@ mod tests {
     fn slab_roundtrip_bytes() {
         let vp = Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
         let m = Mat4::from_scale(glam::Vec3::new(4.0, 5.0, 6.0));
-        let particle = crate::particles::ParticleDrawParams::billboard(
+        let particle = ParticleDrawParams::billboard(
             crate::shared::BillboardAlignment::Direction,
             0.25,
             0.75,
@@ -305,10 +306,7 @@ mod tests {
         let b: &PaddedPerDrawUniforms =
             bytemuck::from_bytes(&buf[PER_DRAW_UNIFORM_STRIDE..PER_DRAW_UNIFORM_STRIDE * 2]);
         assert!(!b.position_stream_world_space());
-        assert_eq!(
-            b.particle,
-            crate::particles::ParticleDrawParams::default().to_uniform_rows()
-        );
+        assert_eq!(b.particle, ParticleDrawParams::default().to_uniform_rows());
     }
 
     #[test]

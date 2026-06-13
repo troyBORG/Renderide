@@ -18,20 +18,16 @@ use std::sync::Arc;
 
 use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferCache, ClusterBufferRefs};
 use crate::backend::light_gpu::GpuLight;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
 use crate::gpu::{GpuLimits, GpuShadowView, MAX_LIGHTS, MAX_SHADOW_VIEWS, frame_bind_group_layout};
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
+use crate::reflection_probes::specular::ReflectionProbeSpecularResources;
 
 use super::frame_gpu_error::FrameGpuInitError;
-pub(crate) use crate::gpu::{
-    GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
-    REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
-};
 pub(crate) use empty_material::EmptyMaterialBindGroup;
 use ibl_dfg::create_ibl_dfg_lut;
 use light_cookies::LightCookieAtlasResources;
 pub(crate) use light_cookies::{LIGHT_COOKIE_ATLAS_PASS_NAME, LightCookieAtlasPass};
-pub(crate) use reflection_probe_specular::ReflectionProbeSpecularResources;
 use reflection_probe_specular::{
     ReflectionProbeSpecularBindGroupResources, create_reflection_probe_specular_fallback,
 };

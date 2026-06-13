@@ -8,14 +8,14 @@ use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::FrameSubmitKind;
 
 use super::super::super::context::GraphResolvedResources;
-use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
 use super::super::super::schedule::{ScheduleSubmitStep, ScheduleSubmitStepKind};
-use super::super::super::upload_arena::PersistentUploadArena;
 use super::{
     CompiledRenderGraph, DrainedUploadCommand, FrameView, FrameViewTarget, GraphExecuteError,
     GraphResolveKey, MultiViewExecutionContext, SubmitFrameBatchStats, SubmitFrameInputs,
     elapsed_ms,
 };
+use crate::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
+use crate::upload_arena::PersistentUploadArena;
 
 /// Releases all transient resource leases back to the pool and ticks the global GC counter.
 pub(super) fn release_transients_and_gc(

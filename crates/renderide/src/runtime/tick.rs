@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::diagnostics::crash_context::{self, TickPhase};
+use crate::crash_context::{self, TickPhase};
 use crate::frontend::{
     HostWaitReason, LockstepPipelineAction, LockstepPipelineInput, OneCreditBlockReason,
     decide_lockstep_pipeline, one_credit_block_reason,

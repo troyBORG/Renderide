@@ -4,12 +4,12 @@
 //! Captured by [`crate::backend::RenderBackend::snapshot_for_diagnostics`] before the diagnostics
 //! HUD layer runs, so `diagnostics/` never borrows `&RenderBackend` directly.
 
+use crate::frame_upload_batch::FrameUploadBatchStats;
 use crate::materials::{
     EmbeddedMaterialBindCacheDiagnosticSnapshot, MaterialPipelineCacheDiagnosticSnapshot,
     MaterialShaderGraphDiagnosticSnapshot, RasterPipelineKind,
 };
 use crate::passes::WorldMeshForwardInstancePlanCacheStats;
-use crate::render_graph::frame_upload_batch::FrameUploadBatchStats;
 use crate::world_mesh::{
     RenderWorldMaintenanceStats, WorldMeshCommandCacheStats, WorldMeshDrawStateRow,
     WorldMeshDrawStats,

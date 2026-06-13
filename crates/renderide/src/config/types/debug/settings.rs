@@ -2,8 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{CommandRecordingMode, DebugHudSettings, PowerPreferenceSetting};
-use crate::render_graph::RenderGraphValidationMode;
+use super::{
+    CommandRecordingMode, DebugHudSettings, PowerPreferenceSetting, RenderGraphValidationMode,
+};
 
 /// Debug and diagnostics flags. Persisted as `[debug]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -5,11 +5,12 @@ use std::sync::Arc;
 mod warmup;
 
 use crate::backend::AssetTransferQueue;
-use crate::diagnostics::{DebugHudEncodeError, PerViewHudConfig, PerViewHudOutputs};
+use crate::frame_upload_batch::{FrameUploadBatchStats, GraphUploadSink};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::graph_inputs::{
     GraphPassFrame, PerViewFramePlan, PerViewFramePlanSlot, PreRecordViewResourceLayout,
 };
+use crate::hud_contract::{DebugHudEncodeError, PerViewHudConfig, PerViewHudOutputs};
 use crate::materials::MaterialSystem;
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
 use crate::occlusion::OcclusionSystem;
@@ -23,8 +24,7 @@ use crate::render_graph::compiled::FrameView;
 use crate::render_graph::execution_backend::{
     GraphExecutionBackend, GraphFrameParamsSplit, GraphViewBlackboardPreparer,
 };
-use crate::render_graph::frame_upload_batch::{FrameUploadBatchStats, GraphUploadSink};
-use crate::render_graph::upload_arena::PersistentUploadArena;
+use crate::upload_arena::PersistentUploadArena;
 
 use super::super::debug_hud_bundle::DebugHudBundle;
 use super::super::{

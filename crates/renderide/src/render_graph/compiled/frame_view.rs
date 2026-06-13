@@ -5,15 +5,15 @@ mod profile;
 use super::super::blackboard::Blackboard;
 use super::super::error::GraphExecuteError;
 use crate::camera::{HostCameraFrame, ViewId};
+use crate::frame_contract::{FrameViewClear, OffscreenWriteTarget, ViewWinding};
 use crate::gpu::{GpuContext, OutputDepthMode};
-use crate::graph_inputs::{FrameViewClear, OffscreenWriteTarget, ViewWinding};
 use crate::shared::RenderingContext;
 
+pub use crate::frame_contract::ViewPostProcessing;
 #[cfg(test)]
 pub(crate) use profile::RenderPathSampleCountPolicy;
 pub use profile::{
     FrameViewResourceHints, RenderPathProfile, RenderPathProfileId, ViewFamilyGraphRequirements,
-    ViewPostProcessing,
 };
 
 /// Single-view color + depth for rendering into an externally owned offscreen target.

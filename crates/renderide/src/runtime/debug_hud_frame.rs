@@ -3,8 +3,9 @@
 use std::time::Instant;
 
 use crate::config::{DebugHudMainTab, RendererSettings};
-use crate::diagnostics::{DebugHudEncodeError, DebugHudMetricInterest};
+use crate::diagnostics::DebugHudMetricInterest;
 use crate::gpu::GpuContext;
+use crate::hud_contract::DebugHudEncodeError;
 
 use super::RendererRuntime;
 
@@ -109,7 +110,7 @@ impl RendererRuntime {
             .map(|s| debug_hud_metric_interest(&s))
             .unwrap_or_default();
         self.backend
-            .set_debug_hud_per_view_config(crate::diagnostics::PerViewHudConfig::from(flags));
+            .set_debug_hud_per_view_config(flags.per_view_hud_config());
         self.backend
             .clear_debug_hud_current_view_texture_2d_asset_ids();
     }

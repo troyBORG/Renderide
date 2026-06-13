@@ -28,6 +28,7 @@ pub(crate) mod bind_layout;
 pub(crate) mod depth;
 pub(crate) mod display_blit;
 pub(crate) mod driver_thread;
+pub(crate) mod flight_recorder;
 pub(crate) mod frame_bindings;
 pub(crate) mod frame_globals;
 pub(crate) mod limits;

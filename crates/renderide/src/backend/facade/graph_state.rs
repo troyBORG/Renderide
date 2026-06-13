@@ -5,10 +5,9 @@
 
 use crate::backend::graph::MainGraphPostProcessingResources;
 use crate::camera::ViewId;
-use crate::render_graph::{
-    GraphCache, TransientPool, frame_upload_batch::FrameUploadBatchStats,
-    upload_arena::PersistentUploadArena,
-};
+use crate::frame_upload_batch::FrameUploadBatchStats;
+use crate::render_graph::{GraphCache, TransientPool};
+use crate::upload_arena::PersistentUploadArena;
 
 use super::super::{HistoryRegistry, ViewResourceRegistry};
 

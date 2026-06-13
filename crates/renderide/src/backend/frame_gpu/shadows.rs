@@ -11,17 +11,17 @@ use crate::cpu_parallelism::{
     RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items, current_reference_worker_count,
     record_parallel_admission,
 };
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::{
     GpuLimits, GpuShadowView, MAX_SHADOW_VIEWS, SHADOW_VIEW_KIND_POINT, SHADOW_VIEW_KIND_SPOT,
 };
+use crate::graph_inputs::ShadowAtlasEncodeParams;
 use crate::materials::{MaterialPipelineDesc, ShaderPermutation};
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 use crate::passes::{
     ShadowDepthDrawBatch, WorldMeshForwardEncodeRefs, WorldMeshForwardPipelineState,
     draw_shadow_depth_subset,
 };
-use crate::render_graph::execution_backend::ShadowAtlasEncodeParams;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::pass::{EncoderPass, PassBuilder, PassPhase};
 use crate::world_mesh::WorldMeshPhase;
 

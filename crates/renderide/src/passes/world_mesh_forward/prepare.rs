@@ -5,16 +5,16 @@ use std::hash::{Hash, Hasher};
 use hashbrown::HashMap;
 
 use crate::camera::HostCameraFrame;
-use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs};
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::GpuLimits;
 use crate::graph_inputs::{
     FrameSystemsShared, GraphPassFrameView, OffscreenWriteTarget, PerViewFramePlan,
 };
+use crate::hud_contract::{PerViewHudConfig, PerViewHudOutputs};
 use crate::materials::MaterialSystem;
 use crate::materials::ShaderPermutation;
 use crate::materials::embedded::MaterialBindCacheKey;
 use crate::passes::WorldMeshForwardEncodeRefs;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::skybox::PreparedSkybox;
 use crate::world_mesh::draw_prep::{
     WorldMeshDrawArrangementStats, WorldMeshDrawCollection, WorldMeshDrawItem,

@@ -9,12 +9,12 @@ use std::ops::Range;
 use std::time::Instant;
 
 use crate::camera::HostCameraFrame;
-use crate::diagnostics::PerViewHudOutputsSlot;
-use crate::graph_inputs::FrameViewClear;
+use crate::frame_contract::FrameViewClear;
+use crate::frame_upload_batch::FrameUploadBatch;
+use crate::graph_inputs::PerViewHudOutputsSlot;
 use crate::render_graph::blackboard::{Blackboard, GraphCommandStatsSlot};
 use crate::render_graph::context::GraphResolvedResources;
 use crate::render_graph::error::GraphExecuteError;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::render_graph::pass::PassPhase;
 use crate::render_graph::schedule::{
     RecordingBatch, RecordingBatchKind, RecordingUnit, RenderPassMaterializationGroup,

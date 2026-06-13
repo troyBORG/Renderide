@@ -3,9 +3,9 @@
 
 use hashbrown::HashMap;
 
+use crate::frame_contract::{OffscreenWriteTarget, ViewWinding};
 use crate::gpu::GpuContext;
 use crate::gpu_resource::TextureViewDescriptorKey;
-use crate::graph_inputs::{OffscreenWriteTarget, ViewWinding};
 
 use super::super::super::context::{
     GraphResolvedResources, ResolvedGraphBuffer, ResolvedGraphTexture, ResolvedImportedBuffer,

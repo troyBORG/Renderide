@@ -12,8 +12,9 @@ use crate::cpu_parallelism::{
     RELEVANCE_PACKET_MIN_ITEMS, admit_relevance_items, current_reference_worker_count,
     record_parallel_admission,
 };
-use crate::diagnostics::log_throttle::LogThrottle;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::graph_inputs::OffscreenWriteTarget;
+use crate::log_throttle::LogThrottle;
 use crate::materials::ShaderPermutation;
 use crate::materials::embedded::{EmbeddedMaterialBindError, MaterialBindCacheKey};
 use crate::materials::{
@@ -26,7 +27,6 @@ use crate::materials::{
     ensure_render_buffer_billboard_variant_bits, remap_variant_bits_for_billboard,
 };
 use crate::passes::WorldMeshForwardEncodeRefs;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 /// Material boundary runs assigned to one packet-resolution worker.

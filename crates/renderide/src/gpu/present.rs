@@ -3,7 +3,7 @@
 //! Serves as the minimal integration test for surface acquire, encoder submission, and present.
 //! The render graph reuses [`acquire_surface_outcome_traced`] and [`record_swapchain_clear_pass`].
 
-use crate::diagnostics::gpu_flight_recorder::{
+use crate::gpu::flight_recorder::{
     GpuFlightEventKind, GpuFlightSurfaceAcquireOutcome, GpuFlightSurfaceSite,
     GpuFlightSurfaceStatus, GpuFlightSurfaceSubmitSite,
 };

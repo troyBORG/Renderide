@@ -6,14 +6,14 @@ use hashbrown::HashSet;
 
 use crate::backend::frame_gpu::{LIGHT_COOKIE_ATLAS_PASS_NAME, SHADOW_ATLAS_PASS_NAME};
 use crate::camera::ViewId;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::frame_globals::SkyboxSpecularUniformParams;
-use crate::graph_inputs::PreRecordViewResourceLayout;
+use crate::graph_inputs::{
+    GraphAssetResources, GraphClusterBufferRefs, GraphFrameResources, PreRecordViewResourceLayout,
+    ShadowAtlasEncodeParams,
+};
 use crate::mesh_deform::{PaddedPerDrawUniforms, SkinCacheKey};
 use crate::passes::MaterialBatchBoundary;
-use crate::render_graph::execution_backend::{
-    GraphAssetResources, GraphClusterBufferRefs, GraphFrameResources, ShadowAtlasEncodeParams,
-};
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::manager::FrameResourceManager;
 

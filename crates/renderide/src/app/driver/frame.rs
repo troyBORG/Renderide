@@ -7,7 +7,7 @@ use std::time::Instant;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-use crate::diagnostics::crash_context::{self, RenderMode};
+use crate::crash_context::{self, RenderMode};
 use crate::frontend::input::{
     apply_output_state_to_window, apply_per_frame_cursor_lock_when_locked,
 };
@@ -599,7 +599,7 @@ impl AppDriver {
             FrameRenderMode::Desktop => self.runtime.render_desktop_frame(target.gpu_mut()),
         };
         if let Err(error) = result {
-            let kind = crash_context::graph_error_kind(&error);
+            let kind = crate::render_graph::graph_error_kind(&error);
             crash_context::set_last_graph_error(kind);
             self.handle_frame_graph_error(error);
         }
