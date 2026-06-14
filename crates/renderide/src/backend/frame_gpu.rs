@@ -119,7 +119,7 @@ struct FrameBindGroupInputs<'a> {
     reflection_probes: ReflectionProbeSpecularBindGroupResources<'a>,
     /// Integrated BRDF lookup texture view for binding 11.
     ibl_dfg_lut_view: &'a wgpu::TextureView,
-    /// Light-cookie atlas textures and sampler for bindings 13 through 15.
+    /// Light-cookie atlas textures, sampler, and rect metadata for bindings 13 through 15 and 19.
     light_cookies: &'a LightCookieAtlasResources,
     /// Shadow-map metadata, atlas texture, and comparison sampler for bindings 16 through 18.
     shadows: &'a ShadowAtlasResources,
@@ -128,7 +128,7 @@ struct FrameBindGroupInputs<'a> {
 fn frame_bind_group_entries<'a>(
     inputs: &FrameBindGroupInputs<'a>,
 ) -> Vec<wgpu::BindGroupEntry<'a>> {
-    let mut entries = Vec::with_capacity(19);
+    let mut entries = Vec::with_capacity(20);
     append_frame_and_cluster_entries(&mut entries, inputs);
     append_scene_snapshot_entries(&mut entries, inputs);
     append_reflection_probe_entries(&mut entries, inputs);
@@ -232,6 +232,10 @@ fn append_light_cookie_entries<'a>(
         wgpu::BindGroupEntry {
             binding: 15,
             resource: wgpu::BindingResource::Sampler(inputs.light_cookies.sampler()),
+        },
+        wgpu::BindGroupEntry {
+            binding: 19,
+            resource: inputs.light_cookies.metadata_buffer().as_entire_binding(),
         },
     ]);
 }
@@ -621,6 +625,25 @@ impl FrameGpuResources {
     /// Returns whether the frame-global cookie atlas pass has work.
     pub(in crate::backend) fn has_light_cookie_requests(&self) -> bool {
         self.light_cookies.has_requests()
+    }
+
+    /// Current light-cookie atlas bind-resource version for per-view bind-group invalidation.
+    pub fn light_cookie_resources_version(&self) -> u64 {
+        self.light_cookies.version()
+    }
+
+    /// Synchronizes light-cookie atlas capacity and rect metadata before graph recording.
+    pub fn sync_light_cookie_resources(
+        &mut self,
+        device: &wgpu::Device,
+        uploads: GraphUploadSink<'_>,
+        assets: &dyn crate::render_graph::GraphAssetResources,
+    ) -> bool {
+        let changed = self.light_cookies.sync(device, uploads, assets);
+        if changed {
+            self.rebuild_bind_group(device);
+        }
+        changed
     }
 
     /// Records light-cookie atlas updates.

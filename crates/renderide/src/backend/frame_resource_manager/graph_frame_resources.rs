@@ -6,7 +6,6 @@ use hashbrown::HashSet;
 
 use crate::backend::frame_gpu::{LIGHT_COOKIE_ATLAS_PASS_NAME, SHADOW_ATLAS_PASS_NAME};
 use crate::camera::ViewId;
-use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::frame_globals::SkyboxSpecularUniformParams;
 use crate::graph_inputs::{
     GraphAssetResources, GraphClusterBufferRefs, GraphFrameResources, PreRecordViewResourceLayout,
@@ -213,15 +212,6 @@ impl GraphFrameResources for FrameResourceManager {
 
     fn ensure_per_view_per_draw_scratch(&mut self, view_id: ViewId) {
         let _ = self.per_view_per_draw_scratch_or_create(view_id);
-    }
-
-    fn pre_record_sync_for_views(
-        &mut self,
-        device: &wgpu::Device,
-        uploads: GraphUploadSink<'_>,
-        view_layouts: &[PreRecordViewResourceLayout],
-    ) {
-        self.pre_record_sync_for_views(device, uploads, view_layouts);
     }
 
     fn retain_submit_resources(&self, resources: &mut crate::gpu::GpuRetainedResources) {

@@ -379,6 +379,20 @@ impl GraphExecutionBackend for BackendGraphAccess<'_> {
         );
     }
 
+    fn pre_record_sync_for_views(
+        &mut self,
+        device: &wgpu::Device,
+        uploads: GraphUploadSink<'_>,
+        view_layouts: &[PreRecordViewResourceLayout],
+    ) {
+        self.frame_resources.pre_record_sync_for_views(
+            device,
+            uploads,
+            self.asset_transfers,
+            view_layouts,
+        );
+    }
+
     fn view_blackboard_preparer(&self) -> Box<dyn GraphViewBlackboardPreparer + '_> {
         Box::new(BackendViewBlackboardPreparer {
             world_mesh_frame_planner: self.world_mesh_frame_planner,

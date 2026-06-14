@@ -113,6 +113,13 @@ pub trait GraphExecutionBackend {
         view_layouts: &[Option<PreRecordViewResourceLayout>],
         resource_layouts: &[PreRecordViewResourceLayout],
     );
+    /// Synchronizes shared frame resources using resident asset state before graph recording.
+    fn pre_record_sync_for_views(
+        &mut self,
+        device: &wgpu::Device,
+        uploads: GraphUploadSink<'_>,
+        view_layouts: &[PreRecordViewResourceLayout],
+    );
     /// Creates a thread-shareable per-view blackboard preparer for this graph execution.
     fn view_blackboard_preparer(&self) -> Box<dyn GraphViewBlackboardPreparer + '_>;
     /// Estimates the blackboard work size used to gate parallel pre-record preparation.

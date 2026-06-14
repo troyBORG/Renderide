@@ -164,14 +164,11 @@ impl CompiledRenderGraph {
         upload_batch: &FrameUploadBatch,
     ) {
         profiling::scope!("graph::pre_sync_frame_gpu");
-        mv_ctx
-            .backend
-            .frame_resources_mut()
-            .pre_record_sync_for_views(
-                mv_ctx.device,
-                GraphUploadSink::pre_record(upload_batch),
-                layouts,
-            );
+        mv_ctx.backend.pre_record_sync_for_views(
+            mv_ctx.device,
+            GraphUploadSink::pre_record(upload_batch),
+            layouts,
+        );
     }
 
     /// Pre-resolves transient textures and buffers for every view's [`GraphResolveKey`].

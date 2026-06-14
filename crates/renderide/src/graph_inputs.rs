@@ -198,14 +198,6 @@ pub trait GraphFrameResources: Send + Sync {
     /// Ensures per-view per-draw CPU scratch is resident.
     fn ensure_per_view_per_draw_scratch(&mut self, view_id: ViewId);
 
-    /// Synchronizes shared frame resources before graph recording.
-    fn pre_record_sync_for_views(
-        &mut self,
-        device: &wgpu::Device,
-        uploads: GraphUploadSink<'_>,
-        view_layouts: &[PreRecordViewResourceLayout],
-    );
-
     /// Retains frame-owned GPU handles that may be referenced by recorded command buffers.
     fn retain_submit_resources(&self, resources: &mut GpuRetainedResources);
 

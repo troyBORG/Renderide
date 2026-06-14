@@ -133,9 +133,9 @@ pub enum ReflectError {
         /// Conflicting reflected shader-visible format.
         second: ReflectedVertexInputFormat,
     },
-    /// `@group(0)` sizes did not match frame globals, light/cluster buffers, or declared reflection-probe metadata.
+    /// `@group(0)` sizes did not match frame globals, light/cluster buffers, or declared metadata.
     #[error(
-        "group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, binding 2 range stride {expected_cluster_range}, binding 3 index stride {expected_cluster_index}, optional binding 12 stride {expected_probe}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?} b12={got12:?}"
+        "group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, binding 2 range stride {expected_cluster_range}, binding 3 index stride {expected_cluster_index}, optional binding 12 stride {expected_probe}, and binding 19 cookie rect stride {expected_cookie_rect}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?} b12={got12:?} b19={got19:?}"
     )]
     FrameGroupMismatch {
         /// Expected `FrameGpuUniforms` uniform size in bytes.
@@ -148,6 +148,8 @@ pub enum ReflectError {
         expected_cluster_index: u32,
         /// Expected reflection-probe metadata stride.
         expected_probe: u32,
+        /// Expected light-cookie rect metadata stride.
+        expected_cookie_rect: u32,
         /// Observed binding 0 size, if any.
         got0: Option<u32>,
         /// Observed binding 1 stride, if any.
@@ -158,6 +160,8 @@ pub enum ReflectError {
         got3: Option<u32>,
         /// Observed binding 12 stride, if any.
         got12: Option<u32>,
+        /// Observed binding 19 stride, if any.
+        got19: Option<u32>,
     },
     /// A global resource at the given group/binding is not supported for raster materials.
     #[error("unsupported global resource at group {group} binding {binding}: {reason}")]
