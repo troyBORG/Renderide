@@ -22,6 +22,9 @@ pub const BLENDSHAPE_PACKED_VECTOR_SPARSE_ENTRY_WORDS: u32 = 3;
 /// Minimum storage buffer size used when a mesh has blendshapes but zero sparse bytes.
 pub const BLENDSHAPE_SPARSE_MIN_BUFFER_BYTES: u64 = 16;
 
+/// Maximum number of local reflection probes packed into one draw.
+pub const MAX_LOCAL_REFLECTION_PROBES: usize = 4;
+
 /// GPU-ready channel-sparse blendshape deltas and CPU scatter ranges.
 pub struct BlendshapeGpuPack {
     /// Tightly packed `u32` words containing position, normal, and tangent sparse sections.
