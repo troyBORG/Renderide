@@ -3,9 +3,11 @@
 
 use glam::{Quat, Vec3};
 
+use crate::scene::camera_portal::CameraPortalEntry;
+use crate::scene::meshes::types::StaticMeshRenderer;
 use crate::scene::overrides::{MeshRendererOverrideTarget, RenderMaterialOverrideEntry};
 use crate::scene::render_space::RenderSpaceState;
-use crate::shared::{RenderSpaceUpdate, RenderTransform, RenderingContext};
+use crate::shared::{CameraPortalState, RenderSpaceUpdate, RenderTransform, RenderingContext};
 
 use super::super::super::ids::RenderSpaceId;
 use super::super::super::world::{WorldTransformCache, compute_world_matrices_for_space};
@@ -496,4 +498,44 @@ fn parallel_apply_extracted_commits_pose_writes_and_marks_dirty() {
         "node 1 must be marked uncomputed after pose write"
     );
     assert!(removal_events.is_empty());
+}
+
+#[test]
+fn parallel_apply_extracted_remaps_camera_portal_static_mesh_target_before_mesh_removal() {
+    use super::super::apply::{PerSpaceApplyInputs, apply_extracted_render_space_update};
+
+    let mut space = RenderSpaceState {
+        id: RenderSpaceId(7),
+        static_mesh_renderers: vec![StaticMeshRenderer::default(); 4],
+        camera_portals: vec![CameraPortalEntry {
+            renderable_index: 0,
+            transform_id: 0,
+            state: CameraPortalState {
+                mesh_renderer_index: 3,
+                ..CameraPortalState::default()
+            },
+        }],
+        ..Default::default()
+    };
+    let mut cache = WorldTransformCache::default();
+    let mut extracted = empty_extracted_render_space_update();
+    extracted.space_id = RenderSpaceId(7);
+    extracted.meshes = Some(crate::scene::meshes::ExtractedMeshRenderablesUpdate {
+        removals: vec![1, -1],
+        ..Default::default()
+    });
+    let mut removal_events = Vec::new();
+
+    let dirty = apply_extracted_render_space_update(
+        &extracted,
+        PerSpaceApplyInputs {
+            space: &mut space,
+            cache: &mut cache,
+            removal_events: &mut removal_events,
+        },
+    );
+
+    assert!(!dirty, "mesh removal must not dirty the world matrix cache");
+    assert_eq!(space.static_mesh_renderers.len(), 3);
+    assert_eq!(space.camera_portals[0].state.mesh_renderer_index, 1);
 }
