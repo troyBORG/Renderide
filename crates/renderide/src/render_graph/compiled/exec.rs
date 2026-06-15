@@ -238,7 +238,7 @@ impl CompiledRenderGraph {
 
         // -- Graph command recording ----------------------------------------------------------
         let (
-            frame_global_cmd,
+            frame_global_cmds,
             RecordedPerViewBatch {
                 per_view_cmds,
                 per_view_occlusion_info,
@@ -267,7 +267,7 @@ impl CompiledRenderGraph {
                 SubmitFrameInputs {
                     views,
                     transient_by_key,
-                    frame_global_cmd,
+                    frame_global_cmds,
                     per_view_cmds,
                     per_view_profiler_cmd,
                     per_view_retained_resources,

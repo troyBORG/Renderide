@@ -416,8 +416,8 @@ pub(super) struct SubmitFrameInputs<'a, 'view> {
     pub(super) views: &'a [FrameView<'view>],
     /// Resolved graph resources keyed by compatible view layout.
     pub(super) transient_by_key: HashMap<GraphResolveKey, GraphResolvedResources>,
-    /// Optional command buffer produced by frame-global passes.
-    pub(super) frame_global_cmd: Option<wgpu::CommandBuffer>,
+    /// Command buffers produced by frame-global passes, in deterministic submit order.
+    pub(super) frame_global_cmds: Vec<wgpu::CommandBuffer>,
     /// One command buffer per view in input order.
     pub(super) per_view_cmds: Vec<wgpu::CommandBuffer>,
     /// Optional command buffer that resolves per-view GPU profiler queries.

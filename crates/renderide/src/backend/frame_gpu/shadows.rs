@@ -15,7 +15,9 @@ use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::{
     GpuLimits, GpuShadowView, MAX_SHADOW_VIEWS, SHADOW_VIEW_KIND_POINT, SHADOW_VIEW_KIND_SPOT,
 };
-use crate::graph_inputs::ShadowAtlasEncodeParams;
+use crate::graph_inputs::{
+    FrameGlobalPassSplitWorkload, FrameGlobalSplitPassEncodeParams, ShadowAtlasEncodeParams,
+};
 use crate::materials::{MaterialPipelineDesc, ShaderPermutation};
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 use crate::passes::{
@@ -43,6 +45,10 @@ const SHADOW_SLAB_PARALLEL_MIN_DRAWS: usize = RENDER_COMMAND_CHUNK_DRAWS * 2;
 const SHADOW_SLAB_PARALLEL_CHUNK_DRAWS: usize = RENDER_COMMAND_CHUNK_DRAWS;
 /// Shadow slab chunks assigned to one worker leaf.
 const SHADOW_SLAB_PARALLEL_CHUNKS_PER_TASK: usize = 1;
+/// Minimum atlas layers before command recording can fan out to multiple encoders.
+const SHADOW_ATLAS_PARALLEL_MIN_LAYERS: usize = 2;
+/// Minimum visible group work before shadow atlas command recording uses Rayon.
+const SHADOW_ATLAS_PARALLEL_MIN_VISIBLE_GROUPS: usize = RENDER_COMMAND_CHUNK_DRAWS;
 
 const SHADOW_NORMAL_MATRIX_IDENTITY: [[f32; 4]; 3] = [
     [1.0, 0.0, 0.0, 0.0],
@@ -156,6 +162,12 @@ struct ShadowLayerEncodeContext<'a, 'encoder, 'refs> {
 struct ShadowLayerPlan<'a> {
     view: &'a ShadowRenderView,
     caster_set: &'a ShadowCasterSet,
+}
+
+fn shadow_layer_plan(plan: &ShadowFramePlan, layer_idx: usize) -> Option<ShadowLayerPlan<'_>> {
+    let view = plan.render_views.get(layer_idx)?;
+    let caster_set = plan.caster_sets.get(view.caster_set_index)?;
+    Some(ShadowLayerPlan { view, caster_set })
 }
 
 /// Main-graph frame-global pass that renders realtime shadow atlas layers.
@@ -631,18 +643,74 @@ impl FrameGpuResources {
         if plan.render_views.is_empty() || !self.shadows.renderable() {
             return;
         }
-        let layer_plans = plan
-            .render_views
-            .iter()
-            .filter_map(|view| {
-                plan.caster_sets
-                    .get(view.caster_set_index)
-                    .map(|caster_set| ShadowLayerPlan { view, caster_set })
-            })
-            .collect::<Vec<_>>();
-        self.pack_shadow_slabs(plan, params.gpu_limits, params.uploads);
-        self.pack_shadow_layer_uniforms(plan, params.uploads);
+        self.prepare_shadow_atlas_uploads(plan, params.gpu_limits, params.uploads);
+        self.record_shadow_atlas_layers(
+            plan,
+            0..plan.render_views.len(),
+            FrameGlobalSplitPassEncodeParams {
+                device: params.device,
+                encoder: params.encoder,
+                materials: params.materials,
+                asset_resources: params.asset_resources,
+                skin_cache: params.skin_cache,
+                gpu_limits: params.gpu_limits,
+                profiler: params.profiler,
+            },
+        );
+    }
+
+    /// Returns split-recording workload for the current atlas when parallel recording is useful.
+    pub(in crate::backend) fn shadow_atlas_split_workload(
+        &self,
+        plan: &ShadowFramePlan,
+    ) -> Option<FrameGlobalPassSplitWorkload> {
+        if plan.render_views.len() < SHADOW_ATLAS_PARALLEL_MIN_LAYERS || !self.shadows.renderable()
+        {
+            return None;
+        }
+        let (visible_groups, visible_group_draws) = shadow_visible_group_stats(plan);
+        if visible_groups < SHADOW_ATLAS_PARALLEL_MIN_VISIBLE_GROUPS {
+            return None;
+        }
+        let worker_count = current_reference_worker_count();
+        if worker_count < 2 {
+            return None;
+        }
+        let chunk_size = plan.render_views.len().div_ceil(worker_count).max(1);
+        Some(FrameGlobalPassSplitWorkload {
+            unit_count: plan.render_views.len(),
+            estimated_work: visible_groups.saturating_add(visible_group_draws),
+            chunk_size,
+        })
+    }
+
+    /// Packs shadow uploads that are shared by all atlas layer command buffers.
+    pub(in crate::backend) fn prepare_shadow_atlas_uploads(
+        &self,
+        plan: &ShadowFramePlan,
+        gpu_limits: &GpuLimits,
+        uploads: GraphUploadSink<'_>,
+    ) {
+        profiling::scope!("shadows::prepare_atlas_uploads");
+        if plan.render_views.is_empty() || !self.shadows.renderable() {
+            return;
+        }
+        self.pack_shadow_slabs(plan, gpu_limits, uploads);
+        self.pack_shadow_layer_uniforms(plan, uploads);
         plot_shadow_atlas(plan);
+    }
+
+    /// Records a contiguous range of shadow atlas layers into `params.encoder`.
+    pub(in crate::backend) fn record_shadow_atlas_layers(
+        &self,
+        plan: &ShadowFramePlan,
+        layer_range: std::ops::Range<usize>,
+        params: FrameGlobalSplitPassEncodeParams<'_, '_>,
+    ) {
+        profiling::scope!("shadows::record_atlas_layers");
+        if plan.render_views.is_empty() || !self.shadows.renderable() {
+            return;
+        }
         let mut encode_refs = WorldMeshForwardEncodeRefs {
             materials: params.materials,
             mesh_pool: params.asset_resources.mesh_pool(),
@@ -662,8 +730,11 @@ impl FrameGpuResources {
             gpu_limits: params.gpu_limits,
             profiler: params.profiler,
         };
-        for layer in &layer_plans {
-            self.encode_shadow_view(layer, &mut ctx);
+        for layer_idx in layer_range {
+            let Some(layer) = shadow_layer_plan(plan, layer_idx) else {
+                continue;
+            };
+            self.encode_shadow_view(&layer, &mut ctx);
         }
     }
 

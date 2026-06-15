@@ -37,5 +37,5 @@ pub(crate) use mesh_upload::{
 };
 pub use rayon_admission::{RayonAdmissionProfileSample, plot_rayon_admission};
 pub use render_world::{RenderWorldMaintenanceProfileSample, plot_render_world_maintenance};
-pub use shadow_atlas::plot_shadow_atlas;
+pub use shadow_atlas::{plot_frame_global_split, plot_shadow_atlas};
 pub use world_mesh_prepare::plot_world_mesh_prepare;

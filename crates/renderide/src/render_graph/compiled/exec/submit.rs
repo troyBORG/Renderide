@@ -92,7 +92,7 @@ fn drain_upload_command_buffer(
 fn assemble_submit_command_batch(
     submit_steps: &[ScheduleSubmitStep],
     mut upload_cmd: Option<wgpu::CommandBuffer>,
-    mut frame_global_cmd: Option<wgpu::CommandBuffer>,
+    mut frame_global_cmds: Vec<wgpu::CommandBuffer>,
     mut per_view_cmds: Vec<wgpu::CommandBuffer>,
     mut per_view_profiler_cmd: Option<wgpu::CommandBuffer>,
     mut hud_cmd: Option<wgpu::CommandBuffer>,
@@ -102,7 +102,7 @@ fn assemble_submit_command_batch(
         profiling::scope!("graph::single_submit::allocate_command_batch");
         Vec::with_capacity(
             upload_cmd.is_some() as usize
-                + frame_global_cmd.is_some() as usize
+                + frame_global_cmds.len()
                 + per_view_cmds.len()
                 + per_view_profiler_cmd.is_some() as usize
                 + hud_cmd.is_some() as usize,
@@ -114,7 +114,7 @@ fn assemble_submit_command_batch(
             match step.kind {
                 ScheduleSubmitStepKind::GraphUploadDrain => all_cmds.extend(upload_cmd.take()),
                 ScheduleSubmitStepKind::FrameGlobalCommands => {
-                    all_cmds.extend(frame_global_cmd.take());
+                    all_cmds.append(&mut frame_global_cmds);
                 }
                 ScheduleSubmitStepKind::PerViewCommands => all_cmds.append(&mut per_view_cmds),
                 ScheduleSubmitStepKind::PerViewProfilerResolve => {
@@ -269,7 +269,7 @@ impl CompiledRenderGraph {
         let SubmitFrameInputs {
             views,
             transient_by_key,
-            frame_global_cmd,
+            frame_global_cmds,
             per_view_cmds,
             per_view_profiler_cmd,
             per_view_retained_resources,
@@ -297,7 +297,7 @@ impl CompiledRenderGraph {
         mv_ctx.backend.record_frame_upload_stats(upload.stats);
         let upload_finish_ms = upload.stats.finish_ms;
         let has_upload_cmd = upload.command_buffer.is_some();
-        let has_frame_global_cmd = frame_global_cmd.is_some();
+        let frame_global_command_count = frame_global_cmds.len();
         let per_view_command_count = per_view_cmds.len();
         let has_per_view_profiler_cmd = per_view_profiler_cmd.is_some();
         let has_hud_cmd = hud_cmd.is_some();
@@ -305,7 +305,7 @@ impl CompiledRenderGraph {
         let (all_cmds, command_batch_assembly_ms) = assemble_submit_command_batch(
             &self.schedule.submit_steps,
             upload.command_buffer,
-            frame_global_cmd,
+            frame_global_cmds,
             per_view_cmds,
             per_view_profiler_cmd,
             hud_cmd,
@@ -331,7 +331,7 @@ impl CompiledRenderGraph {
             target_is_swapchain,
             command_buffer_count,
             has_upload_cmd,
-            has_frame_global_cmd,
+            frame_global_command_count,
             per_view_command_count,
             has_per_view_profiler_cmd,
             has_hud_cmd,
