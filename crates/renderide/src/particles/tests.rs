@@ -19,14 +19,14 @@ use super::trail::{
     trail_decode_parallel_is_worthwhile, trail_distances, trail_v_coordinate, trail_vertex_offsets,
 };
 use super::types::{
-    ParticleDrawKind, ParticleDrawParams, ParticleRenderBufferError, PointParticle,
-    checked_optional_range, checked_range, nonnegative_count, photondust_particle_color_to_linear,
-    read_pod_at,
+    ParticleDrawParams, ParticleRenderBufferError, PointParticle, checked_optional_range,
+    checked_range, nonnegative_count, photondust_particle_color_to_linear, read_pod_at,
 };
 use super::upload::{
     GeneratedExtraStreams, generated_mesh_upload_data, generated_vertex_stride,
     prepared_generated_derived_streams, push_generated_vertex, write_generated_vertex,
 };
+use crate::render_contract::ParticleDrawKind;
 use crate::shared::{
     BillboardAlignment, MeshAlignment, MotionVectorMode, PointRenderBufferUpload,
     TrailRenderBufferUpload, TrailTextureMode,

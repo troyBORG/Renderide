@@ -4,8 +4,8 @@ use hashbrown::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::diagnostics::log_throttle::LogThrottle;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
+use crate::log_throttle::LogThrottle;
 use crate::materials::RasterPipelineKind;
 use crate::materials::host_data::{
     MaterialBatchParseReport, MaterialPropertyStore, ParseMaterialBatchOptions, PropertyIdRegistry,

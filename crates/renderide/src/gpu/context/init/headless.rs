@@ -14,7 +14,7 @@ use super::shared::{
     select_headless_adapter_with_fallback,
 };
 use crate::config::GraphicsApiSetting;
-use crate::diagnostics::gpu_flight_recorder::GpuFlightRecorder;
+use crate::gpu::flight_recorder::GpuFlightRecorder;
 use crate::gpu::submission_state::GpuSubmissionState;
 
 impl GpuContext {

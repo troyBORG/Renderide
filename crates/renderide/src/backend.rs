@@ -21,7 +21,6 @@ pub(crate) mod frame_gpu;
 mod frame_gpu_bindings;
 mod frame_gpu_error;
 mod frame_resource_manager;
-pub(crate) mod gpu_jobs;
 pub(crate) mod graph;
 mod light_gpu;
 mod per_draw_resources;
@@ -45,9 +44,6 @@ pub use facade::{RenderBackend, RenderBackendAttachDesc};
 pub use frame_gpu_bindings::FrameGpuBindingsError;
 pub use frame_resource_manager::FrameResourceManager;
 pub(crate) use frame_resource_manager::{FrameLightCullDesc, FrameLightViewDesc};
-pub(crate) use gpu_jobs::{
-    GpuJobResources, GpuReadbackJobs, GpuReadbackOutcomes, SubmittedReadbackJob,
-};
 pub(crate) use shadow_quality::HostShadowQuality;
 pub(crate) use view_resource_registry::ViewResourceRegistry;
 pub(crate) use world_mesh_frame_plan::{

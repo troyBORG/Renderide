@@ -21,3 +21,13 @@ pub fn plot_shadow_atlas(
     );
     tracy_plot!("shadow_atlas::upload_bytes", upload_bytes as f64);
 }
+
+/// Emits split frame-global command-recording counters for the shadow atlas path.
+pub fn plot_frame_global_split(unit_count: usize, command_buffers: usize, chunk_size: usize) {
+    tracy_plot!("frame_global_split::units", unit_count as f64);
+    tracy_plot!(
+        "frame_global_split::command_buffers",
+        command_buffers as f64
+    );
+    tracy_plot!("frame_global_split::chunk_size", chunk_size as f64);
+}

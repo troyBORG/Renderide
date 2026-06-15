@@ -1,18 +1,18 @@
 //! Pre-record view resource and blackboard preparation for compiled graph execution.
 
 use crate::cpu_parallelism::{FrameCpuWorkload, FrameParallelPolicy, ParallelAdmission};
-use crate::diagnostics::PerViewHudConfig;
+use crate::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use crate::gpu::GpuLimits;
-use crate::graph_inputs::{FrameSystemsShared, GraphSceneView, PerViewFramePlan};
+use crate::graph_inputs::{
+    FrameSystemsShared, GraphAssetResources, GraphFrameResources, GraphSceneView, PerViewFramePlan,
+};
+use crate::hud_contract::PerViewHudConfig;
 use crate::materials::MaterialSystem;
 use crate::mesh_deform::{GpuSkinCache, MeshPreprocessPipelines};
 use crate::occlusion::OcclusionGraphHook;
-use crate::render_graph::execution_backend::{
-    GraphAssetResources, GraphFrameResources, GraphViewBlackboardPreparer,
-};
+use crate::render_graph::execution_backend::GraphViewBlackboardPreparer;
 
 use super::super::super::error::GraphExecuteError;
-use super::super::super::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use super::super::{CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext};
 use super::elapsed_ms;
 use super::types::{PerViewWorkItem, PreparedPerViewFrameInput, PreparedPerViewFrameParams};

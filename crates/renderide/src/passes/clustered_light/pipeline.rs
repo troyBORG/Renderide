@@ -11,9 +11,9 @@ use std::num::NonZeroU64;
 use bytemuck::{Pod, Zeroable};
 
 use crate::embedded_shaders::embedded_wgsl;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight};
 use crate::gpu_resource::OnceGpu;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE, sanitize_cluster_clip_planes};
 
 pub(super) const FROXEL_RECONSTRUCTION_GENERAL: u32 = 1 << 0;

@@ -166,6 +166,36 @@ pub struct RenderWorldMaintenanceStats {
 }
 
 impl RenderWorldMaintenanceStats {
+    /// Builds the profiling sample emitted for retained render-world maintenance.
+    pub fn profile_sample(self) -> crate::profiling::RenderWorldMaintenanceProfileSample {
+        crate::profiling::RenderWorldMaintenanceProfileSample {
+            topology_dirty_count: self.topology_dirty_count,
+            material_dirty_count: self.material_dirty_count,
+            transform_only_dirty_count: self.transform_only_dirty_count,
+            transform_root_dirty_count: self.transform_root_dirty_count,
+            transform_root_scanned_node_count: self.transform_root_scanned_node_count,
+            transform_root_expanded_renderer_count: self.transform_root_expanded_renderer_count,
+            transform_root_full_space_count: self.transform_root_full_space_count,
+            mesh_asset_dirty_renderer_count: self.mesh_asset_dirty_renderer_count,
+            dirty_renderer_count: self.dirty_renderer_count,
+            bounds_dirty_renderer_count: self.bounds_dirty_renderer_count,
+            bounds_refreshed_renderer_count: self.bounds_refreshed_renderer_count,
+            refreshed_renderer_count: self.refreshed_renderer_count,
+            refreshed_template_count: self.refreshed_template_count,
+            mesh_asset_invalidation_count: self.mesh_asset_invalidation_count,
+            full_world_rebuild_count: self.full_world_rebuild_count,
+            particle_snapshot_rebuild_count: self.particle_snapshot_rebuild_count,
+            snapshot_rebuild_task_count: self.snapshot_rebuild_task_count,
+            snapshot_retained_draw_count: self.snapshot_retained_draw_count,
+            snapshot_reused_space_count: self.snapshot_reused_space_count,
+            spatial_rebuild_count: self.spatial_rebuild_count,
+            spatial_refit_count: self.spatial_refit_count,
+            retained_template_count: self.retained_template_count,
+            context_invariant_count: self.context_invariant_count,
+            steady_state_skip_count: self.steady_state_skip_count,
+        }
+    }
+
     /// Adds another render world's counters into this aggregate.
     pub fn accumulate(&mut self, other: Self) {
         self.topology_dirty_count += other.topology_dirty_count;
@@ -441,7 +471,7 @@ impl RenderWorld {
         self.pending_material_dirty_count = 0;
         self.pending_transform_only_dirty_count = 0;
         self.pending_mesh_asset_dirty_renderer_count = 0;
-        crate::profiling::plot_render_world_maintenance(stats);
+        crate::profiling::plot_render_world_maintenance(stats.profile_sample());
         &self.prepared
     }
 

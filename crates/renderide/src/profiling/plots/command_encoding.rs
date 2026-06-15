@@ -28,6 +28,8 @@ pub struct CommandEncodingProfileSample {
     pub per_view_record_admitted: u64,
     /// Frame-global pass count in the compiled schedule.
     pub frame_global_passes: usize,
+    /// Command buffers emitted for frame-global work.
+    pub frame_global_command_buffers: usize,
     /// Per-view pass count in the compiled schedule.
     pub per_view_passes: usize,
     /// Declared transient texture handles in the compiled graph.
@@ -166,6 +168,10 @@ fn plot_pass_counts(sample: &CommandEncodingProfileSample) {
     tracy_plot!(
         "command_encoding::frame_global_passes",
         sample.frame_global_passes as f64
+    );
+    tracy_plot!(
+        "command_encoding::frame_global_command_buffers",
+        sample.frame_global_command_buffers as f64
     );
     tracy_plot!(
         "command_encoding::per_view_passes",

@@ -10,6 +10,7 @@ mod command_recording;
 mod hud;
 mod power_preference;
 mod settings;
+mod validation;
 
 pub use command_recording::CommandRecordingMode;
 pub use hud::{
@@ -18,3 +19,4 @@ pub use hud::{
 };
 pub use power_preference::PowerPreferenceSetting;
 pub use settings::DebugSettings;
+pub use validation::RenderGraphValidationMode;

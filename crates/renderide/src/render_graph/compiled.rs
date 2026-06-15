@@ -8,9 +8,11 @@ use super::resources::{
     ImportedBufferDecl, ImportedTextureDecl, TextureHandle, TransientSubresourceDesc,
 };
 use super::schedule::{FrameSchedule, ScheduleHudSnapshot};
-use super::validation::{GraphValidationReport, RenderGraphValidationMode};
+use super::validation::GraphValidationReport;
 use crate::camera::ViewId;
-use crate::graph_inputs::{GraphSceneView, OffscreenWriteTarget, ViewWinding};
+use crate::frame_contract::{OffscreenWriteTarget, ViewWinding};
+use crate::graph_inputs::GraphSceneView;
+use crate::render_graph::RenderGraphValidationMode;
 
 pub(super) mod cache;
 mod exec;

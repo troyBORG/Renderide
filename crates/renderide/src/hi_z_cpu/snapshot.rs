@@ -55,12 +55,12 @@ impl HiZCpuSnapshot {
     }
 }
 
-/// Owned Hi-Z pyramids for [`crate::world_mesh::culling::WorldMeshCullInput`] (cloned once per frame from [`crate::backend::RenderBackend`]).
+/// Owned Hi-Z pyramids for world-mesh culling.
 #[derive(Clone, Debug)]
 pub enum HiZCullData {
     /// Single pyramid from desktop / mirror depth.
     Desktop(HiZCpuSnapshot),
-    /// Left / right pyramids aligned with [`crate::world_mesh::culling::WorldMeshCullProjParams::vr_stereo`] order.
+    /// Left / right pyramids aligned with [`crate::cull_contract::WorldMeshCullProjParams::vr_stereo`] order.
     Stereo {
         /// Hi-Z pyramid for the left eye.
         left: HiZCpuSnapshot,

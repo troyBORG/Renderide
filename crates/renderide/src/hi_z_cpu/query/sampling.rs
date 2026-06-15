@@ -1,7 +1,7 @@
 //! Hi-Z mip selection and padded-rectangle sampling for AABB occlusion tests.
 
-use crate::occlusion::cpu::pyramid::{mip_byte_offset_floats, mip_dimensions};
-use crate::occlusion::cpu::snapshot::HiZCpuSnapshot;
+use crate::hi_z_cpu::pyramid::{mip_byte_offset_floats, mip_dimensions};
+use crate::hi_z_cpu::snapshot::HiZCpuSnapshot;
 
 const HI_Z_RECT_SAMPLE_LIMIT: u32 = 512;
 

@@ -49,7 +49,7 @@ pub use integrator::{
     AssetIntegrationDrainSummary, AssetIntegrator, ShaderRouteTask, drain_asset_tasks,
     drain_asset_tasks_unbounded,
 };
-pub(crate) use mesh_upload_batch::{MeshUploadBatchStats, MeshUploadStagingBatch};
+pub(crate) use mesh_upload_batch::MeshUploadStagingBatch;
 use particle_task::{PointBuildResult, TrailBuildResult};
 use pending::PendingAssetUploads;
 use pools::ResidentAssetPools;
@@ -787,6 +787,24 @@ impl GraphAssetResources for AssetTransferQueue {
 
     fn video_texture_pool(&self) -> &VideoTexturePool {
         self.video_texture_pool()
+    }
+}
+
+impl crate::reflection_probes::ReflectionProbeCubemapAssets for AssetTransferQueue {
+    fn reflection_probe_cubemap(
+        &self,
+        asset_id: i32,
+    ) -> Option<crate::reflection_probes::ReflectionProbeCubemapAsset> {
+        let cubemap = self.cubemap_pool().get(asset_id)?;
+        Some(crate::reflection_probes::ReflectionProbeCubemapAsset {
+            allocation_generation: cubemap.allocation_generation,
+            size: cubemap.size,
+            mip_levels_resident: cubemap.mip_levels_resident,
+            content_generation: cubemap.content_generation,
+            storage_v_inverted: cubemap.storage_v_inverted,
+            view: cubemap.view.clone(),
+            array_view: cubemap.array_view.clone(),
+        })
     }
 }
 

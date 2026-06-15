@@ -19,7 +19,7 @@ const DIRECTIONAL_COOKIE_SIZE: f32 = 10.0;
 pub struct LightCookieBinding {
     /// Cookie kind matching the shader constants.
     pub kind: u32,
-    /// Atlas layer, or first face layer for point cookies.
+    /// Atlas rect metadata row, or first face row for point cookies.
     pub layer: u32,
     /// Packed 2D cookie wrap modes.
     pub wrap_bits: u32,

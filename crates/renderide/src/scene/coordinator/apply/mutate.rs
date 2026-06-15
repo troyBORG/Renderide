@@ -8,7 +8,8 @@
 use crate::scene::blit_to_display::apply_blit_to_display_update_extracted;
 use crate::scene::camera::fixup_cameras_for_transform_removals;
 use crate::scene::camera_portal::{
-    apply_camera_portal_renderables_update_extracted, fixup_camera_portals_for_transform_removals,
+    apply_camera_portal_renderables_update_extracted,
+    fixup_camera_portals_for_static_mesh_removals, fixup_camera_portals_for_transform_removals,
 };
 use crate::scene::layer::apply_layer_update_extracted;
 use crate::scene::lod_groups::apply_lod_group_renderables_update_extracted;
@@ -136,8 +137,14 @@ fn apply_render_space_geometry_phase(
         fixup_static_meshes_for_transform_removals(space, transform_removals);
     }
     if let Some(ref mu) = extracted.meshes {
-        profiling::scope!("scene::apply_render_space_chunk::meshes");
-        apply_mesh_renderables_update_extracted(space, mu, scene_id);
+        {
+            profiling::scope!("scene::apply_render_space_chunk::fixup_camera_portal_mesh_targets");
+            fixup_camera_portals_for_static_mesh_removals(space, &mu.removals);
+        }
+        {
+            profiling::scope!("scene::apply_render_space_chunk::meshes");
+            apply_mesh_renderables_update_extracted(space, mu, scene_id);
+        }
     }
     if let Some(ref su) = extracted.skinned_meshes {
         profiling::scope!("scene::apply_render_space_chunk::skinned_meshes");
