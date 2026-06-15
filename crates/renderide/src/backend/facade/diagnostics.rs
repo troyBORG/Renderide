@@ -5,9 +5,10 @@ use std::path::PathBuf;
 
 use crate::config::RendererSettingsHandle;
 use crate::diagnostics::{
-    DebugHudEncodeError, DebugHudInput, FrameDiagnosticsSnapshot, FrameTimingHudSnapshot,
-    PerViewHudConfig, RendererInfoSnapshot, SceneTransformsSnapshot, TextureDebugSnapshot,
+    DebugHudInput, FrameDiagnosticsSnapshot, FrameTimingHudSnapshot, RendererInfoSnapshot,
+    SceneTransformsSnapshot, TextureDebugSnapshot,
 };
+use crate::hud_contract::{DebugHudEncodeError, PerViewHudConfig};
 use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 use super::super::debug_hud_bundle::DebugHudBundle;

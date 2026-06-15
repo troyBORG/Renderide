@@ -33,6 +33,8 @@ use self::schema::{
 
 const DEFAULT_RENDER_QUEUE: i32 = 2000;
 const SHADER_PACKAGE_DIR_ENV: &str = "RENDERIDE_SHADER_PACKAGE_DIR";
+#[cfg(target_family = "unix")]
+const UNIX_SYSTEM_SHADER_PACKAGE_DIR: &str = "/usr/share/renderide/shaders";
 
 /// Runtime shader package load failure.
 #[derive(Debug, Error)]
@@ -398,6 +400,10 @@ fn package_candidate_dirs() -> Vec<PathBuf> {
     {
         dirs.push(parent.join("shaders"));
     }
+    #[cfg(target_family = "unix")]
+    {
+        dirs.push(PathBuf::from(UNIX_SYSTEM_SHADER_PACKAGE_DIR));
+    }
     if let Some(path) = option_env!("RENDERIDE_SHADER_PACKAGE_DIR_DEFAULT")
         && !path.trim().is_empty()
     {
@@ -677,6 +683,18 @@ mod tests {
             !package_candidate_dirs()
                 .into_iter()
                 .any(|dir| dir == source_tree_target)
+        );
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn package_candidates_include_unix_system_share_dir() {
+        let system_dir = Path::new(UNIX_SYSTEM_SHADER_PACKAGE_DIR);
+
+        assert!(
+            package_candidate_dirs()
+                .into_iter()
+                .any(|dir| dir == system_dir)
         );
     }
 }

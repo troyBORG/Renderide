@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::diagnostics::crash_context;
+use crate::crash_context;
 
 /// Number of recent GPU/XR events retained in memory.
 pub(crate) const GPU_FLIGHT_RECORDER_CAPACITY: usize = 512;

@@ -24,7 +24,7 @@ mod model;
 mod modules;
 #[path = "shader/parallel.rs"]
 mod parallel;
-#[path = "../src/shader_package/schema.rs"]
+#[path = "../src/materials/shader_package/schema.rs"]
 mod shader_package_schema;
 #[path = "shader/source.rs"]
 mod source;

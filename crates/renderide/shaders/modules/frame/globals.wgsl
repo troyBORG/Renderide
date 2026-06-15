@@ -7,7 +7,8 @@
 //! layout at pipeline creation for storage-backed frame resources.
 //!
 //! CPU packing must match [`crate::gpu::frame_globals::FrameGpuUniforms`],
-//! [`crate::backend::light_gpu::GpuLight`], and [`crate::backend::cluster_gpu`] cluster buffers.
+//! [`crate::backend::light_gpu::GpuLight`], [`crate::gpu::GpuLightCookieRect`], and
+//! [`crate::backend::cluster_gpu`] cluster buffers.
 
 #define_import_path renderide::frame::globals
 
@@ -26,12 +27,13 @@
 @group(0) @binding(10) var reflection_probe_specular_sampler: sampler;
 @group(0) @binding(11) var ibl_dfg_lut: texture_2d<f32>;
 @group(0) @binding(12) var<storage, read> reflection_probes: array<ft::GpuReflectionProbe>;
-@group(0) @binding(13) var light_cookie_2d_atlas: texture_2d_array<f32>;
-@group(0) @binding(14) var light_cookie_point_atlas: texture_2d_array<f32>;
+@group(0) @binding(13) var light_cookie_2d_atlas: texture_2d<f32>;
+@group(0) @binding(14) var light_cookie_point_atlas: texture_2d<f32>;
 @group(0) @binding(15) var light_cookie_sampler: sampler;
 @group(0) @binding(16) var<storage, read> shadow_views: array<ft::GpuShadowView>;
 @group(0) @binding(17) var shadow_atlas: texture_depth_2d_array;
 @group(0) @binding(18) var shadow_sampler: sampler_comparison;
+@group(0) @binding(19) var<storage, read> light_cookie_rects: array<ft::GpuLightCookieRect>;
 
 /// View index encoded in a material varying.
 fn view_index_from_layer(view_layer: u32) -> u32 {
@@ -43,10 +45,19 @@ fn draw_index_from_layer(view_layer: u32) -> u32 {
     return view_layer >> 1u;
 }
 
+/// Returns true when the encoded material view layer targets the right eye.
+fn view_layer_is_right_eye(view_layer: u32) -> bool {
+#ifdef MULTIVIEW
+    return view_index_from_layer(view_layer) != 0u;
+#else
+    return false;
+#endif
+}
+
 /// World-space camera position for the current view layer.
 fn camera_world_pos_for_view(view_layer: u32) -> vec3<f32> {
 #ifdef MULTIVIEW
-    if (view_index_from_layer(view_layer) != 0u) {
+    if (view_layer_is_right_eye(view_layer)) {
         return frame.camera_world_pos_right.xyz;
     }
 #endif
@@ -65,7 +76,7 @@ fn stereo_center_camera_world_pos() -> vec3<f32> {
 /// World -> view-space Z coefficients for the current view layer.
 fn view_space_z_coeffs_for_view(view_layer: u32) -> vec4<f32> {
 #ifdef MULTIVIEW
-    if (view_index_from_layer(view_layer) != 0u) {
+    if (view_layer_is_right_eye(view_layer)) {
         return frame.view_space_z_coeffs_right;
     }
 #endif
@@ -75,7 +86,7 @@ fn view_space_z_coeffs_for_view(view_layer: u32) -> vec4<f32> {
 /// View -> world-space Y coefficients for the current view layer.
 fn view_to_world_y_coeffs_for_view(view_layer: u32) -> vec4<f32> {
 #ifdef MULTIVIEW
-    if (view_index_from_layer(view_layer) != 0u) {
+    if (view_layer_is_right_eye(view_layer)) {
         return frame.view_to_world_y_coeffs_right;
     }
 #endif
@@ -85,7 +96,7 @@ fn view_to_world_y_coeffs_for_view(view_layer: u32) -> vec4<f32> {
 /// Projection coefficients for the current view layer.
 fn proj_params_for_view(view_layer: u32) -> vec4<f32> {
 #ifdef MULTIVIEW
-    if (view_index_from_layer(view_layer) != 0u) {
+    if (view_layer_is_right_eye(view_layer)) {
         return frame.proj_params_right;
     }
 #endif
@@ -95,7 +106,7 @@ fn proj_params_for_view(view_layer: u32) -> vec4<f32> {
 /// Projection matrix for the current view layer.
 fn projection_for_view(view_layer: u32) -> mat4x4<f32> {
 #ifdef MULTIVIEW
-    if (view_index_from_layer(view_layer) != 0u) {
+    if (view_layer_is_right_eye(view_layer)) {
         return frame.proj_right;
     }
 #endif
@@ -105,7 +116,7 @@ fn projection_for_view(view_layer: u32) -> mat4x4<f32> {
 /// Projection flags for the current view layer.
 fn projection_flags_for_view(view_layer: u32) -> u32 {
 #ifdef MULTIVIEW
-    if (view_index_from_layer(view_layer) != 0u) {
+    if (view_layer_is_right_eye(view_layer)) {
         return frame.frame_tail.z;
     }
 #endif
@@ -174,7 +185,8 @@ fn retain_globals_additive(color: vec4<f32>) -> vec4<f32> {
         f32(cluster_light_indices[0u] & 255u) * 1e-10;
     let probe_touch = reflection_probes[0u].params.x * 1e-10;
     let cookie_touch =
-        textureSampleLevel(light_cookie_2d_atlas, light_cookie_sampler, vec2<f32>(0.5), 0, 0.0).r * 1e-10 +
-        textureSampleLevel(light_cookie_point_atlas, light_cookie_sampler, vec2<f32>(0.5), 0, 0.0).r * 1e-10;
+        textureSampleLevel(light_cookie_2d_atlas, light_cookie_sampler, vec2<f32>(0.5), 0.0).r * 1e-10 +
+        textureSampleLevel(light_cookie_point_atlas, light_cookie_sampler, vec2<f32>(0.5), 0.0).r * 1e-10 +
+        light_cookie_rects[0u].origin_scale.x * 1e-10;
     return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch + probe_touch + cookie_touch), 0.0);
 }

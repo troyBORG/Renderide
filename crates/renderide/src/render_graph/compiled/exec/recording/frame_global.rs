@@ -4,11 +4,11 @@ use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
 use std::time::Instant;
 
+use crate::frame_upload_batch::FrameUploadBatch;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::context::GraphResolvedResources;
 use crate::render_graph::error::GraphExecuteError;
 use crate::render_graph::execution_backend::GraphExecutionBackend;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::render_graph::pass::PassPhase;
 
 use super::super::super::helpers;

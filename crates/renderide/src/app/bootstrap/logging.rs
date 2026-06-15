@@ -5,7 +5,7 @@ use std::path::Path;
 
 use logger::{LogComponent, LogLevel};
 
-use crate::diagnostics::crash_context::{self, TickPhase};
+use crate::crash_context::{self, TickPhase};
 use crate::run_error::RunError;
 
 /// Logging state produced during app bootstrap.

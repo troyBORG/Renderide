@@ -18,10 +18,8 @@
 //! - [`registry`]: static-dispatch [`registry::DebugWindow`] enum + [`registry::OverlayFeatureFlags`].
 //! - [`fmt`]: right-aligned numeric formatters and byte-compaction helpers.
 //! - [`input`]: HUD input transport plus per-frame ImGui IO bridge.
-//! - [`encode_error`]: error type for the ImGui/wgpu HUD encode pass.
 //! - [`windows`]: concrete window/tab impls.
 
-pub mod encode_error;
 pub mod fmt;
 pub mod input;
 pub mod layout;
@@ -32,7 +30,7 @@ pub mod state;
 pub mod view;
 pub mod windows;
 
-pub use encode_error::DebugHudEncodeError;
+pub use crate::hud_contract::DebugHudEncodeError;
 pub use input::{DebugHudInput, sanitize_input_state_for_imgui_host};
 pub use metrics::DebugHudMetricInterest;
 pub use state::HudUiState;

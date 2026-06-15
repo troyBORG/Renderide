@@ -15,11 +15,12 @@ use hashbrown::HashMap;
 use parking_lot::Mutex;
 
 use crate::camera::ViewId;
-use crate::diagnostics::PerViewHudOutputs;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::GpuLimits;
 use crate::graph_inputs::{
     FrameSystemsShared, GraphPassFrame, GraphPassFrameView, PerViewFramePlan,
 };
+use crate::hud_contract::PerViewHudOutputs;
 use crate::passes::{
     PreparedWorldMeshForwardFrame, WorldMeshForwardInstancePlanCache,
     WorldMeshForwardInstancePlanCacheStats, WorldMeshForwardPrepareCaches,
@@ -29,7 +30,6 @@ use crate::passes::{
 use crate::render_graph::blackboard::{
     Blackboard, GraphCommandStats, GraphCommandStatsSlot, blackboard_slot,
 };
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan};
 
 blackboard_slot! {
@@ -174,7 +174,7 @@ pub(crate) fn prepare_world_mesh_view_blackboard(
         blackboard.insert::<crate::passes::WorldMeshForwardPlanSlot>(forward);
     }
     if let Some(hud_outputs) = prepared.hud_outputs {
-        blackboard.insert::<crate::diagnostics::PerViewHudOutputsSlot>(hud_outputs);
+        blackboard.insert::<crate::graph_inputs::PerViewHudOutputsSlot>(hud_outputs);
     }
     if let Some(overlay_draw_plan) = blackboard.take::<WorldMeshOverlayDrawPlanSlot>() {
         prepare_desktop_overlay_blackboard(

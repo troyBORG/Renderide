@@ -11,5 +11,6 @@ mod tests;
 /// Returns the default package material stem for a Unity shader asset name.
 pub fn embedded_default_stem_for_shader_asset_name(name: &str) -> Option<String> {
     let key = normalize_unity_shader_lookup_key(name);
-    crate::shader_package::default_material_stem_for_asset_key(&key).map(|stem| stem.to_string())
+    crate::materials::shader_package::default_material_stem_for_asset_key(&key)
+        .map(|stem| stem.to_string())
 }

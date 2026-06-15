@@ -28,7 +28,7 @@ struct NonTransparentBinKey {
     phase_rank: u8,
     /// Effective Unity render queue.
     render_queue: i32,
-    /// Surface-stack ordering key for draws whose equal-depth order is visible.
+    /// Material-stack ordering key for slots that reuse the final submesh.
     stack: Option<NonTransparentStackBinKey>,
     /// Compact per-arrangement material and pipeline batch identifier.
     batch_id: u32,
@@ -133,10 +133,12 @@ impl NonTransparentSurfaceStackTable {
 struct NonTransparentStackBinKey {
     /// Surface whose equal-depth layers must keep Unity-style renderer order.
     surface: NonTransparentSurfaceStackKey,
+    /// Dense renderer index inside the selected renderer table.
+    renderable_index: usize,
+    /// Renderer-local stable identity.
+    instance_id: u64,
     /// First material slot participating in a single-renderer material stack.
     first_stacked_slot_index: usize,
-    /// Renderer-local stable identity, assigned when the renderer entry was created.
-    instance_id: u64,
     /// Material slot represented by this bin.
     slot_index: usize,
 }
@@ -157,8 +159,9 @@ impl NonTransparentStackBinKey {
         }
         Some(Self {
             surface,
-            first_stacked_slot_index: material_stack_slot.unwrap_or(item.slot_index),
+            renderable_index: item.renderable_index,
             instance_id: item.instance_id.0,
+            first_stacked_slot_index: material_stack_slot.unwrap_or(item.slot_index),
             slot_index: item.slot_index,
         })
     }
@@ -582,6 +585,7 @@ fn cmp_nontransparent_stack_keys(
         return Ordering::Equal;
     };
     cmp_nontransparent_surface_stack_keys(&a.surface, &b.surface)
+        .then(a.renderable_index.cmp(&b.renderable_index))
         .then(a.instance_id.cmp(&b.instance_id))
         .then(a.first_stacked_slot_index.cmp(&b.first_stacked_slot_index))
         .then(a.slot_index.cmp(&b.slot_index))

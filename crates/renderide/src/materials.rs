@@ -87,6 +87,7 @@ mod render_buffer_shader;
 mod render_queue;
 mod render_state;
 mod router;
+pub(crate) mod shader_package;
 pub(crate) mod shader_permutation;
 mod shader_specialization;
 mod shadow_caster;

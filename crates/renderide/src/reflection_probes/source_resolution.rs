@@ -8,6 +8,7 @@ use super::{
 use crate::reflection_probes::specular::{
     RuntimeReflectionProbeCaptureKey, RuntimeReflectionProbeCaptureStore,
 };
+use crate::reflection_probes::{ReflectionProbeCubemapAsset, ReflectionProbeCubemapAssets};
 use crate::scene::{
     ReflectionProbeEntry, RenderSpaceId, SceneCoordinator, reflection_probe_solid_color,
 };
@@ -26,7 +27,7 @@ pub(super) enum Sh2ResolvedSource {
 /// Resolves a host task into a cache key and source payload.
 pub(super) fn resolve_task_source(
     scene: &SceneCoordinator,
-    assets: &crate::backend::AssetTransferQueue,
+    assets: &dyn ReflectionProbeCubemapAssets,
     captures: &RuntimeReflectionProbeCaptureStore,
     render_space_id: i32,
     task: TaskHeader,
@@ -57,7 +58,7 @@ pub(super) fn resolve_task_source(
         }
         let asset_id = state.cubemap_asset_id;
         let identity = CubemapSourceMaterialIdentity::DIRECT_PROBE;
-        let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
+        let Some(cubemap) = assets.reflection_probe_cubemap(asset_id) else {
             return Some((
                 Sh2SourceKey::cubemap(
                     render_space_id,
@@ -72,7 +73,7 @@ pub(super) fn resolve_task_source(
             render_space_id,
             identity,
             asset_id,
-            cubemap_residency_from_pool(cubemap),
+            cubemap_residency_from_pool(&cubemap),
         );
         if cubemap.mip_levels_resident == 0 {
             return Some((key, Sh2ResolvedSource::Postpone));
@@ -133,9 +134,7 @@ fn resolve_runtime_capture_source(
     ))
 }
 
-fn cubemap_residency_from_pool(
-    cubemap: &crate::gpu_pools::pools::cubemap::GpuCubemap,
-) -> CubemapResidency {
+fn cubemap_residency_from_pool(cubemap: &ReflectionProbeCubemapAsset) -> CubemapResidency {
     CubemapResidency {
         allocation_generation: cubemap.allocation_generation,
         size: cubemap.size,
@@ -148,8 +147,15 @@ fn cubemap_residency_from_pool(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::AssetTransferQueue;
     use crate::shared::{ReflectionProbeClear, ReflectionProbeState};
+
+    struct EmptyCubemapAssets;
+
+    impl ReflectionProbeCubemapAssets for EmptyCubemapAssets {
+        fn reflection_probe_cubemap(&self, _asset_id: i32) -> Option<ReflectionProbeCubemapAsset> {
+            None
+        }
+    }
 
     #[test]
     fn missing_runtime_capture_postpones_onchanges_probe() {
@@ -232,7 +238,7 @@ mod tests {
                 },
             }],
         );
-        let assets = AssetTransferQueue::new();
+        let assets = EmptyCubemapAssets;
         let captures = RuntimeReflectionProbeCaptureStore::default();
 
         let (key, source) = resolve_task_source(

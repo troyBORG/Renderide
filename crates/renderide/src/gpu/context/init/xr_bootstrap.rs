@@ -14,7 +14,7 @@ use super::shared::{
     GpuContextParts, GpuRuntimeHandles, assemble_context, log_device_capability_summary,
 };
 use crate::config::VsyncMode;
-use crate::diagnostics::gpu_flight_recorder::GpuFlightRecorder;
+use crate::gpu::flight_recorder::GpuFlightRecorder;
 use crate::gpu::submission_state::GpuSubmissionState;
 
 impl GpuContext {
