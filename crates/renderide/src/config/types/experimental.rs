@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::reflection_probes::specular::MAX_LOCAL_PROBES;
+use crate::render_contract::MAX_LOCAL_REFLECTION_PROBES;
 
 /// Feature flags for renderer behavior that is still experimental.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct ExperimentalSettings {
 impl Default for ExperimentalSettings {
     fn default() -> Self {
         Self {
-            max_local_reflection_probes: MAX_LOCAL_PROBES,
+            max_local_reflection_probes: MAX_LOCAL_REFLECTION_PROBES,
             reflection_probe_sh2_enabled: false,
             material_shader_hot_reload_enabled: false,
         }
@@ -30,7 +30,8 @@ impl ExperimentalSettings {
     /// Returns the local reflection-probe count clamped to the fixed per-draw packing capacity.
     #[must_use]
     pub fn effective_max_local_reflection_probes(self) -> usize {
-        self.max_local_reflection_probes.min(MAX_LOCAL_PROBES)
+        self.max_local_reflection_probes
+            .min(MAX_LOCAL_REFLECTION_PROBES)
     }
 }
 
@@ -42,23 +43,26 @@ mod tests {
     fn default_local_reflection_probe_limit_matches_packed_capacity() {
         let settings = ExperimentalSettings::default();
 
-        assert_eq!(settings.max_local_reflection_probes, MAX_LOCAL_PROBES);
+        assert_eq!(
+            settings.max_local_reflection_probes,
+            MAX_LOCAL_REFLECTION_PROBES
+        );
         assert_eq!(
             settings.effective_max_local_reflection_probes(),
-            MAX_LOCAL_PROBES
+            MAX_LOCAL_REFLECTION_PROBES
         );
     }
 
     #[test]
     fn effective_local_reflection_probe_limit_clamps_to_packed_capacity() {
         let settings = ExperimentalSettings {
-            max_local_reflection_probes: MAX_LOCAL_PROBES + 10,
+            max_local_reflection_probes: MAX_LOCAL_REFLECTION_PROBES + 10,
             ..Default::default()
         };
 
         assert_eq!(
             settings.effective_max_local_reflection_probes(),
-            MAX_LOCAL_PROBES
+            MAX_LOCAL_REFLECTION_PROBES
         );
     }
 }

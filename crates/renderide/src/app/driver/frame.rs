@@ -7,7 +7,7 @@ use std::time::Instant;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-use crate::diagnostics::crash_context::{self, RenderMode};
+use crate::crash_context::{self, RenderMode};
 use crate::frontend::input::{
     apply_output_state_to_window, apply_per_frame_cursor_lock_when_locked,
 };
@@ -141,6 +141,7 @@ impl AppDriver {
         event_loop: &dyn ActiveEventLoop,
         frame_start: Instant,
     ) -> FrameTickOutcome {
+        self.hmd_compositor_paced_last_frame = false;
         self.frame_tick_prologue(frame_start);
         self.poll_ipc_and_window();
         if self.check_external_shutdown(event_loop) {
@@ -229,6 +230,7 @@ impl AppDriver {
         };
         self.runtime.note_frame_render_attempted();
         let hmd_projection_ended = render_outcome.hmd_projection_ended;
+        self.hmd_compositor_paced_last_frame = hmd_projection_ended;
         if self.handle_gpu_device_loss_request(event_loop) {
             if !hmd_projection_ended {
                 self.queue_empty_openxr_frame_if_needed(xr_tick);
@@ -599,7 +601,7 @@ impl AppDriver {
             FrameRenderMode::Desktop => self.runtime.render_desktop_frame(target.gpu_mut()),
         };
         if let Err(error) = result {
-            let kind = crash_context::graph_error_kind(&error);
+            let kind = crate::render_graph::graph_error_kind(&error);
             crash_context::set_last_graph_error(kind);
             self.handle_frame_graph_error(error);
         }

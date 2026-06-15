@@ -2,7 +2,6 @@
 
 use super::super::super::super::context::{PassFrameContext, RasterPassCtx};
 use super::super::super::super::error::GraphExecuteError;
-use super::super::super::super::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use super::super::super::super::pass::{PassKind, PassNode};
 use super::super::super::super::schedule::{RenderPassMaterializationGroup, ScheduleStep};
 use super::super::super::CompiledRenderGraph;
@@ -11,6 +10,7 @@ use super::{
     PassExecution, PassGpuInputs, PassRecordTargets, PassViewInputs, PhaseRecordingScope,
     update_command_stats,
 };
+use crate::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use crate::render_graph::blackboard::GraphCommandStats;
 
 impl CompiledRenderGraph {

@@ -2,7 +2,6 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::super::super::frame_upload_batch::FrameUploadBatchStats;
 use super::super::super::pool::TransientPoolMetrics;
 use super::recording_path::GraphCommandRecordingStrategy;
 use super::{
@@ -10,8 +9,9 @@ use super::{
     TimedCommandBuffer,
 };
 use crate::config::CommandRecordingMode;
-use crate::diagnostics::gpu_flight_recorder::GpuFlightEventKind;
+use crate::frame_upload_batch::FrameUploadBatchStats;
 use crate::gpu::GpuContext;
+use crate::gpu::flight_recorder::GpuFlightEventKind;
 use crate::render_graph::blackboard::GraphCommandStats;
 
 const SLOW_ENCODER_FINISH_WARN_MS: f64 = 2.0;

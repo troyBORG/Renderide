@@ -40,6 +40,22 @@ pub const LIGHT_COOKIE_WRAP_MODE_MIRROR: u32 = 2;
 /// Mirror-once cookie address mode.
 pub const LIGHT_COOKIE_WRAP_MODE_MIRROR_ONCE: u32 = 3;
 
+/// GPU-facing metadata for one packed light-cookie atlas rectangle.
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[repr(C)]
+pub struct GpuLightCookieRect {
+    /// Atlas UV rectangle as `origin.xy, scale.xy`.
+    pub origin_scale: [f32; 4],
+}
+
+impl Default for GpuLightCookieRect {
+    fn default() -> Self {
+        Self {
+            origin_scale: [0.0, 0.0, 1.0, 1.0],
+        }
+    }
+}
+
 /// GPU-facing light record for a storage buffer upload.
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 #[repr(C)]
@@ -84,7 +100,7 @@ pub struct GpuLight {
     pub shadow_map_resolution: u32,
     /// Cookie kind, matching `LIGHT_COOKIE_KIND_*`.
     pub cookie_kind: u32,
-    /// 2D atlas layer or first point-cubemap face layer.
+    /// Packed atlas rect index or first point-cubemap face rect index.
     pub cookie_layer: u32,
     /// Packed cookie wrap modes for 2D cookie sampling.
     pub _cookie_reserved: u32,

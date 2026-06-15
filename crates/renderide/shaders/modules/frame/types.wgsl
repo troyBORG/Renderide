@@ -55,6 +55,10 @@ struct GpuShadowView {
     light_params: vec4<f32>,
 }
 
+struct GpuLightCookieRect {
+    origin_scale: vec4<f32>,
+}
+
 struct GpuReflectionProbe {
     /// World-space AABB minimum; `.w` stores the sanitized blend distance.
     box_min: vec4<f32>,

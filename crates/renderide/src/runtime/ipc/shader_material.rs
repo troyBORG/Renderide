@@ -6,7 +6,7 @@ use crate::assets::shader::shader_variant_bits_log;
 use crate::assets::{ResolvedShaderUpload, resolve_shader_upload};
 use crate::backend::RenderBackend;
 use crate::frontend::RendererFrontend;
-use crate::materials::RasterPipelineKind;
+use crate::materials::{RasterPipelineKind, embedded_default_stem_for_shader_asset_name};
 use crate::shared::{
     MaterialsUpdateBatch, RendererCommand, ShaderUnload, ShaderUpload, ShaderUploadResult,
 };
@@ -42,7 +42,7 @@ pub(in crate::runtime) fn on_shader_upload(
     );
     let (tx, rx) = bounded::<ResolvedShaderUpload>(1);
     rayon::spawn(move || {
-        let resolved = resolve_shader_upload(&upload);
+        let resolved = resolve_shader_upload(&upload, embedded_default_stem_for_shader_asset_name);
         let _ = tx.send(resolved);
     });
     pending.push(PendingShaderResolution { asset_id, rx });

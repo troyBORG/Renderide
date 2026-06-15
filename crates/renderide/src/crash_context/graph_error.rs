@@ -1,7 +1,5 @@
 //! Render-graph error crash context categories.
 
-use crate::render_graph::GraphExecuteError;
-
 /// Last render-graph error category recorded for crash diagnostics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -102,39 +100,6 @@ impl GraphErrorKind {
             Self::MissingBlackboardSlot => "missing-blackboard-slot",
             Self::UndeclaredBlackboardAccess => "undeclared-blackboard-access",
             Self::Other => "other",
-        }
-    }
-}
-
-/// Maps a render-graph execution error into the compact crash-context category.
-pub(crate) fn graph_error_kind(error: &GraphExecuteError) -> GraphErrorKind {
-    match error {
-        GraphExecuteError::NoFrameGraph => GraphErrorKind::NoFrameGraph,
-        GraphExecuteError::Present(_) => GraphErrorKind::Present,
-        GraphExecuteError::DepthTarget(_) => GraphErrorKind::DepthTarget,
-        GraphExecuteError::MissingSwapchainView => GraphErrorKind::MissingSwapchainView,
-        GraphExecuteError::SwapchainRequiresWindow => GraphErrorKind::SwapchainRequiresWindow,
-        GraphExecuteError::MissingGraphAttachment { .. } => GraphErrorKind::MissingGraphAttachment,
-        GraphExecuteError::MissingRasterTemplate { .. } => GraphErrorKind::MissingRasterTemplate,
-        GraphExecuteError::MissingBlackboardSlot { .. } => GraphErrorKind::MissingBlackboardSlot,
-        GraphExecuteError::UndeclaredBlackboardAccess { .. } => {
-            GraphErrorKind::UndeclaredBlackboardAccess
-        }
-        GraphExecuteError::Pass(_) => GraphErrorKind::Pass,
-        GraphExecuteError::NoViewsInBatch => GraphErrorKind::NoViewsInBatch,
-        GraphExecuteError::TransientPool(_) => GraphErrorKind::TransientPool,
-        GraphExecuteError::HistoryRegistry(_) => GraphErrorKind::HistoryRegistry,
-        GraphExecuteError::MissingTransientResources => GraphErrorKind::MissingTransientResources,
-        GraphExecuteError::MissingPerViewResources { .. } => {
-            GraphErrorKind::MissingPerViewResources
-        }
-        GraphExecuteError::MissingHistoryTexture { .. } => GraphErrorKind::MissingHistoryTexture,
-        GraphExecuteError::MissingHistoryBuffer { .. } => GraphErrorKind::MissingHistoryBuffer,
-        GraphExecuteError::UnallocatedHistoryTexture { .. } => {
-            GraphErrorKind::UnallocatedHistoryTexture
-        }
-        GraphExecuteError::UnallocatedHistoryBuffer { .. } => {
-            GraphErrorKind::UnallocatedHistoryBuffer
         }
     }
 }

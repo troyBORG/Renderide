@@ -11,8 +11,12 @@ use crate::cpu_parallelism::{
     RENDER_COMMAND_CHUNK_DRAWS, admit_render_command_items, current_reference_worker_count,
     record_parallel_admission,
 };
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::{
     GpuLimits, GpuShadowView, MAX_SHADOW_VIEWS, SHADOW_VIEW_KIND_POINT, SHADOW_VIEW_KIND_SPOT,
+};
+use crate::graph_inputs::{
+    FrameGlobalPassSplitWorkload, FrameGlobalSplitPassEncodeParams, ShadowAtlasEncodeParams,
 };
 use crate::materials::{MaterialPipelineDesc, ShaderPermutation};
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
@@ -20,10 +24,6 @@ use crate::passes::{
     ShadowDepthDrawBatch, WorldMeshForwardEncodeRefs, WorldMeshForwardPipelineState,
     draw_shadow_depth_subset,
 };
-use crate::render_graph::execution_backend::{
-    FrameGlobalPassSplitWorkload, FrameGlobalSplitPassEncodeParams, ShadowAtlasEncodeParams,
-};
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::pass::{EncoderPass, PassBuilder, PassPhase};
 use crate::world_mesh::WorldMeshPhase;
 
@@ -339,7 +339,8 @@ impl ShadowAtlasResources {
         requested_layers: u32,
         requested_draw_slots: usize,
     ) -> ShadowResourceSyncResult {
-        self.per_draw
+        let _ = self
+            .per_draw
             .ensure_draw_slot_capacity(device, requested_draw_slots);
         let layers = requested_layers
             .max(1)
@@ -433,11 +434,22 @@ impl ShadowAtlasResources {
         self.version
     }
 
+    /// Retains shadow atlas resources that may be referenced by submitted command buffers.
+    pub(super) fn retain_submit_resources(&self, resources: &mut crate::gpu::GpuRetainedResources) {
+        resources.retain_texture(self.texture.as_ref().clone());
+        resources.retain_texture_view(self.atlas_view.as_ref().clone());
+        resources.retain_texture_views(self.layer_views.iter().map(|view| view.as_ref().clone()));
+        resources.retain_sampler(self.sampler.as_ref().clone());
+        resources.retain_buffer(self.metadata_buffer.as_ref().clone());
+        self.per_draw.retain_submit_resources(resources);
+        resources.retain_buffer(self.layer_uniform_buffer.as_ref().clone());
+        resources.retain_bind_group(self.layer_uniform_bind_group.as_ref().clone());
+    }
+
     fn sync_result(&self, changed: bool) -> ShadowResourceSyncResult {
         ShadowResourceSyncResult {
             changed,
             resolution: self.resolution,
-            layers: self.layers,
         }
     }
 

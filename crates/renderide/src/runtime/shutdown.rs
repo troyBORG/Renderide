@@ -1,6 +1,6 @@
 //! Cooperative renderer shutdown hooks.
 
-use crate::diagnostics::crash_context::{self, TickPhase};
+use crate::crash_context::{self, TickPhase};
 
 use super::RendererRuntime;
 

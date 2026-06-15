@@ -4,7 +4,7 @@
 //! [`CompiledRenderGraph::execute_multi_view`]).
 //!
 //! **Hi-Z-related code:** CPU helpers for mip layout, depth readback unpacking, and screen-space
-//! occlusion tests live in [`crate::occlusion::cpu`]. GPU pyramid build, staging, and pipelines
+//! occlusion tests live in [`crate::hi_z_cpu`]. GPU pyramid build, staging, and pipelines
 //! live in [`crate::occlusion::gpu`].
 //!
 //! ## Portability
@@ -74,7 +74,6 @@ pub(crate) mod compiled;
 pub(crate) mod context;
 pub(crate) mod error;
 pub(crate) mod execution_backend;
-pub(crate) mod frame_upload_batch;
 pub(crate) mod gpu_cache;
 pub(crate) mod history;
 pub(crate) mod ids;
@@ -85,21 +84,19 @@ mod record_parallel;
 pub(crate) mod resources;
 mod schedule;
 mod swapchain_scope;
-pub(crate) mod upload_arena;
 pub mod validation;
 
-pub(crate) use crate::graph_inputs::{FrameViewClear, OffscreenWriteTarget, ViewWinding};
+pub use crate::config::RenderGraphValidationMode;
+pub(crate) use crate::frame_contract::{FrameViewClear, OffscreenWriteTarget, ViewWinding};
+pub(crate) use crate::graph_inputs::{GraphAssetResources, GraphFrameResources};
 pub(crate) use compiled::cache::{GraphCache, GraphCacheEnsureResult, GraphCacheKey};
 pub(crate) use compiled::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameGlobalView, FrameView,
     FrameViewResourceHints, FrameViewTarget, OffscreenColorCopyTarget, RenderPathProfile,
     ViewFamilyGraphRequirements, ViewPostProcessing,
 };
-pub(crate) use error::GraphExecuteError;
-pub(crate) use execution_backend::{
-    GraphAssetResources, GraphExecutionBackend, GraphFrameResources,
-};
+pub(crate) use error::{GraphExecuteError, graph_error_kind};
+pub(crate) use execution_backend::GraphExecutionBackend;
 pub(crate) use history::{HistoryRegistry, HistoryRegistryError, HistoryTextureMipViews};
 pub(crate) use pool::TransientPool;
 pub(crate) use resources::HistorySlotId;
-pub use validation::RenderGraphValidationMode;

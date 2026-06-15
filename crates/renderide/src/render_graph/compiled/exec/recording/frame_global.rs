@@ -6,14 +6,14 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::cpu_parallelism::{ParallelAdmission, record_parallel_admission};
+use crate::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
+use crate::graph_inputs::{
+    FrameGlobalPassSplitWorkload, FrameGlobalSplitPassEncodeParams, GraphFrameResources,
+};
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::context::GraphResolvedResources;
 use crate::render_graph::error::GraphExecuteError;
-use crate::render_graph::execution_backend::{
-    FrameGlobalPassSplitWorkload, FrameGlobalSplitPassEncodeParams, GraphExecutionBackend,
-    GraphFrameResources,
-};
-use crate::render_graph::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
+use crate::render_graph::execution_backend::GraphExecutionBackend;
 use crate::render_graph::pass::PassPhase;
 
 use super::super::super::helpers;

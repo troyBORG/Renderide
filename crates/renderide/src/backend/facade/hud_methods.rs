@@ -4,7 +4,8 @@
 //! of `facade.rs` so the core facade only carries struct definition, attach, and render-graph
 //! orchestration.
 
-use crate::diagnostics::{DebugHudInput, PerViewHudConfig, SceneTransformsSnapshot};
+use crate::diagnostics::{DebugHudInput, SceneTransformsSnapshot};
+use crate::hud_contract::PerViewHudConfig;
 use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 use super::super::RenderBackend;
@@ -150,7 +151,7 @@ impl RenderBackend {
         backbuffer: &wgpu::TextureView,
         extent: (u32, u32),
         profiler: Option<&crate::profiling::GpuProfilerHandle>,
-    ) -> Result<(), crate::diagnostics::DebugHudEncodeError> {
+    ) -> Result<(), crate::hud_contract::DebugHudEncodeError> {
         self.diagnostics
             .encode_overlay(device, queue, encoder, backbuffer, extent, profiler)
     }

@@ -14,12 +14,12 @@ mod hud;
 mod tests;
 
 use super::compiled::CompiledPassInfo;
-use super::frame_upload_batch::FrameUploadScope;
 use super::pass::{PassPhase, PassWorkloadFlags};
 use super::resources::{
     BufferAccess, BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureAccess,
     TextureHandle,
 };
+use crate::frame_upload_batch::FrameUploadScope;
 
 pub use hud::ScheduleHudSnapshot;
 
