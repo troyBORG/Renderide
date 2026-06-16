@@ -160,6 +160,8 @@ pub struct SceneApplyReport {
     pub submitted_spaces: Vec<RenderSpaceId>,
     /// Render spaces whose header or body payload may have changed scene-renderable state.
     pub changed_spaces: Vec<RenderSpaceId>,
+    /// Render spaces whose reflection-probe sources or spatial placement may need refresh.
+    pub reflection_probe_dirty_spaces: Vec<RenderSpaceId>,
     /// Render spaces removed because they were absent from the submission.
     pub removed_spaces: Vec<RenderSpaceId>,
     /// Fine-grained render-world dirty events for backend retained draw-template caches.
@@ -173,6 +175,7 @@ impl SceneApplyReport {
             frame_index,
             submitted_spaces: Vec::new(),
             changed_spaces: Vec::new(),
+            reflection_probe_dirty_spaces: Vec::new(),
             removed_spaces: Vec::new(),
             render_world_dirty: SceneRenderWorldDirtyReport::default(),
         }
@@ -187,6 +190,13 @@ impl SceneApplyReport {
     pub(super) fn note_changed_space(&mut self, id: RenderSpaceId) {
         if !self.changed_spaces.contains(&id) {
             self.changed_spaces.push(id);
+        }
+    }
+
+    /// Records a render space whose reflection-probe selection state may need refresh.
+    pub(super) fn note_reflection_probe_dirty_space(&mut self, id: RenderSpaceId) {
+        if !self.reflection_probe_dirty_spaces.contains(&id) {
+            self.reflection_probe_dirty_spaces.push(id);
         }
     }
 }

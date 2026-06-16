@@ -76,12 +76,14 @@ impl RenderBackend {
     /// Applies scene mutation reports to backend-owned CPU render-world caches.
     pub(crate) fn note_scene_apply_report(&mut self, report: &SceneApplyReport) {
         self.draw_preparation.note_scene_apply_report(report);
+        self.reflection_probes.note_scene_apply_report(report);
         self.purge_closed_render_space_resources(&report.removed_spaces);
     }
 
     /// Applies world-cache flush reports to backend-owned CPU render-world caches.
-    pub(crate) fn note_scene_cache_flush_report(&self, report: &SceneCacheFlushReport) {
+    pub(crate) fn note_scene_cache_flush_report(&mut self, report: &SceneCacheFlushReport) {
         self.draw_preparation.note_scene_cache_flush_report(report);
+        self.reflection_probes.note_scene_cache_flush_report(report);
     }
 
     fn purge_closed_render_space_resources(&mut self, removed_spaces: &[RenderSpaceId]) {

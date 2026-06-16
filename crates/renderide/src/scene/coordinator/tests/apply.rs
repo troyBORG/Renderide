@@ -13,8 +13,9 @@ use super::super::super::ids::RenderSpaceId;
 use super::super::super::world::{WorldTransformCache, compute_world_matrices_for_space};
 use super::super::apply::ExtractedRenderSpaceUpdate;
 use super::super::{
-    RenderWorldRendererKind, SceneApplyReport, extracted_update_affects_render_world,
-    note_render_world_dirty_for_extracted_update, render_world_header_changed,
+    RenderWorldRendererKind, SceneApplyReport, extracted_update_affects_reflection_probes,
+    extracted_update_affects_render_world, note_render_world_dirty_for_extracted_update,
+    render_world_header_changed,
 };
 
 fn empty_extracted_render_space_update() -> ExtractedRenderSpaceUpdate {
@@ -126,6 +127,41 @@ fn extracted_render_world_dirty_tracks_lod_group_updates() {
         Some(crate::scene::lod_groups::ExtractedLodGroupRenderablesUpdate::default());
 
     assert!(extracted_update_affects_render_world(&update));
+}
+
+#[test]
+fn extracted_reflection_probe_dirty_tracks_probe_updates() {
+    let mut update = empty_extracted_render_space_update();
+    update.reflection_probes =
+        Some(crate::scene::reflection_probe::ExtractedReflectionProbeRenderablesUpdate::default());
+
+    assert!(extracted_update_affects_reflection_probes(&update));
+}
+
+#[test]
+fn extracted_reflection_probe_dirty_tracks_transform_updates() {
+    let mut update = empty_extracted_render_space_update();
+    update.transforms = Some(crate::scene::transforms::ExtractedTransformsUpdate::default());
+
+    assert!(extracted_update_affects_reflection_probes(&update));
+}
+
+#[test]
+fn extracted_reflection_probe_dirty_tracks_transform_overrides() {
+    let mut update = empty_extracted_render_space_update();
+    update.transform_overrides =
+        Some(crate::scene::overrides::ExtractedRenderTransformOverridesUpdate::default());
+
+    assert!(extracted_update_affects_reflection_probes(&update));
+}
+
+#[test]
+fn reflection_probe_dirty_spaces_deduplicate() {
+    let mut report = SceneApplyReport::default();
+    report.note_reflection_probe_dirty_space(RenderSpaceId(4));
+    report.note_reflection_probe_dirty_space(RenderSpaceId(4));
+
+    assert_eq!(report.reflection_probe_dirty_spaces, vec![RenderSpaceId(4)]);
 }
 
 #[test]
