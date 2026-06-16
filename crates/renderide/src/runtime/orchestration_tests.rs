@@ -14,10 +14,11 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::shared::buffer::SharedMemoryBufferDescriptor;
 use crate::shared::{
     CameraRenderParameters, CameraRenderTask, DesktopConfig, FrameSubmitData, FreeSharedMemoryView,
-    Guid, HeadOutputDevice, KeepAlive, MeshRenderablesUpdate, PostProcessingConfig, QualityConfig,
-    ReflectionProbeRenderResult, ReflectionProbeRenderTask, RenderSpaceUpdate, RendererCommand,
-    RendererEngineReady, RendererInitData, RendererInitFinalizeData, RendererShutdown,
-    SetTexture2DFormat, SetWindowIcon, ShaderUpload, SkinWeightMode, TextureFormat,
+    Guid, HeadOutputDevice, InputState, KeepAlive, MeshRenderablesUpdate, PostProcessingConfig,
+    QualityConfig, ReflectionProbeRenderResult, ReflectionProbeRenderTask, RenderSpaceUpdate,
+    RendererCommand, RendererEngineReady, RendererInitData, RendererInitFinalizeData,
+    RendererShutdown, SetTexture2DFormat, SetWindowIcon, ShaderUpload, SkinWeightMode,
+    TextureFormat,
 };
 
 use super::RendererRuntime;
@@ -257,6 +258,103 @@ fn reflection_probe_result_backlog_does_not_block_one_credit_begin_frame() {
     assert!(rt.pending_frame_submit_render());
     assert!(rt.submit_completion_work_drained());
     assert!(rt.should_send_one_credit_begin_frame());
+}
+
+#[test]
+fn one_credit_begin_frame_preserves_current_submit_for_render() {
+    let (mut host, mut rt) = test_runtime_connected_ipc();
+    rt.test_set_shared_memory("test_one_credit_preserves_submit");
+    apply_running_command(
+        &mut rt,
+        RendererCommand::RendererEngineReady(RendererEngineReady::default()),
+    );
+    rt.apply_frame_submit_data(FrameSubmitData {
+        frame_index: 101,
+        ..Default::default()
+    });
+    let mut drained = Vec::new();
+    host.poll_into(&mut drained);
+    drained.clear();
+
+    assert!(rt.should_render_frame());
+    assert!(rt.should_send_one_credit_begin_frame());
+    assert!(rt.pre_frame_one_credit(InputState::default()));
+
+    assert!(rt.awaiting_frame_submit());
+    assert!(rt.pending_frame_submit_render());
+    assert!(rt.should_render_frame());
+
+    host.poll_into(&mut drained);
+    assert!(
+        drained
+            .iter()
+            .any(|cmd| matches!(cmd, RendererCommand::FrameStartData(data) if data.last_frame_index == 101)),
+        "one-credit begin-frame should echo the currently renderable frame index",
+    );
+
+    rt.note_frame_render_attempted();
+
+    assert!(rt.awaiting_frame_submit());
+    assert!(!rt.pending_frame_submit_render());
+    assert!(!rt.should_render_frame());
+}
+
+#[test]
+fn host_submit_after_one_credit_restores_renderable_frame() {
+    let (_host, mut rt) = test_runtime_connected_ipc();
+    rt.test_set_shared_memory("test_one_credit_next_submit");
+    apply_running_command(
+        &mut rt,
+        RendererCommand::RendererEngineReady(RendererEngineReady::default()),
+    );
+    rt.apply_frame_submit_data(FrameSubmitData {
+        frame_index: 101,
+        ..Default::default()
+    });
+    assert!(rt.pre_frame_one_credit(InputState::default()));
+    rt.note_frame_render_attempted();
+    assert!(!rt.should_render_frame());
+
+    rt.apply_frame_submit_data(FrameSubmitData {
+        frame_index: 102,
+        ..Default::default()
+    });
+
+    assert!(!rt.awaiting_frame_submit());
+    assert!(rt.pending_frame_submit_render());
+    assert!(rt.should_render_frame());
+    assert_eq!(rt.last_frame_index(), 102);
+}
+
+#[test]
+fn one_credit_begin_frame_waits_for_submit_completion_work() {
+    let (_host, mut rt) = test_runtime_connected_ipc();
+    rt.test_set_shared_memory("test_one_credit_completion_work");
+    apply_running_command(
+        &mut rt,
+        RendererCommand::RendererEngineReady(RendererEngineReady::default()),
+    );
+    rt.apply_frame_submit_data(FrameSubmitData {
+        frame_index: 101,
+        render_tasks: vec![CameraRenderTask {
+            parameters: Some(CameraRenderParameters {
+                resolution: IVec2 { x: 1, y: 1 },
+                texture_format: TextureFormat::RGBA32,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    assert!(rt.pending_frame_submit_render());
+    assert!(rt.should_render_frame());
+    assert!(!rt.submit_completion_work_drained());
+    assert!(!rt.should_send_one_credit_begin_frame());
+    assert!(!rt.pre_frame_one_credit(InputState::default()));
+    assert!(!rt.awaiting_frame_submit());
+    assert!(rt.pending_frame_submit_render());
+    assert!(rt.should_render_frame());
 }
 
 #[test]

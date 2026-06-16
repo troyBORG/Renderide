@@ -65,6 +65,13 @@ struct PreXrLockstepInput {
     should_send_begin_frame: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DesktopOneCreditInput {
+    vr_active: bool,
+    has_render_target: bool,
+    lockstep_action: LockstepPipelineAction,
+}
+
 fn pre_xr_lockstep_action(input: PreXrLockstepInput) -> PreXrLockstepAction {
     if input.should_render_frame {
         return PreXrLockstepAction::Continue;
@@ -80,6 +87,12 @@ fn pre_xr_lockstep_action(input: PreXrLockstepInput) -> PreXrLockstepAction {
     } else {
         PreXrLockstepAction::SkipUntilHostReady
     }
+}
+
+fn should_attempt_desktop_one_credit(input: DesktopOneCreditInput) -> bool {
+    !input.vr_active
+        && input.has_render_target
+        && input.lockstep_action == LockstepPipelineAction::SendEarlyNextFrame
 }
 
 /// Render path used for the current frame.
@@ -250,11 +263,12 @@ impl AppDriver {
         self.runtime.update_decoupling_activation(Instant::now());
         self.drain_submit_completion_work();
         let action = self.runtime.record_lockstep_pipeline_decision();
-        if !self.runtime.vr_active()
-            && self.target.is_some()
-            && action == LockstepPipelineAction::SendEarlyNextFrame
-        {
-            self.one_credit_lock_step_exchange()
+        if should_attempt_desktop_one_credit(DesktopOneCreditInput {
+            vr_active: self.runtime.vr_active(),
+            has_render_target: self.target.is_some(),
+            lockstep_action: action,
+        }) {
+            self.one_credit_lock_step_exchange_for_action(action)
         } else {
             false
         }
@@ -443,9 +457,12 @@ impl AppDriver {
     fn one_credit_lock_step_exchange(&mut self) -> bool {
         profiling::scope!("tick::one_credit_lock_step_exchange");
         super::tick_phase_trace("one_credit_lock_step_exchange");
-        if self.runtime.record_lockstep_pipeline_decision()
-            == LockstepPipelineAction::SendEarlyNextFrame
-        {
+        let action = self.runtime.record_lockstep_pipeline_decision();
+        self.one_credit_lock_step_exchange_for_action(action)
+    }
+
+    fn one_credit_lock_step_exchange_for_action(&mut self, action: LockstepPipelineAction) -> bool {
+        if action == LockstepPipelineAction::SendEarlyNextFrame {
             let inputs = self.build_lock_step_inputs();
             self.runtime.pre_frame_one_credit(inputs)
         } else {
@@ -734,12 +751,13 @@ fn frame_render_mode_code_label(code: u8) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        FrameRenderMode, FrameTickOutcome, PreXrLockstepAction, PreXrLockstepInput,
-        RenderViewsOutcome, desktop_frame_owned_by_explicit_blit, frame_render_mode_code,
-        frame_render_mode_code_label, frame_render_mode_label, pre_xr_lockstep_action,
-        runtime_exit_reason,
+        DesktopOneCreditInput, FrameRenderMode, FrameTickOutcome, PreXrLockstepAction,
+        PreXrLockstepInput, RenderViewsOutcome, desktop_frame_owned_by_explicit_blit,
+        frame_render_mode_code, frame_render_mode_code_label, frame_render_mode_label,
+        pre_xr_lockstep_action, runtime_exit_reason, should_attempt_desktop_one_credit,
     };
     use crate::app::exit::ExitReason;
+    use crate::frontend::LockstepPipelineAction;
     use crate::xr::HmdSubmitOutcome;
 
     #[test]
@@ -847,6 +865,19 @@ mod tests {
     }
 
     #[test]
+    fn vr_renderable_in_flight_frame_reaches_openxr_without_waiting() {
+        assert_eq!(
+            pre_xr_lockstep_action(PreXrLockstepInput {
+                vr_active: true,
+                awaiting_frame_submit: true,
+                should_render_frame: true,
+                should_send_begin_frame: false,
+            }),
+            PreXrLockstepAction::Continue
+        );
+    }
+
+    #[test]
     fn vr_nonrenderable_without_begin_skips_before_openxr_begin() {
         assert_eq!(
             pre_xr_lockstep_action(PreXrLockstepInput {
@@ -870,6 +901,43 @@ mod tests {
             }),
             PreXrLockstepAction::Continue
         );
+    }
+
+    fn desktop_one_credit_input() -> DesktopOneCreditInput {
+        DesktopOneCreditInput {
+            vr_active: false,
+            has_render_target: true,
+            lockstep_action: LockstepPipelineAction::SendEarlyNextFrame,
+        }
+    }
+
+    #[test]
+    fn desktop_one_credit_attempts_early_send_for_renderable_submit() {
+        assert!(should_attempt_desktop_one_credit(desktop_one_credit_input()));
+    }
+
+    #[test]
+    fn desktop_one_credit_skips_vr_frames() {
+        assert!(!should_attempt_desktop_one_credit(DesktopOneCreditInput {
+            vr_active: true,
+            ..desktop_one_credit_input()
+        }));
+    }
+
+    #[test]
+    fn desktop_one_credit_requires_render_target() {
+        assert!(!should_attempt_desktop_one_credit(DesktopOneCreditInput {
+            has_render_target: false,
+            ..desktop_one_credit_input()
+        }));
+    }
+
+    #[test]
+    fn desktop_one_credit_requires_send_early_action() {
+        assert!(!should_attempt_desktop_one_credit(DesktopOneCreditInput {
+            lockstep_action: LockstepPipelineAction::RenderCurrentSubmit,
+            ..desktop_one_credit_input()
+        }));
     }
 
     #[test]
