@@ -42,7 +42,8 @@ use super::resources::{
     TransientBufferDesc, TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::{FrameSchedule, ScheduleHudSnapshot};
-use super::validation::{GraphValidationReport, RenderGraphValidationMode};
+use super::validation::GraphValidationReport;
+use crate::render_graph::RenderGraphValidationMode;
 
 /// Builder for a typed render graph.
 pub struct GraphBuilder {

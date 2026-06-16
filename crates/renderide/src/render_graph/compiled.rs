@@ -2,16 +2,17 @@
 
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::render_graph::GraphExecutionBackend;
-use crate::scene::SceneCoordinator;
 
 use super::pass::PassNode;
 use super::resources::{
     ImportedBufferDecl, ImportedTextureDecl, TextureHandle, TransientSubresourceDesc,
 };
 use super::schedule::{FrameSchedule, ScheduleHudSnapshot};
-use super::validation::{GraphValidationReport, RenderGraphValidationMode};
+use super::validation::GraphValidationReport;
 use crate::camera::ViewId;
-use crate::graph_inputs::{OffscreenWriteTarget, ViewWinding};
+use crate::frame_contract::{OffscreenWriteTarget, ViewWinding};
+use crate::graph_inputs::GraphSceneView;
+use crate::render_graph::RenderGraphValidationMode;
 
 pub(super) mod cache;
 mod exec;
@@ -22,6 +23,7 @@ mod resource;
 #[cfg(test)]
 mod dot;
 
+pub(crate) use exec::CommandEncodingHudSnapshot;
 pub(crate) use frame_view::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameGlobalView, FrameView, FrameViewLayout,
     FrameViewResourceHints, FrameViewTarget, OffscreenColorCopyTarget, RenderPathProfile,
@@ -39,7 +41,7 @@ pub(super) struct MultiViewExecutionContext<'a> {
     /// GPU context (surface, swapchain, submits).
     pub(super) gpu: &'a mut GpuContext,
     /// Scene after cache flush.
-    pub(super) scene: &'a SceneCoordinator,
+    pub(super) scene: GraphSceneView<'a>,
     /// Narrow graph-facing backend access packet.
     pub(super) backend: &'a mut dyn GraphExecutionBackend,
     /// Device for encoders and pipeline state.

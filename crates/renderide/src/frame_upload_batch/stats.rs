@@ -1,6 +1,6 @@
 //! Deferred-upload traffic statistics and the recorded command buffer produced by a drain.
 
-use super::super::upload_arena::{UploadArenaAcquireStats, UploadArenaPressure};
+use crate::upload_arena::{UploadArenaAcquireStats, UploadArenaPressure};
 
 /// Deferred-upload traffic drained into the frame submit batch.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

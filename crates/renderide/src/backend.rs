@@ -7,6 +7,11 @@
 //! packs scene [`ResolvedLight`](crate::scene::ResolvedLight) values for future storage-buffer upload. It does **not**
 //! own IPC queues, [`SharedMemoryAccessor`](crate::ipc::SharedMemoryAccessor), or scene graph state;
 //! callers pass those in where a command requires both transport and GPU work.
+//!
+//! As the concrete-graph assembly layer, the backend may name specific pass types and own the
+//! lifecycle of their retained prep state (see [`world_mesh_frame_plan`] for the contract);
+//! generic scheduling primitives stay in [`crate::render_graph`], which remains scene- and
+//! pass-agnostic.
 
 pub(crate) mod asset_transfers;
 mod cluster_gpu;
@@ -16,7 +21,6 @@ pub(crate) mod frame_gpu;
 mod frame_gpu_bindings;
 mod frame_gpu_error;
 mod frame_resource_manager;
-pub(crate) mod gpu_jobs;
 pub(crate) mod graph;
 mod light_gpu;
 mod per_draw_resources;
@@ -38,11 +42,8 @@ pub(crate) use facade::ExtractedFrameShared;
 pub use facade::RenderBackendAttachError;
 pub use facade::{RenderBackend, RenderBackendAttachDesc};
 pub use frame_gpu_bindings::FrameGpuBindingsError;
-pub(crate) use frame_resource_manager::FrameLightViewDesc;
 pub use frame_resource_manager::FrameResourceManager;
-pub(crate) use gpu_jobs::{
-    GpuJobResources, GpuReadbackJobs, GpuReadbackOutcomes, SubmittedReadbackJob,
-};
+pub(crate) use frame_resource_manager::{FrameLightCullDesc, FrameLightViewDesc};
 pub(crate) use shadow_quality::HostShadowQuality;
 pub(crate) use view_resource_registry::ViewResourceRegistry;
 pub(crate) use world_mesh_frame_plan::{

@@ -1,5 +1,7 @@
 //! Light preparation and per-view light access for [`FrameResourceManager`].
 
+mod visibility;
+
 use rayon::prelude::*;
 
 use crate::camera::ViewId;
@@ -9,8 +11,7 @@ use crate::cpu_parallelism::{
 };
 use crate::render_graph::GraphAssetResources;
 use crate::scene::{
-    RenderSpaceId, ResolvedLight, SceneCoordinator, light_contributes,
-    light_has_negative_contribution,
+    RenderSpaceId, ResolvedLight, SceneCoordinator, light_has_negative_contribution,
 };
 #[cfg(test)]
 use crate::world_mesh::ViewLayerPolicy;
@@ -23,6 +24,7 @@ use super::super::light_gpu::{
 use super::manager::FrameResourceManager;
 use super::per_view_state::PreparedViewLights;
 use super::view_desc::FrameLightViewDesc;
+pub(crate) use visibility::LightVisibilityStats;
 
 /// Per-view light packs assigned to one Rayon worker.
 const LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS: usize = 1;
@@ -38,6 +40,7 @@ struct PreparedViewLightPacket {
     render_shadows: bool,
     resolved_len: usize,
     signed_scene_color_required: bool,
+    visibility_stats: LightVisibilityStats,
     resolved: Vec<ResolvedLight>,
 }
 
@@ -59,6 +62,25 @@ impl FrameResourceManager {
     /// Returns true when the current packed light set needs signed scene-color storage.
     pub fn signed_scene_color_required(&self) -> bool {
         self.signed_scene_color_required
+    }
+
+    /// Latest aggregate light influence-volume culling stats.
+    pub(crate) fn light_visibility_stats(&self) -> LightVisibilityStats {
+        self.light_visibility_stats
+    }
+
+    /// Number of per-view light packs retained after the latest light preparation pass.
+    pub(crate) fn per_view_light_pack_count(&self) -> usize {
+        self.per_view_lights.values().count()
+    }
+
+    /// Largest per-view packed-light count retained after the latest light preparation pass.
+    pub(crate) fn max_per_view_light_count(&self) -> usize {
+        self.per_view_lights
+            .values()
+            .map(|lights| lights.lights.len())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Light count for the specified view's frame uniforms and shaders.
@@ -84,6 +106,7 @@ impl FrameResourceManager {
                 has_selective_roots: false,
                 head_output_transform: glam::Mat4::IDENTITY,
                 render_shadows: true,
+                cull: None,
             }],
             None,
         );
@@ -108,18 +131,19 @@ impl FrameResourceManager {
         let views = views.into_iter().collect::<Vec<_>>();
         self.light_scratch.clear();
         self.signed_scene_color_required = false;
+        self.light_visibility_stats = LightVisibilityStats::default();
         let packets = if should_parallelize_light_view_prep(scene, &views) {
             profiling::scope!("render::prepare_lights_for_views::parallel");
             views
                 .par_iter()
                 .with_min_len(LIGHT_VIEW_PREP_PARALLEL_CHUNK_VIEWS)
-                .map(|&desc| prepare_lights_for_view_packet(scene, desc))
+                .map(|desc| prepare_lights_for_view_packet(scene, desc))
                 .collect::<Vec<_>>()
         } else {
             profiling::scope!("render::prepare_lights_for_views::serial");
             views
                 .iter()
-                .map(|&desc| prepare_lights_for_view_packet(scene, desc))
+                .map(|desc| prepare_lights_for_view_packet(scene, desc))
                 .collect::<Vec<_>>()
         };
 
@@ -128,6 +152,7 @@ impl FrameResourceManager {
         }
         let mut wrote_fallback = false;
         for packet in packets {
+            self.light_visibility_stats.add(packet.visibility_stats);
             self.commit_prepared_light_packet(packet, &mut wrote_fallback, asset_resources);
         }
         if self.signed_scene_color_required && !self.signed_scene_color_required_logged {
@@ -207,27 +232,25 @@ fn should_parallelize_light_view_prep(
     views.len() >= LIGHT_VIEW_PREP_PARALLEL_MIN_VIEWS
         && views
             .iter()
-            .map(|&view| candidate_light_count_for_view(scene, view))
+            .map(|view| candidate_light_count_for_view(scene, view))
             .sum::<usize>()
             >= LIGHT_VIEW_PREP_PARALLEL_MIN_LIGHTS
 }
 
 fn prepare_lights_for_view_packet(
     scene: &SceneCoordinator,
-    desc: FrameLightViewDesc,
+    desc: &FrameLightViewDesc,
 ) -> PreparedViewLightPacket {
     profiling::scope!("render::prepare_lights_for_view");
     let mut light_space_ids = Vec::new();
     collect_light_space_ids(scene, desc, &mut light_space_ids);
     let mut resolved = Vec::new();
-    resolve_lights_for_space_ids(scene, desc, &light_space_ids, &mut resolved);
-    {
-        profiling::scope!("render::prepare_lights::filter_contributors");
-        resolved.retain(light_contributes);
-    }
+    let mut visibility_stats =
+        resolve_lights_for_space_ids(scene, desc, &light_space_ids, &mut resolved);
     order_lights_for_clustered_shading_in_place(&mut resolved);
     let resolved_len = resolved.len();
     let kept = resolved_len.min(MAX_LIGHTS);
+    visibility_stats.note_view_pack(resolved_len, kept);
     let signed_scene_color_required = resolved
         .iter()
         .take(kept)
@@ -240,13 +263,14 @@ fn prepare_lights_for_view_packet(
         render_shadows: desc.render_shadows,
         resolved_len,
         signed_scene_color_required,
+        visibility_stats,
         resolved,
     }
 }
 
 fn collect_light_space_ids(
     scene: &SceneCoordinator,
-    desc: FrameLightViewDesc,
+    desc: &FrameLightViewDesc,
     out: &mut Vec<RenderSpaceId>,
 ) {
     profiling::scope!("render::prepare_lights::collect_active_spaces");
@@ -264,7 +288,7 @@ fn collect_light_space_ids(
     );
 }
 
-fn candidate_light_count_for_view(scene: &SceneCoordinator, desc: FrameLightViewDesc) -> usize {
+fn candidate_light_count_for_view(scene: &SceneCoordinator, desc: &FrameLightViewDesc) -> usize {
     match desc.render_space_scope {
         ViewRenderSpaceScope::Single(id) => {
             if render_space_visible_for_light(scene, desc, id) {
@@ -283,7 +307,7 @@ fn candidate_light_count_for_view(scene: &SceneCoordinator, desc: FrameLightView
 
 fn render_space_visible_for_light(
     scene: &SceneCoordinator,
-    desc: FrameLightViewDesc,
+    desc: &FrameLightViewDesc,
     space_id: RenderSpaceId,
 ) -> bool {
     if !desc.render_space_scope.includes(space_id) {
@@ -303,12 +327,12 @@ fn render_space_visible_for_light(
 
 fn resolve_lights_for_space_ids(
     scene: &SceneCoordinator,
-    desc: FrameLightViewDesc,
+    desc: &FrameLightViewDesc,
     light_space_ids: &[RenderSpaceId],
     out: &mut Vec<ResolvedLight>,
-) {
+) -> LightVisibilityStats {
     if light_space_ids.is_empty() {
-        return;
+        return LightVisibilityStats::default();
     }
     profiling::scope!("render::prepare_lights::resolve_spaces");
     let candidate_lights = light_space_ids
@@ -338,20 +362,40 @@ fn resolve_lights_for_space_ids(
                     desc.head_output_transform,
                     &mut resolved,
                 );
-                resolved
+                let stats = visibility::filter_resolved_lights_for_view(
+                    scene,
+                    id,
+                    desc.cull.as_ref(),
+                    &mut resolved,
+                );
+                (resolved, stats)
             })
             .collect::<Vec<_>>();
-        for mut packet in packets {
+        let mut stats = LightVisibilityStats::default();
+        for (mut packet, packet_stats) in packets {
+            stats.add(packet_stats);
             out.append(&mut packet);
         }
+        stats
     } else {
+        let mut resolved = Vec::new();
+        let mut stats = LightVisibilityStats::default();
         for &id in light_space_ids {
+            resolved.clear();
             scene.resolve_lights_for_render_context_into(
                 id,
                 desc.render_context,
                 desc.head_output_transform,
-                out,
+                &mut resolved,
             );
+            stats.add(visibility::filter_resolved_lights_for_view(
+                scene,
+                id,
+                desc.cull.as_ref(),
+                &mut resolved,
+            ));
+            out.append(&mut resolved);
         }
+        stats
     }
 }

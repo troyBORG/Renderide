@@ -3,7 +3,7 @@
 #[cfg(test)]
 use std::borrow::Cow;
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 
 use crate::materials::RasterPrimitiveTopology;
 use crate::materials::host_data::MaterialPropertyLookupIds;
@@ -147,6 +147,11 @@ pub struct WorldMeshDrawItem {
     /// Transparent draws prefer world bounds when available and fall back to transform-origin
     /// distance when the host has not provided usable mesh bounds for the draw.
     pub camera_distance_sq: f32,
+    /// Conservative world-space bounds for visibility tests that run after draw collection.
+    ///
+    /// `None` keeps the draw visible. Overlay-space draws and sources with unusable host bounds
+    /// remain conservative because their bounds are view-dependent or unavailable.
+    pub world_aabb: Option<(Vec3, Vec3)>,
     /// Merge key for host material + property block lookups (e.g. [`crate::materials::host_data::MaterialDictionary::get_merged`]).
     pub lookup_ids: MaterialPropertyLookupIds,
     /// Cached batch key for the forward pass.
@@ -184,21 +189,6 @@ pub struct WorldMeshDrawItem {
     pub ui_rect_clip_local: Option<glam::Vec4>,
     /// Particle renderer metadata consumed by draw shaders and diagnostics.
     pub particle_draw: ParticleDrawParams,
-}
-
-/// Returns whether two draw items are layers of the same material stack.
-pub(crate) fn same_material_stack(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> bool {
-    let (Some(a_stack), Some(b_stack)) = (a.material_stack_order, b.material_stack_order) else {
-        return false;
-    };
-    a_stack == b_stack
-        && a.space_id == b.space_id
-        && a.skinned == b.skinned
-        && a.renderable_index == b.renderable_index
-        && a.instance_id == b.instance_id
-        && a.mesh_asset_id == b.mesh_asset_id
-        && a.first_index == b.first_index
-        && a.index_count == b.index_count
 }
 
 /// Returns the submesh index range that should be drawn for one renderer material slot.

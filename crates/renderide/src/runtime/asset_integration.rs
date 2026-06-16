@@ -8,8 +8,8 @@
 use std::time::{Duration, Instant};
 
 use super::{RendererRuntime, ipc::shader_material};
-use crate::diagnostics::log_throttle::LogThrottle;
 use crate::gpu::GpuQueueAccessMode;
+use crate::log_throttle::LogThrottle;
 
 static ASSET_INTEGRATION_NO_SHM_LOG: LogThrottle = LogThrottle::new();
 static ASSET_INTEGRATION_BUDGET_LOG: LogThrottle = LogThrottle::new();

@@ -5,11 +5,13 @@ use std::time::Instant;
 
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::cpu_parallelism::record_parallel_admission;
-use crate::diagnostics::PerViewHudOutputs;
+use crate::gpu::GpuRetainedResources;
+use crate::hud_contract::PerViewHudOutputs;
 use crate::render_graph::blackboard::GraphCommandStats;
 
-use super::recording_path::GraphCommandRecordingPlan;
-use super::recording_path::GraphCommandRecordingStrategy;
+use super::recording_path::{
+    GraphCommandRecordingPlan, GraphCommandRecordingStrategy, SingleSwapchainEncoderStatus,
+};
 use super::{
     CommandEncodingDiagnostics, CompiledRenderGraph, FrameGlobalPassRecordInputs, FrameGlobalView,
     FrameUploadBatch, GraphCommandRecordingPath, GraphExecuteError, GraphResolveKey,
@@ -86,7 +88,9 @@ impl CompiledRenderGraph {
                 hud_outputs: encoded.hud_outputs,
                 encode_ms: encoded.encode_ms,
                 finish_ms: encoded.finish_ms,
+                max_finish_ms: encoded.max_finish_ms,
                 command_stats: encoded.command_stats,
+                retained_resources: encoded.retained_resources,
             },
         ))
     }
@@ -96,7 +100,7 @@ impl CompiledRenderGraph {
         &self,
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         inputs: GraphCommandRecordingInputs<'_, '_>,
-    ) -> Result<(Option<wgpu::CommandBuffer>, RecordedPerViewBatch), GraphExecuteError> {
+    ) -> Result<(Vec<wgpu::CommandBuffer>, RecordedPerViewBatch), GraphExecuteError> {
         let GraphCommandRecordingInputs {
             views,
             frame_global,
@@ -106,9 +110,19 @@ impl CompiledRenderGraph {
             plan,
             command_diagnostics,
         } = inputs;
-        match plan.path {
+        let path = if plan.path == GraphCommandRecordingPath::SingleSwapchainEncoder
+            && self.frame_global_has_split_workload(&*mv_ctx.backend)
+        {
+            command_diagnostics.recording_path = GraphCommandRecordingPath::StandardCommandBuffers;
+            command_diagnostics.single_swapchain_encoder_status =
+                SingleSwapchainEncoderStatus::FrameGlobalSplitWorkload;
+            GraphCommandRecordingPath::StandardCommandBuffers
+        } else {
+            plan.path
+        };
+        match path {
             GraphCommandRecordingPath::StandardCommandBuffers => {
-                let frame_global_cmd = self.encode_frame_global_command(
+                let frame_global_cmds = self.encode_frame_global_command(
                     mv_ctx,
                     views,
                     frame_global,
@@ -128,7 +142,7 @@ impl CompiledRenderGraph {
                     command_diagnostics.apply_per_view(&batch);
                     batch
                 };
-                Ok((frame_global_cmd, batch))
+                Ok((frame_global_cmds, batch))
             }
             GraphCommandRecordingPath::SingleSwapchainEncoder => {
                 record_parallel_admission(
@@ -147,8 +161,11 @@ impl CompiledRenderGraph {
                 )?;
                 command_diagnostics.apply_single_swapchain(single.encode_ms, single.finish_ms);
                 command_diagnostics.apply_per_view(&single.per_view_batch);
-                let frame_global_cmd = single.command.map(|command| command.command_buffer);
-                Ok((frame_global_cmd, single.per_view_batch))
+                let frame_global_cmds = single
+                    .command
+                    .map(|command| vec![command.command_buffer])
+                    .unwrap_or_default();
+                Ok((frame_global_cmds, single.per_view_batch))
             }
         }
     }
@@ -162,8 +179,8 @@ impl CompiledRenderGraph {
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
         upload_batch: &FrameUploadBatch,
         command_diagnostics: &mut CommandEncodingDiagnostics,
-    ) -> Result<Option<wgpu::CommandBuffer>, GraphExecuteError> {
-        let frame_global_cmd = {
+    ) -> Result<Vec<wgpu::CommandBuffer>, GraphExecuteError> {
+        let frame_global_cmds = {
             profiling::scope!("graph::encode_frame_global_batch");
             self.encode_frame_global_passes(
                 mv_ctx,
@@ -173,10 +190,11 @@ impl CompiledRenderGraph {
                 upload_batch,
             )?
         };
-        Ok(frame_global_cmd.map(|command| {
-            command_diagnostics.apply_frame_global(&command);
-            command.command_buffer
-        }))
+        command_diagnostics.apply_frame_global(&frame_global_cmds);
+        Ok(frame_global_cmds
+            .into_iter()
+            .map(|command| command.command_buffer)
+            .collect())
     }
 
     /// Records per-view command buffers and resolves per-view profiler queries.
@@ -229,11 +247,13 @@ impl CompiledRenderGraph {
             let mut finish_ms = 0.0;
             let mut max_finish_ms = 0.0;
             let mut command_stats = GraphCommandStats::default();
+            let mut retained_resources = GpuRetainedResources::new();
             for output in per_view_outputs {
                 encode_ms += output.encode_ms;
                 finish_ms += output.finish_ms;
-                max_finish_ms = f64::max(max_finish_ms, output.finish_ms);
+                max_finish_ms = f64::max(max_finish_ms, output.max_finish_ms);
                 command_stats.add(output.command_stats);
+                retained_resources.append(output.retained_resources);
                 per_view_cmds.extend(output.command_buffers);
                 per_view_occlusion_info.push((output.view_id, output.host_camera));
                 per_view_hud_outputs.push(output.hud_outputs);
@@ -260,6 +280,7 @@ impl CompiledRenderGraph {
                 finish_ms,
                 max_finish_ms,
                 command_stats,
+                retained_resources,
             })
         })();
         mv_ctx.gpu.restore_gpu_profiler(per_view_profiler);
@@ -363,6 +384,7 @@ impl CompiledRenderGraph {
                     finish_ms: 0.0,
                     max_finish_ms: 0.0,
                     command_stats,
+                    retained_resources: per_view_output.retained_resources,
                 },
                 encode_ms,
                 finish_ms,

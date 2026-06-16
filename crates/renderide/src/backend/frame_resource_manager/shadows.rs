@@ -3,6 +3,7 @@
 use std::sync::{Arc, Once};
 
 use glam::{Mat4, Vec3};
+use hashbrown::HashMap;
 
 use crate::backend::HostShadowQuality;
 use crate::camera::ViewId;
@@ -12,8 +13,12 @@ use crate::gpu::{
 };
 use crate::materials::shadow_caster_policy_for_pipeline;
 use crate::mesh_deform::SkinCacheKey;
+use crate::render_phase::RenderPhaseSet;
 use crate::shared::{LightType, ShadowCastMode};
-use crate::world_mesh::{WorldMeshDrawItem, WorldMeshDrawPlan};
+use crate::world_mesh::culling::frustum::world_aabb_visible_in_homogeneous_clip;
+use crate::world_mesh::{
+    DrawGroup, InstancePlan, WorldMeshDrawItem, WorldMeshDrawPlan, WorldMeshPhase,
+};
 
 use super::super::shadow_atlas_format::select_shadow_atlas_format;
 use super::manager::FrameResourceManager;
@@ -23,6 +28,17 @@ mod point_faces;
 const POINT_FACE_COUNT: u32 = point_faces::POINT_FACE_COUNT;
 const SHADOW_TYPE_NONE: u32 = 0;
 static SHADOW_ATLAS_UNSUPPORTED_WARNING: Once = Once::new();
+
+/// Shared shadow-caster draw packet for one source render view.
+#[derive(Clone, Debug)]
+pub(crate) struct ShadowCasterSet {
+    /// Shadow-casting world-mesh draws shared by all shadow views for the source view.
+    pub(crate) draws: Arc<[WorldMeshDrawItem]>,
+    /// Instance grouping shared by every shadow map that renders [`Self::draws`].
+    pub(crate) instance_plan: InstancePlan,
+    /// First per-draw slab row reserved for this caster set.
+    pub(crate) slab_slot_offset: usize,
+}
 
 /// Draw packet for one shadow atlas layer.
 #[derive(Clone, Debug)]
@@ -41,15 +57,46 @@ pub(crate) struct ShadowRenderView {
     pub(crate) light_range: f32,
     /// Host-authored shadow bias used by radial shadow casters.
     pub(crate) shadow_bias: f32,
-    /// First per-draw slab row reserved for this shadow view.
-    pub(crate) slab_slot_offset: usize,
-    /// Shadow-casting world-mesh draws for this shadow view.
-    pub(crate) draws: Arc<[WorldMeshDrawItem]>,
+    /// Index of the shared caster set rendered by this shadow view.
+    pub(crate) caster_set_index: usize,
+    /// Shadow-caster groups that conservatively intersect this shadow view.
+    visible_groups: RenderPhaseSet<WorldMeshPhase, DrawGroup>,
+}
+
+impl ShadowRenderView {
+    /// Returns visible caster groups queued for `phase`.
+    pub(crate) fn groups(&self, phase: WorldMeshPhase) -> &[DrawGroup] {
+        self.visible_groups.phase(phase).items()
+    }
+
+    /// Creates a minimal shadow render view for unit tests outside this module.
+    #[cfg(test)]
+    pub(crate) fn for_tests(
+        kind: u32,
+        view_proj: Mat4,
+        light_position: Vec3,
+        light_range: f32,
+        shadow_bias: f32,
+    ) -> Self {
+        Self {
+            layer: 0,
+            kind,
+            resolution: 512,
+            view_proj,
+            light_position,
+            light_range,
+            shadow_bias,
+            caster_set_index: 0,
+            visible_groups: RenderPhaseSet::new(),
+        }
+    }
 }
 
 /// Read-only frame shadow plan consumed by the graph shadow pass.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ShadowFramePlan {
+    /// Shared caster draw sets rendered by this frame's shadow views.
+    pub(crate) caster_sets: Vec<ShadowCasterSet>,
     /// Shadow map views to render this frame.
     pub(crate) render_views: Vec<ShadowRenderView>,
     /// GPU metadata uploaded to the frame-global shadow-view storage buffer.
@@ -65,6 +112,22 @@ pub(crate) struct ShadowFramePlan {
 struct ShadowPlanningView<'a> {
     view_id: ViewId,
     draw_plan: &'a WorldMeshDrawPlan,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct ShadowCasterGroupKey {
+    mesh_asset_id: i32,
+    first_index: u32,
+    index_count: u32,
+    front_face: crate::materials::RasterFrontFace,
+    primitive_topology: crate::materials::RasterPrimitiveTopology,
+    shadow_cast_mode: u8,
+    cull_mode: Option<wgpu::Face>,
+}
+
+struct PendingShadowCasterGroup {
+    representative_draw_idx: usize,
+    members: Vec<usize>,
 }
 
 impl FrameResourceManager {
@@ -163,8 +226,8 @@ impl FrameResourceManager {
     /// Deform keys required by this frame's shadow caster draws.
     pub(crate) fn shadow_mesh_deform_keys(&self) -> hashbrown::HashSet<SkinCacheKey> {
         let mut keys = hashbrown::HashSet::new();
-        for view in &self.shadow_frame.render_views {
-            for item in view.draws.iter() {
+        for caster_set in &self.shadow_frame.caster_sets {
+            for item in caster_set.draws.iter() {
                 if item.world_space_deformed || item.blendshape_deformed {
                     keys.insert(SkinCacheKey::from_draw_parts(
                         item.space_id,
@@ -218,6 +281,20 @@ fn append_shadow_views_for_view(
     let Some(lights) = manager.per_view_lights.get_mut(view.view_id) else {
         return;
     };
+    let caster_set_index = plan.caster_sets.len();
+    let supports_base_instance = manager
+        .limits
+        .as_deref()
+        .is_none_or(|limits| limits.supports_base_instance);
+    let instance_plan = build_shadow_caster_plan(&shadow_draws, supports_base_instance);
+    let slab_slot_offset = plan.requested_draw_slots;
+    plan.requested_draw_slots = plan.requested_draw_slots.saturating_add(shadow_draws.len());
+    plan.caster_sets.push(ShadowCasterSet {
+        draws: shadow_draws,
+        instance_plan,
+        slab_slot_offset,
+    });
+
     let mut local_shadowed = 0u32;
     for light in &mut lights.lights {
         if light.shadow_type == SHADOW_TYPE_NONE || light.shadow_strength <= 0.0 {
@@ -252,6 +329,8 @@ fn append_shadow_views_for_view(
         for view_offset in 0..view_count {
             let layer = plan.render_views.len().min(u32::MAX as usize) as u32;
             let view_proj = shadow_projection_for_light(light, view_offset, view_count, quality);
+            let visible_groups =
+                visible_shadow_groups_for_view(view_proj, &plan.caster_sets[caster_set_index]);
             plan.metadata.push(gpu_shadow_view_for_light(
                 light,
                 view_proj,
@@ -269,16 +348,149 @@ fn append_shadow_views_for_view(
                 light_position,
                 light_range,
                 shadow_bias,
-                slab_slot_offset: plan.requested_draw_slots,
-                draws: Arc::clone(&shadow_draws),
+                caster_set_index,
+                visible_groups,
             });
-            plan.requested_draw_slots =
-                plan.requested_draw_slots.saturating_add(shadow_draws.len());
         }
         light.shadow_view_start = start;
         light.shadow_view_count = view_count;
         light.shadow_flags = 0;
     }
+}
+
+fn build_shadow_caster_plan(
+    draws: &[WorldMeshDrawItem],
+    supports_base_instance: bool,
+) -> InstancePlan {
+    profiling::scope!("render::prepare_shadow_frame::build_caster_plan");
+    let mut plan = InstancePlan::new();
+    if draws.is_empty() {
+        return plan;
+    }
+
+    let mut group_index: HashMap<ShadowCasterGroupKey, usize> = HashMap::new();
+    let mut pending_groups: Vec<PendingShadowCasterGroup> = Vec::new();
+    for (draw_idx, item) in draws.iter().enumerate() {
+        if shadow_draw_requires_singleton(item, supports_base_instance) {
+            pending_groups.push(PendingShadowCasterGroup {
+                representative_draw_idx: draw_idx,
+                members: vec![draw_idx],
+            });
+            continue;
+        }
+
+        let key = shadow_caster_group_key(item);
+        if let Some(&group_idx) = group_index.get(&key) {
+            pending_groups[group_idx].members.push(draw_idx);
+        } else {
+            let group_idx = pending_groups.len();
+            group_index.insert(key, group_idx);
+            pending_groups.push(PendingShadowCasterGroup {
+                representative_draw_idx: draw_idx,
+                members: vec![draw_idx],
+            });
+        }
+    }
+
+    for group in pending_groups {
+        let draw_group = append_shadow_draw_group(
+            &mut plan.slab_layout,
+            group.representative_draw_idx,
+            &group.members,
+        );
+        plan.phase_mut(WorldMeshPhase::ForwardOpaque)
+            .push(draw_group);
+    }
+    plan
+}
+
+fn shadow_draw_requires_singleton(item: &WorldMeshDrawItem, supports_base_instance: bool) -> bool {
+    !supports_base_instance
+        || item.skinned
+        || item.world_space_deformed
+        || item.blendshape_deformed
+        || item.material_stack_order.is_some()
+}
+
+fn shadow_caster_group_key(item: &WorldMeshDrawItem) -> ShadowCasterGroupKey {
+    ShadowCasterGroupKey {
+        mesh_asset_id: item.mesh_asset_id,
+        first_index: item.first_index,
+        index_count: item.index_count,
+        front_face: item.batch_key.front_face,
+        primitive_topology: item.batch_key.primitive_topology,
+        shadow_cast_mode: item.shadow_cast_mode as u8,
+        cull_mode: if item.shadow_cast_mode == ShadowCastMode::DoubleSided {
+            None
+        } else {
+            item.batch_key
+                .render_state
+                .resolved_cull_mode(Some(wgpu::Face::Back))
+        },
+    }
+}
+
+fn append_shadow_draw_group(
+    slab_layout: &mut Vec<usize>,
+    representative_draw_idx: usize,
+    members: &[usize],
+) -> DrawGroup {
+    let first_instance = slab_layout.len() as u32;
+    slab_layout.extend_from_slice(members);
+    let count = members.len() as u32;
+    DrawGroup {
+        representative_draw_idx,
+        instance_range: first_instance..first_instance + count,
+        material_packet_idx: 0,
+    }
+}
+
+fn visible_shadow_groups_for_view(
+    view_proj: Mat4,
+    caster_set: &ShadowCasterSet,
+) -> RenderPhaseSet<WorldMeshPhase, DrawGroup> {
+    profiling::scope!("render::prepare_shadow_frame::visible_groups");
+    let mut visible = RenderPhaseSet::new();
+    for phase in WorldMeshPhase::PRIMARY_FORWARD {
+        for group in caster_set.instance_plan.phase(phase) {
+            if shadow_group_visible_to_view(view_proj, caster_set, group) {
+                visible.phase_mut(phase).push(group.clone());
+            }
+        }
+    }
+    visible
+}
+
+fn shadow_group_visible_to_view(
+    view_proj: Mat4,
+    caster_set: &ShadowCasterSet,
+    group: &DrawGroup,
+) -> bool {
+    let start = group.instance_range.start as usize;
+    let end = group.instance_range.end as usize;
+    let Some(members) = caster_set.instance_plan.slab_layout.get(start..end) else {
+        return true;
+    };
+    members.iter().any(|&draw_idx| {
+        caster_set
+            .draws
+            .get(draw_idx)
+            .is_none_or(|draw| shadow_draw_visible_to_view(view_proj, draw))
+    })
+}
+
+fn shadow_draw_visible_to_view(view_proj: Mat4, draw: &WorldMeshDrawItem) -> bool {
+    let Some((min, max)) = draw.world_aabb else {
+        return true;
+    };
+    if !shadow_aabb_safe_for_cull(min, max) {
+        return true;
+    }
+    world_aabb_visible_in_homogeneous_clip(view_proj, min, max)
+}
+
+fn shadow_aabb_safe_for_cull(min: Vec3, max: Vec3) -> bool {
+    min.is_finite() && max.is_finite() && (max - min).cmpge(Vec3::ZERO).all()
 }
 
 fn shadow_tile_resolution(limits: Option<&GpuLimits>, requested: u32) -> u32 {
@@ -503,437 +715,4 @@ fn light_type_u32(ty: LightType) -> u32 {
 mod ultra_tests;
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use hashbrown::HashMap;
-
-    use crate::backend::HostShadowQuality;
-    use crate::backend::frame_resource_manager::per_view_state::PreparedViewLights;
-    use crate::camera::ViewId;
-    use crate::gpu::{GpuLight, GpuLimits};
-    use crate::materials::RasterPipelineKind;
-    use crate::shared::{LightType, ShadowCastMode};
-    use crate::world_mesh::draw_prep::WorldMeshDrawCollection;
-    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
-    use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawItem, WorldMeshDrawPlan};
-    use glam::Vec3;
-
-    use super::{
-        POINT_FACE_COUNT, light_type_u32, point_shadow_projection, shadow_view_capacity,
-        shadow_view_count_for_light,
-    };
-
-    fn limits(max_texture_dimension_2d: u32, max_texture_array_layers: u32) -> GpuLimits {
-        GpuLimits::synthetic_for_tests(
-            wgpu::Limits {
-                max_texture_dimension_2d,
-                max_texture_array_layers,
-                ..Default::default()
-            },
-            wgpu::Features::empty(),
-            HashMap::new(),
-        )
-    }
-
-    fn limits_with_shadow_format_usages<const N: usize>(
-        features: [(wgpu::TextureFormat, wgpu::TextureUsages); N],
-    ) -> GpuLimits {
-        let mut format_features = HashMap::new();
-        for (format, allowed_usages) in features {
-            format_features.insert(
-                format,
-                wgpu::TextureFormatFeatures {
-                    allowed_usages,
-                    flags: wgpu::TextureFormatFeatureFlags::empty(),
-                },
-            );
-        }
-        GpuLimits::synthetic_for_tests(
-            wgpu::Limits {
-                max_texture_dimension_2d: 1024,
-                max_texture_array_layers: 8,
-                ..Default::default()
-            },
-            wgpu::Features::empty(),
-            format_features,
-        )
-    }
-
-    fn shadowed_light(light_type: LightType) -> GpuLight {
-        GpuLight {
-            position: [3.0, 4.0, 5.0],
-            light_type: light_type_u32(light_type),
-            shadow_type: 1,
-            shadow_strength: 1.0,
-            shadow_near_plane: 0.05,
-            shadow_bias: 0.25,
-            range: 8.0,
-            spot_cos_half_angle: 0.5,
-            ..GpuLight::default()
-        }
-    }
-
-    fn pbs_draw(node_id: i32, shadow_cast_mode: ShadowCastMode) -> WorldMeshDrawItem {
-        let mut item = dummy_world_mesh_draw_item(DummyDrawItemSpec {
-            material_asset_id: 1,
-            property_block: None,
-            skinned: false,
-            sorting_order: 0,
-            mesh_asset_id: 1,
-            node_id,
-            slot_index: 0,
-            collect_order: node_id.max(0) as usize,
-            alpha_blended: false,
-        });
-        item.shadow_cast_mode = shadow_cast_mode;
-        item.batch_key.pipeline =
-            RasterPipelineKind::EmbeddedStem(Arc::from("pbsmetallic_default"));
-        item
-    }
-
-    fn prefetched_plan(items: Vec<WorldMeshDrawItem>) -> WorldMeshDrawPlan {
-        WorldMeshDrawPlan::Prefetched(Box::new(PrefetchedWorldMeshViewDraws::new(
-            WorldMeshDrawCollection {
-                draws_pre_cull: items.len(),
-                items,
-                draws_culled: 0,
-                draws_hi_z_culled: 0,
-                visibility: Default::default(),
-                arrangement: Default::default(),
-            },
-            None,
-        )))
-    }
-
-    #[test]
-    fn point_lights_plan_six_shadow_views() {
-        assert_eq!(
-            shadow_view_count_for_light(
-                light_type_u32(LightType::Point),
-                HostShadowQuality::default()
-            ),
-            POINT_FACE_COUNT
-        );
-    }
-
-    #[test]
-    fn directional_lights_use_host_cascade_count() {
-        let quality = HostShadowQuality {
-            cascade_count: 2,
-            ..HostShadowQuality::default()
-        };
-        assert_eq!(
-            shadow_view_count_for_light(light_type_u32(LightType::Directional), quality),
-            2
-        );
-    }
-
-    #[test]
-    fn clear_assignment_removes_shadow_view_link() {
-        let mut light = GpuLight {
-            shadow_view_start: 4,
-            shadow_view_count: 2,
-            shadow_flags: 7,
-            ..GpuLight::default()
-        };
-        super::clear_light_shadow_assignment(&mut light);
-        assert_eq!(light.shadow_view_start, 0);
-        assert_eq!(light.shadow_view_count, 0);
-        assert_eq!(light.shadow_flags, 0);
-    }
-
-    #[test]
-    fn point_shadow_faces_have_distinct_projection_matrices() {
-        let light = GpuLight {
-            range: 8.0,
-            shadow_near_plane: 0.05,
-            ..GpuLight::default()
-        };
-        let position = Vec3::new(1.0, 2.0, 3.0);
-        let mut seen = Vec::new();
-        for face in 0..POINT_FACE_COUNT {
-            let matrix = point_shadow_projection(&light, position, face).to_cols_array();
-            assert!(
-                !seen.iter().any(|existing| existing == &matrix),
-                "point shadow face {face} reused a previous projection"
-            );
-            seen.push(matrix);
-        }
-    }
-
-    #[test]
-    fn point_shadow_faces_reserve_disjoint_slab_ranges() {
-        let mut manager = super::FrameResourceManager::new();
-        manager
-            .per_view_lights
-            .get_or_insert_with(ViewId::Main, PreparedViewLights::default)
-            .lights
-            .push(GpuLight {
-                position: [3.0, 4.0, 5.0],
-                light_type: light_type_u32(LightType::Point),
-                shadow_type: 1,
-                shadow_strength: 1.0,
-                shadow_near_plane: 0.05,
-                shadow_bias: 0.25,
-                range: 8.0,
-                ..GpuLight::default()
-            });
-
-        let mut first = dummy_world_mesh_draw_item(DummyDrawItemSpec {
-            material_asset_id: 1,
-            property_block: None,
-            skinned: false,
-            sorting_order: 0,
-            mesh_asset_id: 1,
-            node_id: 1,
-            slot_index: 0,
-            collect_order: 0,
-            alpha_blended: false,
-        });
-        first.batch_key.pipeline =
-            RasterPipelineKind::EmbeddedStem(Arc::from("pbsmetallic_default"));
-        let mut second = first.clone();
-        second.node_id = 2;
-        second.collect_order = 1;
-
-        let draw_plan = WorldMeshDrawPlan::Prefetched(Box::new(PrefetchedWorldMeshViewDraws::new(
-            WorldMeshDrawCollection {
-                items: vec![first, second],
-                draws_pre_cull: 2,
-                draws_culled: 0,
-                draws_hi_z_culled: 0,
-                visibility: Default::default(),
-                arrangement: Default::default(),
-            },
-            None,
-        )));
-        manager.prepare_shadow_frame_for_views(
-            HostShadowQuality::default(),
-            [(ViewId::Main, &draw_plan)],
-        );
-
-        let plan = manager.shadow_frame_plan();
-        assert_eq!(plan.render_views.len(), POINT_FACE_COUNT as usize);
-        assert_eq!(plan.requested_draw_slots, POINT_FACE_COUNT as usize * 2);
-        for (index, view) in plan.render_views.iter().enumerate() {
-            assert_eq!(view.kind, crate::gpu::SHADOW_VIEW_KIND_POINT);
-            assert_eq!(view.light_position, Vec3::new(3.0, 4.0, 5.0));
-            assert_eq!(view.light_range, 8.0);
-            assert_eq!(view.shadow_bias, 0.25);
-            assert_eq!(view.slab_slot_offset, index * 2);
-            assert_eq!(view.draws.len(), 2);
-        }
-        for (index, view) in plan.render_views.iter().enumerate() {
-            let start = view.slab_slot_offset;
-            let end = start + view.draws.len();
-            for other in plan.render_views.iter().skip(index + 1) {
-                let other_start = other.slab_slot_offset;
-                let other_end = other_start + other.draws.len();
-                assert!(end <= other_start || other_end <= start);
-            }
-        }
-    }
-
-    #[test]
-    fn shadow_planning_excludes_shadow_cast_mode_off_draws() {
-        let mut manager = super::FrameResourceManager::new();
-        manager
-            .per_view_lights
-            .get_or_insert_with(ViewId::Main, PreparedViewLights::default)
-            .lights
-            .push(shadowed_light(LightType::Spot));
-        let draw_plan = prefetched_plan(vec![
-            pbs_draw(1, ShadowCastMode::Off),
-            pbs_draw(2, ShadowCastMode::On),
-            pbs_draw(3, ShadowCastMode::ShadowOnly),
-        ]);
-
-        manager.prepare_shadow_frame_for_views(
-            HostShadowQuality::default(),
-            [(ViewId::Main, &draw_plan)],
-        );
-
-        let plan = manager.shadow_frame_plan();
-        assert_eq!(plan.render_views.len(), 1);
-        let nodes = plan.render_views[0]
-            .draws
-            .iter()
-            .map(|item| item.node_id)
-            .collect::<Vec<_>>();
-        assert_eq!(nodes, vec![2, 3]);
-        assert_eq!(plan.requested_draw_slots, 2);
-    }
-
-    #[test]
-    fn shadow_planning_uses_per_light_resolution_and_metadata_bias() {
-        let mut manager = super::FrameResourceManager::new();
-        let lights = &mut manager
-            .per_view_lights
-            .get_or_insert_with(ViewId::Main, PreparedViewLights::default)
-            .lights;
-        let mut low_resolution = shadowed_light(LightType::Spot);
-        low_resolution.shadow_map_resolution = 512;
-        low_resolution.shadow_normal_bias = 2.0;
-        lights.push(low_resolution);
-        lights.push(shadowed_light(LightType::Spot));
-        let draw_plan = prefetched_plan(vec![pbs_draw(1, ShadowCastMode::On)]);
-
-        manager.prepare_shadow_frame_for_views(
-            HostShadowQuality::default(),
-            [(ViewId::Main, &draw_plan)],
-        );
-
-        let plan = manager.shadow_frame_plan();
-        assert_eq!(plan.render_views.len(), 2);
-        assert_eq!(
-            plan.requested_resolution,
-            HostShadowQuality::default().tile_resolution
-        );
-        assert_eq!(plan.render_views[0].resolution, 512);
-        assert_eq!(
-            plan.render_views[1].resolution,
-            HostShadowQuality::default().tile_resolution
-        );
-        assert_eq!(plan.metadata[0].params[1], 1.0 / 512.0);
-        assert_eq!(plan.metadata[0].atlas_rect, [0.0, 0.0, 0.25, 0.25]);
-        assert_eq!(plan.metadata[1].atlas_rect, [0.0, 0.0, 1.0, 1.0]);
-        assert_eq!(plan.metadata[0].light_params[3], 0.25);
-        assert!(plan.metadata[0].light_params[2] > 0.0);
-    }
-
-    #[test]
-    fn shadow_planning_requests_only_custom_resolution_when_all_lights_override() {
-        let mut manager = super::FrameResourceManager::new();
-        let mut light = shadowed_light(LightType::Spot);
-        light.shadow_map_resolution = 512;
-        manager
-            .per_view_lights
-            .get_or_insert_with(ViewId::Main, PreparedViewLights::default)
-            .lights
-            .push(light);
-        let draw_plan = prefetched_plan(vec![pbs_draw(1, ShadowCastMode::On)]);
-
-        manager.prepare_shadow_frame_for_views(
-            HostShadowQuality::default(),
-            [(ViewId::Main, &draw_plan)],
-        );
-
-        let plan = manager.shadow_frame_plan();
-        assert_eq!(plan.requested_resolution, 512);
-        assert_eq!(plan.render_views[0].resolution, 512);
-        assert_eq!(plan.metadata[0].atlas_rect, [0.0, 0.0, 1.0, 1.0]);
-    }
-
-    #[test]
-    fn shadow_planning_clamps_to_gpu_atlas_capacity() {
-        let mut manager = super::FrameResourceManager::new();
-        manager.limits = Some(Arc::new(limits(1024, 2)));
-        manager
-            .per_view_lights
-            .get_or_insert_with(ViewId::Main, PreparedViewLights::default)
-            .lights
-            .push(GpuLight {
-                position: [3.0, 4.0, 5.0],
-                light_type: light_type_u32(LightType::Point),
-                shadow_type: 1,
-                shadow_strength: 1.0,
-                shadow_near_plane: 0.05,
-                shadow_bias: 0.25,
-                range: 8.0,
-                ..GpuLight::default()
-            });
-
-        let mut item = dummy_world_mesh_draw_item(DummyDrawItemSpec {
-            material_asset_id: 1,
-            property_block: None,
-            skinned: false,
-            sorting_order: 0,
-            mesh_asset_id: 1,
-            node_id: 1,
-            slot_index: 0,
-            collect_order: 0,
-            alpha_blended: false,
-        });
-        item.batch_key.pipeline =
-            RasterPipelineKind::EmbeddedStem(Arc::from("pbsmetallic_default"));
-        let draw_plan = WorldMeshDrawPlan::Prefetched(Box::new(PrefetchedWorldMeshViewDraws::new(
-            WorldMeshDrawCollection {
-                items: vec![item],
-                draws_pre_cull: 1,
-                draws_culled: 0,
-                draws_hi_z_culled: 0,
-                visibility: Default::default(),
-                arrangement: Default::default(),
-            },
-            None,
-        )));
-
-        manager.prepare_shadow_frame_for_views(
-            HostShadowQuality::default(),
-            [(ViewId::Main, &draw_plan)],
-        );
-
-        let plan = manager.shadow_frame_plan();
-        assert_eq!(shadow_view_capacity(manager.limits.as_deref()), 2);
-        assert_eq!(plan.requested_resolution, 1024);
-        assert_eq!(plan.requested_layers, 2);
-        assert_eq!(plan.render_views.len(), 2);
-        assert_eq!(plan.metadata.len(), 2);
-        assert_eq!(plan.requested_draw_slots, 2);
-        for (index, view) in plan.render_views.iter().enumerate() {
-            assert_eq!(view.layer, index as u32);
-            assert_eq!(view.resolution, 1024);
-            assert_eq!(plan.metadata[index].params[0], index as f32);
-            assert_eq!(plan.metadata[index].params[1], 1.0 / 1024.0);
-        }
-        let light = &manager.per_view_lights.get(ViewId::Main).unwrap().lights[0];
-        assert_eq!(light.shadow_view_start, 0);
-        assert_eq!(light.shadow_view_count, 2);
-    }
-
-    #[test]
-    fn shadow_planning_disables_when_depth_atlas_format_is_not_renderable() {
-        let mut manager = super::FrameResourceManager::new();
-        manager.limits = Some(Arc::new(limits_with_shadow_format_usages([
-            (
-                wgpu::TextureFormat::Depth32Float,
-                wgpu::TextureUsages::TEXTURE_BINDING,
-            ),
-            (
-                wgpu::TextureFormat::Depth24Plus,
-                wgpu::TextureUsages::RENDER_ATTACHMENT,
-            ),
-            (
-                wgpu::TextureFormat::Depth16Unorm,
-                wgpu::TextureUsages::empty(),
-            ),
-        ])));
-        let mut light = shadowed_light(LightType::Spot);
-        light.shadow_view_start = 7;
-        light.shadow_view_count = 3;
-        light.shadow_flags = 5;
-        manager
-            .per_view_lights
-            .get_or_insert_with(ViewId::Main, PreparedViewLights::default)
-            .lights
-            .push(light);
-        let draw_plan = prefetched_plan(vec![pbs_draw(1, ShadowCastMode::On)]);
-
-        manager.prepare_shadow_frame_for_views(
-            HostShadowQuality::default(),
-            [(ViewId::Main, &draw_plan)],
-        );
-
-        let plan = manager.shadow_frame_plan();
-        assert!(plan.render_views.is_empty());
-        assert!(plan.metadata.is_empty());
-        assert_eq!(plan.requested_draw_slots, 0);
-        assert_eq!(manager.shadow_resource_request(), None);
-
-        let light = &manager.per_view_lights.get(ViewId::Main).unwrap().lights[0];
-        assert_eq!(light.shadow_view_start, 0);
-        assert_eq!(light.shadow_view_count, 0);
-        assert_eq!(light.shadow_flags, 0);
-    }
-}
+mod tests;

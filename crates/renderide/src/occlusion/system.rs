@@ -11,12 +11,13 @@ use hashbrown::HashMap;
 use parking_lot::Mutex;
 
 use crate::camera::ViewId;
+use crate::cull_contract::{HiZTemporalState, WorldMeshCullProjParams};
 use crate::gpu::OutputDepthMode;
-use crate::occlusion::HiZCullData;
+use crate::hi_z_cpu::HiZCullData;
+use crate::hi_z_temporal::capture_hi_z_temporal;
+use crate::history_texture::HistoryTextureMipViews;
 use crate::occlusion::gpu::{HiZBuildRecord, HiZGpuState, HiZHistoryTarget, encode_hi_z_build};
-use crate::render_graph::HistoryTextureMipViews;
 use crate::scene::SceneCoordinator;
-use crate::world_mesh::{HiZTemporalState, WorldMeshCullProjParams, capture_hi_z_temporal};
 
 /// Depth source, layout, and logical view for [`OcclusionSystem::encode_hi_z_build_pass`].
 pub(crate) struct HiZBuildInput<'a> {

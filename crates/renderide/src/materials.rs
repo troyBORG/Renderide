@@ -87,6 +87,7 @@ mod render_buffer_shader;
 mod render_queue;
 mod render_state;
 mod router;
+pub(crate) mod shader_package;
 pub(crate) mod shader_permutation;
 mod shader_specialization;
 mod shadow_caster;
@@ -147,7 +148,8 @@ pub(crate) use wgsl_reflect::{ReflectedMaterialUniformBlock, ReflectedVertexInpu
 /// Naga reflection: composed WGSL -> `wgpu` bind layouts, uniform block layout, stem fingerprints.
 pub(crate) use wgsl_reflect::{
     ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind,
-    ReflectedVertexInputFormat, reflect_raster_material_wgsl, validate_layout_against_limits,
+    ReflectedVertexInputFormat, reflect_raster_material_wgsl,
+    reflect_raster_material_wgsl_with_vertex_entries, validate_layout_against_limits,
     validate_per_draw_group2, validate_vertex_layout_against_limits,
 };
 

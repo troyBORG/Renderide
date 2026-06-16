@@ -2,17 +2,20 @@
 
 use std::cmp::Ordering;
 
+#[cfg(test)]
 use rayon::slice::ParallelSliceMut;
 
-use super::item::{WorldMeshDrawItem, same_material_stack};
+use super::item::WorldMeshDrawItem;
 
 /// Draws assigned to one secondary structural resort worker chunk.
+#[cfg(test)]
 const INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRAWS: usize = 256;
 
 /// Equal-prefix run length above which the secondary structural resort uses Rayon.
 ///
 /// The primary prefix sort already used the worker pool. This gate is for large transparent
 /// buckets and opaque hash-prefix buckets where the tie-breaker comparator can still dominate.
+#[cfg(test)]
 const INTRA_PREFIX_RUN_PARALLEL_MIN: usize = INTRA_PREFIX_RUN_PARALLEL_CHUNK_DRAWS * 2;
 
 /// Draws assigned to one test-only primary sort worker chunk.
@@ -87,13 +90,12 @@ pub fn pack_sort_prefix(
 /// Tiebreaker for transparent draws sharing the same `(overlay, render_queue)` bucket.
 ///
 /// Order-dependent classes keep `sorting_order`, back-to-front distance, then collection order.
-/// Commutative additive/multiply classes may sort by batch key inside the same sorting-order
-/// bucket because their color composition is order independent.
+/// Unstacked commutative additive/multiply classes may sort by batch key inside exact same-depth
+/// buckets because their color composition is order independent.
 #[inline]
 pub(super) fn cmp_transparent_intra_run(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ordering {
     a.sorting_order
         .cmp(&b.sorting_order)
-        .then_with(|| cmp_material_stack_order(a, b))
         .then_with(|| cmp_transparent_class_tie(a, b))
         .then(a.collect_order.cmp(&b.collect_order))
 }
@@ -113,14 +115,8 @@ pub(super) fn cmp_order_sensitive_draws(a: &WorldMeshDrawItem, b: &WorldMeshDraw
         .then(a.batch_key.render_queue.cmp(&b.batch_key.render_queue))
         .then(a_transparent.cmp(&b_transparent))
         .then_with(|| match (a_transparent, b_transparent) {
-            (false, false) => cmp_material_stack_order(a, b)
-                .then_with(|| {
-                    if same_material_stack(a, b) {
-                        Ordering::Equal
-                    } else {
-                        a.batch_key_hash.cmp(&b.batch_key_hash)
-                    }
-                })
+            (false, false) => cmp_material_stack_total_key(a, b)
+                .then_with(|| a.batch_key_hash.cmp(&b.batch_key_hash))
                 .then_with(|| a.batch_key.cmp(&b.batch_key))
                 .then(b.sorting_order.cmp(&a.sorting_order))
                 .then(a.mesh_asset_id.cmp(&b.mesh_asset_id))
@@ -136,27 +132,66 @@ pub(super) fn cmp_order_sensitive_draws(a: &WorldMeshDrawItem, b: &WorldMeshDraw
 /// Orders transparent draws after `sorting_order` has already matched.
 #[inline]
 fn cmp_transparent_class_tie(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ordering {
-    if a.batch_key.transparent_class.allows_relaxed_batching()
-        && b.batch_key.transparent_class.allows_relaxed_batching()
-    {
-        return a
-            .batch_key_hash
-            .cmp(&b.batch_key_hash)
-            .then_with(|| a.batch_key.cmp(&b.batch_key))
-            .then_with(|| b.camera_distance_sq.total_cmp(&a.camera_distance_sq));
-    }
-
-    b.camera_distance_sq.total_cmp(&a.camera_distance_sq)
+    b.camera_distance_sq
+        .total_cmp(&a.camera_distance_sq)
+        .then_with(|| {
+            let a_class = transparent_tie_order_class(a);
+            let b_class = transparent_tie_order_class(b);
+            a_class.cmp(&b_class).then_with(|| match a_class {
+                TransparentTieOrderClass::StableOrder => a.collect_order.cmp(&b.collect_order),
+                TransparentTieOrderClass::RelaxedBatch => a
+                    .batch_key_hash
+                    .cmp(&b.batch_key_hash)
+                    .then_with(|| a.batch_key.cmp(&b.batch_key)),
+            })
+        })
 }
 
-/// Orders layers of the same material stack by ascending material slot.
+/// Same-depth transparent tie class used to keep the comparator transitive.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum TransparentTieOrderClass {
+    /// Preserve renderer/material-slot collection order for order-dependent or stacked draws.
+    StableOrder,
+    /// Batch unstacked commutative draws whose blending is order independent.
+    RelaxedBatch,
+}
+
+/// Returns the same-depth transparent ordering class for one draw.
 #[inline]
-fn cmp_material_stack_order(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ordering {
-    if same_material_stack(a, b) {
-        a.slot_index.cmp(&b.slot_index)
+fn transparent_tie_order_class(item: &WorldMeshDrawItem) -> TransparentTieOrderClass {
+    if item.material_stack_order.is_none()
+        && item.batch_key.transparent_class.allows_relaxed_batching()
+    {
+        TransparentTieOrderClass::RelaxedBatch
     } else {
-        Ordering::Equal
+        TransparentTieOrderClass::StableOrder
     }
+}
+
+/// Orders stacked opaque-like strict rows by a total material-stack key before batching.
+#[inline]
+fn cmp_material_stack_total_key(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ordering {
+    a.material_stack_order
+        .is_some()
+        .cmp(&b.material_stack_order.is_some())
+        .then_with(|| match (a.material_stack_order, b.material_stack_order) {
+            (Some(a_stack), Some(b_stack)) => a
+                .space_id
+                .cmp(&b.space_id)
+                .then(a.skinned.cmp(&b.skinned))
+                .then(a.renderable_index.cmp(&b.renderable_index))
+                .then(a.instance_id.0.cmp(&b.instance_id.0))
+                .then(a.mesh_asset_id.cmp(&b.mesh_asset_id))
+                .then(a.first_index.cmp(&b.first_index))
+                .then(a.index_count.cmp(&b.index_count))
+                .then(
+                    a_stack
+                        .first_stacked_slot_index
+                        .cmp(&b_stack.first_stacked_slot_index),
+                )
+                .then(a.slot_index.cmp(&b.slot_index)),
+            _ => Ordering::Equal,
+        })
 }
 
 /// Tiebreaker for opaque draws sharing the same packed prefix.
@@ -170,14 +205,8 @@ fn cmp_material_stack_order(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ord
 #[inline]
 #[cfg(test)]
 fn cmp_opaque_intra_prefix(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> Ordering {
-    cmp_material_stack_order(a, b)
-        .then_with(|| {
-            if same_material_stack(a, b) {
-                Ordering::Equal
-            } else {
-                a.batch_key_hash.cmp(&b.batch_key_hash)
-            }
-        })
+    cmp_material_stack_total_key(a, b)
+        .then_with(|| a.batch_key_hash.cmp(&b.batch_key_hash))
         .then_with(|| a.batch_key.cmp(&b.batch_key))
         .then(b.sorting_order.cmp(&a.sorting_order))
         .then(a.mesh_asset_id.cmp(&b.mesh_asset_id))
@@ -228,6 +257,7 @@ fn resort_intra_prefix_runs(items: &mut [WorldMeshDrawItem], allow_parallel: boo
     }
 }
 
+#[cfg(test)]
 fn sort_intra_prefix_run(
     run: &mut [WorldMeshDrawItem],
     cmp: fn(&WorldMeshDrawItem, &WorldMeshDrawItem) -> Ordering,
@@ -239,13 +269,6 @@ fn sort_intra_prefix_run(
     } else {
         run.sort_unstable_by(cmp);
     }
-}
-
-/// Sorts order-sensitive transparent/grab draws while leaving nontransparent bins out of the
-/// full item sort.
-pub(super) fn sort_order_sensitive_draws(items: &mut [WorldMeshDrawItem], allow_parallel: bool) {
-    profiling::scope!("mesh::sort_order_sensitive_draws");
-    sort_intra_prefix_run(items, cmp_order_sensitive_draws, allow_parallel);
 }
 
 /// Sorts opaque draws for batching and transparent draws by compatibility class.

@@ -2,15 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{CommandRecordingMode, DebugHudSettings, PowerPreferenceSetting};
-use crate::render_graph::RenderGraphValidationMode;
+use super::{
+    CommandRecordingMode, DebugHudSettings, PowerPreferenceSetting, RenderGraphValidationMode,
+};
 
 /// Debug and diagnostics flags. Persisted as `[debug]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DebugSettings {
     /// When the `-LogLevel` CLI argument is **not** present, selects [`logger::LogLevel::Trace`]
-    /// if true or [`logger::LogLevel::Info`] if false. If `-LogLevel` is present, it always
+    /// if true or [`logger::LogLevel::Debug`] if false. If `-LogLevel` is present, it always
     /// overrides this flag.
     pub log_verbose: bool,
     /// GPU power preference hint for adapter selection (see [`PowerPreferenceSetting`]).

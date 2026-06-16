@@ -7,10 +7,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::camera::HostCameraFrame;
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::gpu::{CLUSTER_LIGHT_RANGE_WORDS, CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
 use crate::graph_inputs::OffscreenWriteTarget;
 use crate::profiling::GpuEncoderScope;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{
     CLUSTER_COUNT_Z, ClusterFrameParams, cluster_frame_params, cluster_frame_params_stereo,

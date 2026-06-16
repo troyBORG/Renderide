@@ -5,7 +5,9 @@ use crate::shared::{
     CAMERA_PORTAL_STATE_HOST_ROW_BYTES, CameraPortalState, CameraPortalsRenderablesUpdate,
 };
 
-use super::dense_update::{push_dense_additions, swap_remove_dense_indices_with_update};
+use super::dense_update::{
+    non_negative_i32s, push_dense_additions, swap_remove_dense_indices_with_update,
+};
 use super::error::SceneError;
 use super::render_space::RenderSpaceState;
 use super::transforms::TransformRemovalEvent;
@@ -161,6 +163,50 @@ pub(crate) fn fixup_camera_portals_for_transform_removals(
     }
 }
 
+/// Updates cached portal mesh-renderer targets after static renderer swap-removals.
+pub(crate) fn fixup_camera_portals_for_static_mesh_removals(
+    space: &mut RenderSpaceState,
+    removals: &[i32],
+) {
+    if removals.is_empty() || space.camera_portals.is_empty() {
+        return;
+    }
+    let mut len = space.static_mesh_renderers.len();
+    for raw in non_negative_i32s(removals) {
+        let removed_index = raw as usize;
+        if removed_index >= len {
+            continue;
+        }
+        let last_index_before_swap = len - 1;
+        for portal in &mut space.camera_portals {
+            fixup_camera_portal_static_mesh_target(
+                &mut portal.state.mesh_renderer_index,
+                removed_index,
+                last_index_before_swap,
+            );
+        }
+        len -= 1;
+    }
+}
+
+fn fixup_camera_portal_static_mesh_target(
+    target: &mut i32,
+    removed_index: usize,
+    last_index_before_swap: usize,
+) {
+    if *target < 0 {
+        return;
+    }
+    let target_index = *target as usize;
+    if target_index == removed_index {
+        *target = -1;
+    } else if target_index == last_index_before_swap {
+        *target = i32::try_from(removed_index).map_or(-1, |index| index);
+    } else if target_index > last_index_before_swap {
+        *target = -1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -168,7 +214,9 @@ mod tests {
         apply_camera_portal_renderables_update_extracted, camera_portal_disable_per_pixel_lights,
         camera_portal_disable_shadows, camera_portal_has_camera_clear_mode,
         camera_portal_has_far_clip_value, camera_portal_portal_mode,
+        fixup_camera_portals_for_static_mesh_removals,
     };
+    use crate::scene::meshes::types::StaticMeshRenderer;
     use crate::scene::render_space::RenderSpaceState;
     use crate::shared::CameraPortalState;
 
@@ -216,6 +264,46 @@ mod tests {
     }
 
     #[test]
+    fn static_mesh_removal_fixup_moves_portal_target_from_last_slot() {
+        let mut space = space_with_static_mesh_count(4);
+        space.camera_portals.push(portal_targeting_static_mesh(3));
+
+        fixup_camera_portals_for_static_mesh_removals(&mut space, &[1, -1]);
+
+        assert_eq!(space.camera_portals[0].state.mesh_renderer_index, 1);
+    }
+
+    #[test]
+    fn static_mesh_removal_fixup_invalidates_removed_portal_target() {
+        let mut space = space_with_static_mesh_count(4);
+        space.camera_portals.push(portal_targeting_static_mesh(1));
+
+        fixup_camera_portals_for_static_mesh_removals(&mut space, &[1, -1]);
+
+        assert_eq!(space.camera_portals[0].state.mesh_renderer_index, -1);
+    }
+
+    #[test]
+    fn static_mesh_removal_fixup_preserves_unrelated_portal_target() {
+        let mut space = space_with_static_mesh_count(4);
+        space.camera_portals.push(portal_targeting_static_mesh(2));
+
+        fixup_camera_portals_for_static_mesh_removals(&mut space, &[1, -1]);
+
+        assert_eq!(space.camera_portals[0].state.mesh_renderer_index, 2);
+    }
+
+    #[test]
+    fn static_mesh_removal_fixup_applies_multiple_removals_in_order() {
+        let mut space = space_with_static_mesh_count(5);
+        space.camera_portals.push(portal_targeting_static_mesh(4));
+
+        fixup_camera_portals_for_static_mesh_removals(&mut space, &[1, 3, -1]);
+
+        assert_eq!(space.camera_portals[0].state.mesh_renderer_index, 1);
+    }
+
+    #[test]
     fn apply_removes_with_swap_update_and_stops_at_sentinel() {
         let mut space = RenderSpaceState {
             camera_portals: vec![
@@ -248,5 +336,24 @@ mod tests {
         assert_eq!(space.camera_portals[0].renderable_index, 0);
         assert_eq!(space.camera_portals[1].renderable_index, 1);
         assert_eq!(space.camera_portals[1].transform_id, 12);
+    }
+
+    fn space_with_static_mesh_count(count: usize) -> RenderSpaceState {
+        let mut space = RenderSpaceState::default();
+        space
+            .static_mesh_renderers
+            .resize_with(count, StaticMeshRenderer::default);
+        space
+    }
+
+    fn portal_targeting_static_mesh(mesh_renderer_index: i32) -> CameraPortalEntry {
+        CameraPortalEntry {
+            renderable_index: 0,
+            transform_id: 0,
+            state: CameraPortalState {
+                mesh_renderer_index,
+                ..CameraPortalState::default()
+            },
+        }
     }
 }
