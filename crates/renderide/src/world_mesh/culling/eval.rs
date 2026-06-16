@@ -14,10 +14,10 @@ use super::frustum::world_aabb_visible_in_homogeneous_clip;
 use super::geometry::{MeshCullGeometry, MeshCullTarget, mesh_world_geometry_for_cull};
 use super::{HiZTemporalState, WorldMeshCullInput, WorldMeshCullProjParams};
 use crate::camera::{overlay_camera_view_matrix, view_matrix_for_world_mesh_render_space};
-use crate::occlusion::HiZCullData;
-use crate::occlusion::hi_z_view_proj_matrices;
-use crate::occlusion::mesh_fully_occluded_in_hiz;
-use crate::occlusion::stereo_hiz_keeps_draw;
+use crate::hi_z_cpu::HiZCullData;
+use crate::hi_z_cpu::hi_z_view_proj_matrices;
+use crate::hi_z_cpu::mesh_fully_occluded_in_hiz;
+use crate::hi_z_cpu::stereo_hiz_keeps_draw;
 use crate::scene::SceneCoordinator;
 
 /// Frustum acceptance for one world AABB using the same stereo / overlay rules as the forward pass.
@@ -254,8 +254,8 @@ mod hi_z_temporal_match_tests {
     use hashbrown::HashMap;
 
     use super::hi_z_snapshot_matches_temporal;
-    use crate::occlusion::cpu::pyramid::total_float_count;
-    use crate::occlusion::{HiZCpuSnapshot, HiZCullData};
+    use crate::hi_z_cpu::pyramid::total_float_count;
+    use crate::hi_z_cpu::{HiZCpuSnapshot, HiZCullData};
     use crate::world_mesh::culling::{HiZTemporalState, WorldMeshCullProjParams};
 
     fn dummy_temporal(depth_viewport_px: (u32, u32)) -> HiZTemporalState {

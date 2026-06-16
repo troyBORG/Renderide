@@ -4,22 +4,22 @@ use hashbrown::HashMap;
 use std::sync::Arc;
 
 use crate::camera::{HostCameraFrame, ViewId};
-use crate::diagnostics::PerViewHudOutputs;
+use crate::frame_contract::{FrameViewClear, OffscreenWriteTarget, ViewWinding};
 use crate::gpu::{GpuLimits, GpuRetainedResources, MsaaDepthResolveResources};
 use crate::graph_inputs::{
-    FrameSystemsShared, FrameViewClear, GraphPassFrame, GraphPassFrameView, GraphSceneView,
-    OffscreenWriteTarget, PerViewFramePlan, ViewWinding,
+    FrameSystemsShared, GraphPassFrame, GraphPassFrameView, GraphSceneView, PerViewFramePlan,
 };
+use crate::hud_contract::PerViewHudOutputs;
 use crate::occlusion::gpu::HiZGpuState;
 use crate::shared::RenderingContext;
 
 use super::super::super::blackboard::{Blackboard, GraphCommandStats};
 use super::super::super::context::GraphResolvedResources;
-use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
 use super::super::super::history::HistoryRegistry;
 use super::super::super::{GraphAssetResources, GraphFrameResources};
 use super::super::{FrameGlobalView, FrameView, ResolvedView, ViewPostProcessing};
 use super::recording_path::GraphCommandRecordingStrategy;
+use crate::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,6 +41,8 @@ pub(super) struct PerViewEncodeOutput {
     pub(super) encode_ms: f64,
     /// CPU time spent inside this view's encoder finish.
     pub(super) finish_ms: f64,
+    /// Slowest command-encoder finish emitted for this view.
+    pub(super) max_finish_ms: f64,
     /// Command counts captured from the final per-view blackboard.
     pub(super) command_stats: GraphCommandStats,
     /// GPU handles resolved while recording this view and retained until driver submit.
@@ -61,6 +63,8 @@ pub(super) struct PerViewRecordOutput {
     pub(super) encode_ms: f64,
     /// CPU time spent inside this view's encoder finish.
     pub(super) finish_ms: f64,
+    /// Slowest command-encoder finish emitted for this view.
+    pub(super) max_finish_ms: f64,
     /// Command counts captured from this view.
     pub(super) command_stats: GraphCommandStats,
     /// GPU handles resolved while recording this view and retained until driver submit.
@@ -309,7 +313,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Host-owned skin influence mode for mesh deform compute.
     pub(super) skin_weight_mode: crate::shared::SkinWeightMode,
     /// Read-only HUD capture switches for deferred per-view diagnostics.
-    pub(super) debug_hud: crate::diagnostics::PerViewHudConfig,
+    pub(super) debug_hud: crate::hud_contract::PerViewHudConfig,
     /// Scene-color format selected for the frame.
     pub(super) scene_color_format: wgpu::TextureFormat,
 }
@@ -416,8 +420,8 @@ pub(super) struct SubmitFrameInputs<'a, 'view> {
     pub(super) views: &'a [FrameView<'view>],
     /// Resolved graph resources keyed by compatible view layout.
     pub(super) transient_by_key: HashMap<GraphResolveKey, GraphResolvedResources>,
-    /// Optional command buffer produced by frame-global passes.
-    pub(super) frame_global_cmd: Option<wgpu::CommandBuffer>,
+    /// Command buffers produced by frame-global passes, in deterministic submit order.
+    pub(super) frame_global_cmds: Vec<wgpu::CommandBuffer>,
     /// One command buffer per view in input order.
     pub(super) per_view_cmds: Vec<wgpu::CommandBuffer>,
     /// Optional command buffer that resolves per-view GPU profiler queries.

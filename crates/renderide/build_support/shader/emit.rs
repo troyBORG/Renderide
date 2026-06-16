@@ -205,37 +205,37 @@ pub struct EmbeddedShaderReflection {
 fn embedded_shader_lookup_fn_defs() -> &'static str {
     r#"/// Flattened WGSL for `stem` from the runtime shader package.
 pub fn embedded_target_wgsl(stem: &str) -> Option<&'static str> {
-    crate::shader_package::target_wgsl(stem)
+    crate::materials::shader_package::target_wgsl(stem)
 }
 
 /// Declared render passes for `stem`, parsed from package TOML metadata.
 pub fn embedded_target_passes(stem: &str) -> &'static [crate::materials::MaterialPassDesc] {
-    crate::shader_package::material_passes(stem)
+    crate::materials::shader_package::material_passes(stem)
 }
 
 /// Shader default render queue for `stem`, parsed from package TOML metadata.
 pub fn embedded_target_default_render_queue(stem: &str) -> i32 {
-    crate::shader_package::material_default_render_queue(stem)
+    crate::materials::shader_package::material_default_render_queue(stem)
 }
 
 /// Required device features for `stem`, parsed from package TOML metadata.
 pub fn embedded_target_required_features(stem: &str) -> wgpu::Features {
-    crate::shader_package::target_required_features(stem)
+    crate::materials::shader_package::target_required_features(stem)
 }
 
 /// Declared texture fallbacks for `stem`, parsed from package TOML metadata.
 pub fn embedded_target_texture_defaults(stem: &str) -> &'static [EmbeddedTextureDefault] {
-    crate::shader_package::material_texture_defaults(stem)
+    crate::materials::shader_package::material_texture_defaults(stem)
 }
 
 /// Declared material uniform fallbacks for `stem`, parsed from package TOML metadata.
 pub fn embedded_target_material_defaults(stem: &str) -> &'static [EmbeddedMaterialDefault] {
-    crate::shader_package::material_uniform_defaults(stem)
+    crate::materials::shader_package::material_uniform_defaults(stem)
 }
 
 /// Stable reflection metadata for `stem`, reflected from WGSL with Naga at runtime.
 pub fn embedded_target_reflection(stem: &str) -> EmbeddedShaderReflection {
-    crate::shader_package::material_reflection(stem)
+    crate::materials::shader_package::material_reflection(stem)
 }
 "#
 }
@@ -410,7 +410,7 @@ mod tests {
         assert!(!embedded.contains("pub fn embedded_target_desc"));
         assert!(embedded.contains("pub fn embedded_target_reflection"));
         assert!(embedded.contains("macro_rules! embedded_wgsl"));
-        assert!(embedded.contains("crate::shader_package::target_wgsl"));
+        assert!(embedded.contains("crate::materials::shader_package::target_wgsl"));
         assert!(!embedded.contains("wgsl body"));
         assert!(!embedded.contains("pub const OUTLINE_DEFAULT_WGSL"));
         Ok(())

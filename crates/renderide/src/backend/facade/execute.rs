@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::diagnostics::crash_context;
+use crate::crash_context;
 use crate::gpu::GpuContext;
 use crate::graph_inputs::GraphSceneView;
 use crate::render_graph::{
@@ -87,7 +87,7 @@ impl RenderBackend {
         };
         self.graph_state.frame_graph_cache.restore_graph(graph);
         if let Err(error) = &res {
-            let kind = crash_context::graph_error_kind(error);
+            let kind = crate::render_graph::graph_error_kind(error);
             crash_context::set_last_graph_error(kind);
             let metrics = self.graph_state.transient_pool().metrics();
             let (surface_w, surface_h) = gpu.surface_extent_px();

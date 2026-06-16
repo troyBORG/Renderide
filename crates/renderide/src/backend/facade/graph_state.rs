@@ -5,11 +5,10 @@
 
 use crate::backend::graph::MainGraphPostProcessingResources;
 use crate::camera::ViewId;
+use crate::frame_upload_batch::FrameUploadBatchStats;
 use crate::gpu::driver_thread::SubmitToken;
-use crate::render_graph::{
-    GraphCache, TransientPool, context::GraphResolvedResources,
-    frame_upload_batch::FrameUploadBatchStats, upload_arena::PersistentUploadArena,
-};
+use crate::render_graph::{GraphCache, TransientPool, context::GraphResolvedResources};
+use crate::upload_arena::PersistentUploadArena;
 
 use super::super::{HistoryRegistry, ViewResourceRegistry};
 
@@ -34,6 +33,8 @@ pub(super) struct RenderGraphState {
     upload_arena: PersistentUploadArena,
     /// Latest upload drain stats published by graph execution for diagnostics.
     latest_upload_stats: FrameUploadBatchStats,
+    /// Latest command-recording stats published by graph execution for diagnostics.
+    latest_command_encoding: crate::render_graph::CommandEncodingHudSnapshot,
     /// Transient resources recorded into queued submits but not yet reusable.
     pending_transient_releases: Vec<PendingTransientRelease>,
     /// Retained logical-view ownership for every backend cache that lives beyond one frame.
@@ -51,6 +52,7 @@ impl RenderGraphState {
             history_registry: HistoryRegistry::new(),
             upload_arena: PersistentUploadArena::new(),
             latest_upload_stats: FrameUploadBatchStats::default(),
+            latest_command_encoding: crate::render_graph::CommandEncodingHudSnapshot::default(),
             pending_transient_releases: Vec::new(),
             view_resources: ViewResourceRegistry::new(),
             post_processing_resources: MainGraphPostProcessingResources::default(),
@@ -81,6 +83,7 @@ impl RenderGraphState {
         &mut HistoryRegistry,
         &mut PersistentUploadArena,
         &mut FrameUploadBatchStats,
+        &mut crate::render_graph::CommandEncodingHudSnapshot,
         &mut Vec<PendingTransientRelease>,
     ) {
         (
@@ -88,6 +91,7 @@ impl RenderGraphState {
             &mut self.history_registry,
             &mut self.upload_arena,
             &mut self.latest_upload_stats,
+            &mut self.latest_command_encoding,
             &mut self.pending_transient_releases,
         )
     }
@@ -109,6 +113,13 @@ impl RenderGraphState {
     /// Latest upload drain stats published by graph execution.
     pub(super) fn latest_upload_stats(&self) -> FrameUploadBatchStats {
         self.latest_upload_stats
+    }
+
+    /// Latest command-recording stats published by graph execution.
+    pub(super) fn latest_command_encoding(
+        &self,
+    ) -> crate::render_graph::CommandEncodingHudSnapshot {
+        self.latest_command_encoding.clone()
     }
 
     /// Long-lived post-processing resources for main-graph rebuilds.

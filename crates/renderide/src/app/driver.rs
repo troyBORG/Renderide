@@ -15,7 +15,7 @@ use std::rc::Rc;
 use logger::LogLevel;
 use winit::event_loop::OwnedDisplayHandle;
 
-use crate::diagnostics::crash_context;
+use crate::crash_context;
 use crate::frontend::input::{CursorOutputTracking, WindowInputAccumulator};
 use crate::runtime::RendererRuntime;
 use crate::xr::OpenxrHaptics;

@@ -1,6 +1,6 @@
 //! CPU hierarchical-Z occlusion test (reverse-Z depth buffer).
 //!
-//! Hi-Z pyramids come from the **previous** frame; tests must use [`crate::world_mesh::HiZTemporalState`]
+//! Hi-Z pyramids come from the **previous** frame; tests must use [`crate::cull_contract::HiZTemporalState`]
 //! view-projection from the frame that produced that depth, not the current frame.
 //!
 //! Set `RENDERIDE_HIZ_TRACE=1` to emit [`logger::trace`] lines when a draw is classified as fully
@@ -16,7 +16,7 @@ use glam::{Mat4, Vec3};
 
 use super::snapshot::HiZCpuSnapshot;
 use crate::camera::overlay_camera_view_matrix;
-use crate::world_mesh::culling::WorldMeshCullProjParams;
+use crate::cull_contract::WorldMeshCullProjParams;
 use footprint::project_aabb_to_screen;
 use sampling::{HiZUvRect, sample_hiz_rect};
 

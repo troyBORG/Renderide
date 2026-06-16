@@ -10,11 +10,13 @@ mod command_recording;
 mod hud;
 mod power_preference;
 mod settings;
+mod validation;
 
 pub use command_recording::CommandRecordingMode;
 pub use hud::{
     DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
-    DebugHudRendererConfigTabVisibility, DebugHudSettings,
+    DebugHudRendererConfigTabVisibility, DebugHudSettings, DebugHudStatsSectionVisibility,
 };
 pub use power_preference::PowerPreferenceSetting;
 pub use settings::DebugSettings;
+pub use validation::RenderGraphValidationMode;

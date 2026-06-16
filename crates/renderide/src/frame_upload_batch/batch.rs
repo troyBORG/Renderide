@@ -8,12 +8,12 @@ use std::time::Instant;
 
 use parking_lot::Mutex;
 
-use super::super::upload_arena::PersistentUploadArena;
 use super::scope::{
     CURRENT_UPLOAD_LOCAL_SEQ, CURRENT_UPLOAD_SCOPE, FrameUploadScope, FrameUploadScopeGuard,
     QueueWriteOrder,
 };
 use super::stats::{FrameUploadBatchStats, FrameUploadFlush, force_queue_fallback_stats};
+use crate::upload_arena::PersistentUploadArena;
 
 /// Whether a recorded [`QueueWrite::Buffer`] entry can be served from the persistent staging
 /// buffer (4-aligned offset and length per [`wgpu::COPY_BUFFER_ALIGNMENT`]) or has to fall back

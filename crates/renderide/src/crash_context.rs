@@ -23,7 +23,7 @@ mod tests;
 mod xr;
 
 pub(crate) use driver::DriverStage;
-pub(crate) use graph_error::{GraphErrorKind, graph_error_kind};
+pub(crate) use graph_error::GraphErrorKind;
 pub(crate) use minimal::write_minimal_snapshot;
 pub(crate) use modes::{InitState, RenderMode, TargetMode};
 pub(crate) use phases::{CpuRenderPhase, TickPhase};

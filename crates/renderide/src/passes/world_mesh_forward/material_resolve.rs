@@ -1,8 +1,8 @@
 //! Material draw-packet resolution entry point for backend world-mesh frame planning.
 
+use crate::frame_upload_batch::GraphUploadSink;
 use crate::graph_inputs::OffscreenWriteTarget;
 use crate::passes::WorldMeshForwardEncodeRefs;
-use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 use super::{

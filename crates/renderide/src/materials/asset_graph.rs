@@ -8,8 +8,8 @@ use hashbrown::HashMap;
 use parking_lot::Mutex;
 
 use crate::materials::embedded::stem_metadata::embedded_composed_stem_for_permutation;
+use crate::materials::shader_package;
 use crate::materials::{RasterPipelineKind, ShaderPermutation};
-use crate::shader_package;
 
 use super::router::{MaterialRouter, ShaderRouteEntry};
 

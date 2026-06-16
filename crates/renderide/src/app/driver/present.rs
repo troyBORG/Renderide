@@ -1,8 +1,8 @@
 //! Render result presentation and display-blit dispatch for the app driver.
 
 use crate::backend::RenderBackend;
-use crate::diagnostics::DebugHudEncodeError;
 use crate::gpu::GpuContext;
+use crate::hud_contract::DebugHudEncodeError;
 use crate::present::{
     SurfaceAcquireTrace, SurfaceSubmitTrace, present_clear_frame_overlay_traced,
     present_clear_frame_overlay_traced_with_color,

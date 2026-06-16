@@ -35,12 +35,12 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::diagnostics::crash_context;
-use crate::diagnostics::gpu_flight_recorder::{
+use crate::crash_context;
+use crate::gpu::flight_recorder::{
     GpuFlightCallResult, GpuFlightDriverStage, GpuFlightEventKind, GpuFlightRecorder,
 };
-use crate::diagnostics::log_throttle::LogThrottle;
 use crate::gpu::sync::device_health::GpuDeviceHealth;
+use crate::log_throttle::LogThrottle;
 pub use error::DriverError;
 pub use submit_batch::{DriverSubmitKind, SubmitBatch, SubmitWait};
 pub use submit_counters::SubmitToken;
