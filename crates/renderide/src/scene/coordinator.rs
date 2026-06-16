@@ -32,8 +32,8 @@ use super::world::{WorldTransformCache, compute_world_matrices_for_space, ensure
 
 use apply::{ExtractedRenderSpaceUpdate, extract_render_space_update, light_updates_view};
 use dirty::{
-    extracted_update_affects_render_world, note_render_world_dirty_for_extracted_update,
-    render_world_header_changed,
+    extracted_update_affects_reflection_probes, extracted_update_affects_render_world,
+    note_render_world_dirty_for_extracted_update, render_world_header_changed,
 };
 pub use reports::{
     RenderWorldBoundsDirty, RenderWorldMaterialOverrideDirty, RenderWorldRendererDirty,
@@ -504,6 +504,9 @@ impl SceneCoordinator {
                 let extracted = extract_render_space_update(shm, update, data.frame_index)?;
                 if header_dirty || extracted_update_affects_render_world(&extracted) {
                     report.note_changed_space(id);
+                }
+                if header_dirty || extracted_update_affects_reflection_probes(&extracted) {
+                    report.note_reflection_probe_dirty_space(id);
                 }
                 note_render_world_dirty_for_extracted_update(
                     &mut report,

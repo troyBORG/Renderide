@@ -84,6 +84,7 @@ fn apply_report_marks_changed_spaces_dirty_without_fine_report() {
         changed_spaces: vec![RenderSpaceId(1), RenderSpaceId(2)],
         removed_spaces: Vec::new(),
         render_world_dirty: Default::default(),
+        ..Default::default()
     });
 
     assert!(world.dirty_spaces.contains(&RenderSpaceId(1)));
@@ -99,6 +100,7 @@ fn apply_report_uses_fine_renderer_dirty_instead_of_changed_space() {
         changed_spaces: vec![RenderSpaceId(1)],
         removed_spaces: Vec::new(),
         render_world_dirty: Default::default(),
+        ..Default::default()
     };
     report
         .render_world_dirty
@@ -128,6 +130,7 @@ fn removed_space_evicts_cached_rows_and_requests_snapshot_rebuild() {
         changed_spaces: Vec::new(),
         removed_spaces: vec![RenderSpaceId(3)],
         render_world_dirty: Default::default(),
+        ..Default::default()
     });
 
     assert!(!world.spaces.contains_key(&RenderSpaceId(3)));
@@ -158,6 +161,7 @@ fn removed_space_wins_over_changed_space_in_apply_report() {
         changed_spaces: vec![RenderSpaceId(5)],
         removed_spaces: vec![RenderSpaceId(5)],
         render_world_dirty: Default::default(),
+        ..Default::default()
     });
 
     assert!(!world.spaces.contains_key(&RenderSpaceId(5)));

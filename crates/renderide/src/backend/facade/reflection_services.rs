@@ -8,7 +8,7 @@ use crate::reflection_probes::specular::{
     ReflectionProbeFrameSelection, ReflectionProbeSpecularMaintainParams,
     ReflectionProbeSpecularResources, ReflectionProbeSpecularSystem, RuntimeReflectionProbeCapture,
 };
-use crate::scene::{RenderSpaceId, SceneCoordinator};
+use crate::scene::{RenderSpaceId, SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
 use crate::shared::{FrameSubmitData, RenderingContext};
 use hashbrown::HashSet;
 
@@ -80,6 +80,18 @@ impl ReflectionProbeServices {
                 max_local_reflection_probes,
             });
         self.specular.resources()
+    }
+
+    /// Applies scene mutation reports to reflection-probe caches.
+    pub(super) fn note_scene_apply_report(&mut self, report: &SceneApplyReport) {
+        self.specular
+            .mark_render_spaces_dirty(report.reflection_probe_dirty_spaces.iter().copied());
+    }
+
+    /// Applies world-cache flush reports to reflection-probe caches.
+    pub(super) fn note_scene_cache_flush_report(&mut self, report: &SceneCacheFlushReport) {
+        self.specular
+            .mark_render_spaces_dirty(report.flushed_spaces.iter().copied());
     }
 
     /// CPU selection snapshot used by draw collection.

@@ -126,7 +126,10 @@ impl SkyboxIblCache {
 
     /// Drains submit-completed bakes.
     pub(crate) fn maintain_completed_jobs(&mut self, device: &wgpu::Device) {
-        let _ = device.poll(wgpu::PollType::Poll);
+        {
+            profiling::scope!("skybox_ibl::poll_completed_jobs");
+            let _ = device.poll(wgpu::PollType::Poll);
+        }
         self.drain_completed_jobs();
     }
 
@@ -155,17 +158,29 @@ impl SkyboxIblCache {
         gpu: &mut GpuContext,
         key: SkyboxIblKey,
         source: SkyboxIblSource,
-    ) {
+    ) -> bool {
         if self.completed.contains_key(&key)
             || self.pending.contains_key(&key)
             || self.jobs.contains_key(&key)
             || self.jobs.len() >= MAX_IN_FLIGHT_IBL_BAKES
         {
-            return;
+            return false;
         }
         if let Err(e) = self.schedule_bake(gpu, key, source) {
             logger::warn!("skybox_ibl: bake failed: {e}");
+            return false;
         }
+        true
+    }
+
+    /// Returns the number of IBL bakes waiting for submit-completion callbacks.
+    pub(crate) fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Returns the number of completed filtered cubes currently retained.
+    pub(crate) fn completed_len(&self) -> usize {
+        self.completed.len()
     }
 
     /// Returns a completed prefiltered cube by key.
@@ -385,14 +400,17 @@ impl SkyboxIblCache {
             profiling::scope!("CommandEncoder::finish::skybox_ibl");
             encoder.finish()
         };
-        gpu.submit_frame_batch_with_callbacks(
-            FrameSubmitKind::BackgroundGpuWork,
-            vec![command_buffer],
-            None,
-            None,
-            vec![Box::new(move || {
-                let _ = tx.send(callback_key);
-            })],
-        );
+        {
+            profiling::scope!("skybox_ibl::submit_bake_enqueue");
+            gpu.submit_frame_batch_with_callbacks(
+                FrameSubmitKind::BackgroundGpuWork,
+                vec![command_buffer],
+                None,
+                None,
+                vec![Box::new(move || {
+                    let _ = tx.send(callback_key);
+                })],
+            );
+        }
     }
 }

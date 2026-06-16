@@ -37,6 +37,15 @@ pub(in crate::scene::coordinator) fn extracted_update_affects_render_world(
         || update.trail_render_buffers.is_some()
 }
 
+/// Returns whether an extracted update can affect reflection-probe source or spatial state.
+pub(in crate::scene::coordinator) fn extracted_update_affects_reflection_probes(
+    update: &ExtractedRenderSpaceUpdate,
+) -> bool {
+    update.reflection_probes.is_some()
+        || update.transforms.is_some()
+        || update.transform_overrides.is_some()
+}
+
 /// Records fine-grained render-world dirty events for one extracted render-space update.
 pub(in crate::scene::coordinator) fn note_render_world_dirty_for_extracted_update(
     report: &mut SceneApplyReport,
