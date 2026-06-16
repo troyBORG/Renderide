@@ -191,21 +191,6 @@ pub struct WorldMeshDrawItem {
     pub particle_draw: ParticleDrawParams,
 }
 
-/// Returns whether two draw items are layers of the same material stack.
-pub(crate) fn same_material_stack(a: &WorldMeshDrawItem, b: &WorldMeshDrawItem) -> bool {
-    let (Some(a_stack), Some(b_stack)) = (a.material_stack_order, b.material_stack_order) else {
-        return false;
-    };
-    a_stack == b_stack
-        && a.space_id == b.space_id
-        && a.skinned == b.skinned
-        && a.renderable_index == b.renderable_index
-        && a.instance_id == b.instance_id
-        && a.mesh_asset_id == b.mesh_asset_id
-        && a.first_index == b.first_index
-        && a.index_count == b.index_count
-}
-
 /// Returns the submesh index range that should be drawn for one renderer material slot.
 ///
 /// Unity BiRP supports "stacked" material slots: when there are more materials than submeshes,
