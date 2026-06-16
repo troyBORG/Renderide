@@ -12,7 +12,7 @@ use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 #[cfg(test)]
 use crate::scene::MeshMaterialSlot;
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId, StaticMeshRenderer};
-use crate::shared::ShadowCastMode;
+use crate::shared::{RenderingContext, ShadowCastMode};
 use crate::world_mesh::materials::MaterialDrawBatchKey;
 
 /// CPU arrangement counters captured while preparing one view's draw list.
@@ -113,6 +113,8 @@ pub struct WorldMeshDrawItem {
     pub renderable_index: usize,
     /// Renderer-local identity that survives dense table reindexing.
     pub instance_id: MeshRendererInstanceId,
+    /// Render-context override scope used while collecting this draw.
+    pub render_context: RenderingContext,
     /// Resident mesh asset id in [`crate::gpu_pools::MeshPool`].
     pub mesh_asset_id: i32,
     /// Renderer material slot index. Stacked materials can reuse a later submesh range.

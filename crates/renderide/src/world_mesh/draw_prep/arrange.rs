@@ -75,6 +75,8 @@ struct NonTransparentSurfaceStackKey {
     sorting_order: i32,
     /// Host render space id.
     space_id: crate::scene::RenderSpaceId,
+    /// Render-context override scope for cache-backed deform identity.
+    render_context: u8,
     /// Whether this key points at a skinned renderer table.
     skinned: bool,
     /// Scene transform node id.
@@ -96,6 +98,7 @@ impl NonTransparentSurfaceStackKey {
             render_queue: item.batch_key.render_queue,
             sorting_order: item.sorting_order,
             space_id: item.space_id,
+            render_context: item.render_context as u8,
             skinned: item.skinned,
             node_id: item.node_id,
             mesh_asset_id: item.mesh_asset_id,
@@ -602,6 +605,7 @@ fn cmp_nontransparent_surface_stack_keys(
         .then(a.render_queue.cmp(&b.render_queue))
         .then(a.sorting_order.cmp(&b.sorting_order))
         .then(a.space_id.cmp(&b.space_id))
+        .then(a.render_context.cmp(&b.render_context))
         .then(a.skinned.cmp(&b.skinned))
         .then(a.node_id.cmp(&b.node_id))
         .then(a.mesh_asset_id.cmp(&b.mesh_asset_id))
