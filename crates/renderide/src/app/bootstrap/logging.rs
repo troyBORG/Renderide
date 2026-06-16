@@ -25,16 +25,17 @@ pub(crate) fn init_logging() -> Result<LoggingBootstrap, RunError> {
 
     let timestamp = logger::log_filename_timestamp();
     let log_level_cli = logger::parse_log_level_from_args();
-    let initial_log_level = log_level_cli.unwrap_or(LogLevel::Info);
-    let log_path = logger::init_for(LogComponent::Renderer, &timestamp, initial_log_level, false)
-        .map_err(RunError::logging_init)?;
+    let bootstrap_log_level = log_level_cli.unwrap_or(LogLevel::Debug);
+    let log_path = logger::init_for(
+        LogComponent::Renderer,
+        &timestamp,
+        bootstrap_log_level,
+        false,
+    )
+    .map_err(RunError::logging_init)?;
 
-    logger::info!(
-        "Logging to {} at max level {:?}",
-        log_path.display(),
-        initial_log_level
-    );
-    log_renderer_startup_context(&log_path, initial_log_level);
+    logger::info!("Logging to {}", log_path.display());
+    log_renderer_startup_context(&log_path);
 
     crate::native_stdio::ensure_stdio_forwarded_to_logger();
     crate::fatal_crash_log::install(&log_path);
@@ -43,9 +44,9 @@ pub(crate) fn init_logging() -> Result<LoggingBootstrap, RunError> {
     Ok(LoggingBootstrap { log_level_cli })
 }
 
-fn log_renderer_startup_context(log_path: &Path, initial_log_level: LogLevel) {
+fn log_renderer_startup_context(log_path: &Path) {
     logger::info!(
-        "Renderer process: identifier={} version={} commit_sha8={} commit_source={} pid={} target={} {} arch={} exe={} cwd={} cli_mode={} log_path={} log_level={:?}",
+        "Renderer process: identifier={} version={} commit_sha8={} commit_source={} pid={} target={} {} arch={} exe={} cwd={} cli_mode={} log_path={}",
         renderer_identifier(),
         env!("CARGO_PKG_VERSION"),
         renderer_commit_sha8_label(),
@@ -62,7 +63,6 @@ fn log_renderer_startup_context(log_path: &Path, initial_log_level: LogLevel) {
             .unwrap_or_else(|e| format!("<unavailable: {e}>")),
         sanitized_cli_mode(),
         log_path.display(),
-        initial_log_level,
     );
     logger::info!("{}", StartupSystemDiagnostics::capture().log_line());
     for key in [
