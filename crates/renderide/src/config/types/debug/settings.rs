@@ -11,7 +11,7 @@ use super::{
 #[serde(default)]
 pub struct DebugSettings {
     /// When the `-LogLevel` CLI argument is **not** present, selects [`logger::LogLevel::Trace`]
-    /// if true or [`logger::LogLevel::Info`] if false. If `-LogLevel` is present, it always
+    /// if true or [`logger::LogLevel::Debug`] if false. If `-LogLevel` is present, it always
     /// overrides this flag.
     pub log_verbose: bool,
     /// GPU power preference hint for adapter selection (see [`PowerPreferenceSetting`]).
