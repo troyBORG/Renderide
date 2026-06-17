@@ -244,6 +244,7 @@ mod tests {
             build_key(
                 &SkyboxIblSource::SolidColor(SolidColorIblSource { identity, color }),
                 64,
+                IblBakeQuality::Final,
             )
         };
 
